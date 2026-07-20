@@ -1,0 +1,408 @@
+{
+"wiz": {
+"jump": [
+"wiz_jump.png",
+128,
+128,
+9
+],
+"charge": [
+"wiz_charge.png",
+64,
+64,
+12
+],
+"idle": [
+"wiz_idle.png",
+128,
+128,
+7
+],
+"hurt": [
+"wiz_hurt.png",
+128,
+128,
+3
+],
+"run": [
+"wiz_run.png",
+128,
+128,
+8
+],
+"flame_jet": [
+"wiz_flame_jet.png",
+128,
+128,
+14
+],
+"walk": [
+"wiz_walk.png",
+128,
+128,
+6
+],
+"dead": [
+"wiz_dead.png",
+128,
+128,
+6
+],
+"attack_2": [
+"wiz_attack_2.png",
+128,
+128,
+4
+],
+"fireball": [
+"wiz_fireball.png",
+128,
+128,
+8
+],
+"attack_1": [
+"wiz_attack_1.png",
+128,
+128,
+4
+]
+},
+"sk_war": {
+"idle": [
+"sk_war_idle.png",
+128,
+128,
+7
+],
+"hurt": [
+"sk_war_hurt.png",
+128,
+128,
+2
+],
+"run": [
+"sk_war_run.png",
+128,
+128,
+8
+],
+"run+attack": [
+"sk_war_run+attack.png",
+128,
+128,
+7
+],
+"walk": [
+"sk_war_walk.png",
+128,
+128,
+7
+],
+"dead": [
+"sk_war_dead.png",
+128,
+128,
+4
+],
+"attack_2": [
+"sk_war_attack_2.png",
+128,
+128,
+6
+],
+"attack_3": [
+"sk_war_attack_3.png",
+128,
+128,
+4
+],
+"attack_1": [
+"sk_war_attack_1.png",
+128,
+128,
+5
+],
+"protect": [
+"sk_war_protect.png",
+128,
+128,
+1
+]
+},
+"sk_arch": {
+"shot_1": [
+"sk_arch_shot_1.png",
+128,
+128,
+15
+],
+"shot_2": [
+"sk_arch_shot_2.png",
+128,
+128,
+15
+],
+"idle": [
+"sk_arch_idle.png",
+128,
+128,
+7
+],
+"hurt": [
+"sk_arch_hurt.png",
+128,
+128,
+2
+],
+"evasion": [
+"sk_arch_evasion.png",
+128,
+128,
+6
+],
+"arrow": [
+"sk_arch_arrow.png",
+48,
+48,
+1
+],
+"walk": [
+"sk_arch_walk.png",
+128,
+128,
+8
+],
+"dead": [
+"sk_arch_dead.png",
+128,
+128,
+5
+],
+"attack_2": [
+"sk_arch_attack_2.png",
+128,
+128,
+4
+],
+"attack_3": [
+"sk_arch_attack_3.png",
+128,
+128,
+3
+],
+"attack_1": [
+"sk_arch_attack_1.png",
+128,
+128,
+5
+]
+},
+"sk_spear": {
+"idle": [
+"sk_spear_idle.png",
+128,
+128,
+7
+],
+"fall": [
+"sk_spear_fall.png",
+128,
+128,
+6
+],
+"hurt": [
+"sk_spear_hurt.png",
+128,
+128,
+3
+],
+"run": [
+"sk_spear_run.png",
+128,
+128,
+6
+],
+"run+attack": [
+"sk_spear_run+attack.png",
+128,
+128,
+5
+],
+"walk": [
+"sk_spear_walk.png",
+128,
+128,
+7
+],
+"dead": [
+"sk_spear_dead.png",
+128,
+128,
+5
+],
+"attack_2": [
+"sk_spear_attack_2.png",
+128,
+128,
+4
+],
+"attack_1": [
+"sk_spear_attack_1.png",
+128,
+128,
+4
+],
+"protect": [
+"sk_spear_protect.png",
+128,
+128,
+2
+]
+},
+"wolf": {
+"jump": [
+"wolf_jump.png",
+128,
+128,
+11
+],
+"idle": [
+"wolf_idle.png",
+128,
+128,
+8
+],
+"hurt": [
+"wolf_hurt.png",
+128,
+128,
+2
+],
+"run": [
+"wolf_run.png",
+128,
+128,
+9
+],
+"run+attack": [
+"wolf_run+attack.png",
+128,
+128,
+7
+],
+"walk": [
+"wolf_walk.png",
+128,
+128,
+11
+],
+"dead": [
+"wolf_dead.png",
+128,
+128,
+2
+],
+"attack_2": [
+"wolf_attack_2.png",
+128,
+128,
+4
+],
+"attack_3": [
+"wolf_attack_3.png",
+128,
+128,
+5
+],
+"attack_1": [
+"wolf_attack_1.png",
+128,
+128,
+6
+]
+},
+"elder": {
+"idle": [
+"elder_idle.png",
+48,
+48,
+4
+],
+"walk": [
+"elder_walk.png",
+48,
+48,
+6
+]
+},
+"oldwoman": {
+"walk": [
+"oldwoman_walk.png",
+48,
+48,
+6
+],
+"idle": [
+"oldwoman_idle.png",
+48,
+48,
+4
+]
+},
+"man": {
+"idle": [
+"man_idle.png",
+48,
+48,
+4
+],
+"walk": [
+"man_walk.png",
+48,
+48,
+6
+]
+},
+"woman": {
+"walk": [
+"woman_walk.png",
+48,
+48,
+6
+],
+"idle": [
+"woman_idle.png",
+48,
+48,
+4
+]
+},
+"boy": {
+"idle": [
+"boy_idle.png",
+48,
+48,
+4
+],
+"walk": [
+"boy_walk.png",
+48,
+48,
+6
+]
+},
+"girl": {
+"idle": [
+"girl_idle.png",
+48,
+48,
+4
+],
+"walk": [
+"girl_walk.png",
+48,
+48,
+6
+]
+}
+}

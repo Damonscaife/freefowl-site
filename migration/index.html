@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>The Long Migration — Act I</title>
+<meta property="og:title" content="The Long Migration — Act I: The Burning">
+<meta property="og:description" content="The hunters burned the homeland. Lead twelve birds and one egg south. A Free Fowl story.">
+<meta property="og:image" content="https://www.freefowl.com/migration/og.jpg">
+<meta property="og:url" content="https://www.freefowl.com/migration/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none;
+      -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; background:#0b0e12; overflow:hidden;
+      font-family:Georgia,'Times New Roman',serif; color:#e8e2d4; }
+  #cv { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .layer { position:fixed; inset:0; display:none; }
+  .layer.show { display:flex; }
+
+  /* ---------- title ---------- */
+  #title { flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  #title h1 { font-size:clamp(30px,7vw,56px); letter-spacing:6px; font-weight:normal;
+      color:#e8e2d4; text-shadow:0 2px 30px rgba(255,140,50,.25); }
+  #title h1 small { display:block; font-size:clamp(12px,2.4vw,16px); letter-spacing:10px;
+      color:#a89f8a; margin-bottom:14px; }
+  #title .sub { margin-top:12px; color:#8d8672; font-style:italic; font-size:clamp(13px,2.6vw,16px); }
+  #title .menu { margin-top:38px; display:flex; flex-direction:column; gap:12px; align-items:center; }
+  .tbtn { background:rgba(232,226,212,.08); border:1px solid rgba(232,226,212,.25); color:#e8e2d4;
+      font-family:inherit; font-size:16px; letter-spacing:3px; padding:12px 42px; cursor:pointer;
+      transition:background .2s; }
+  .tbtn:hover, .tbtn:active { background:rgba(232,226,212,.18); }
+  .tbtn.dim { opacity:.45; }
+  #nameRow { margin-top:26px; color:#8d8672; font-size:14px; }
+  #nameRow input { background:transparent; border:none; border-bottom:1px solid #5a5344;
+      color:#e8e2d4; font-family:inherit; font-size:16px; text-align:center; width:130px; outline:none;
+      -webkit-user-select:text; user-select:text; }
+  #backLink { position:fixed; top:calc(12px + env(safe-area-inset-top)); left:14px;
+      color:#6b6454; font-size:13px; text-decoration:none; letter-spacing:1px; z-index:60; }
+  #muteBtn { top:calc(10px + env(safe-area-inset-top)) !important; }
+
+  /* ---------- cutscene ---------- */
+  #cut { flex-direction:column; justify-content:flex-end; }
+  #cutText { margin:0 auto; width:min(680px,92%); min-height:120px; padding:18px 20px 14px;
+      background:linear-gradient(rgba(6,8,10,0), rgba(6,8,10,.82) 26%);
+      font-size:clamp(15px,3.4vw,19px); line-height:1.65; text-align:center; }
+  #cutText .who { display:block; font-size:12px; letter-spacing:4px; color:#b3a684; margin-bottom:6px; }
+  #cutHint { text-align:center; color:#7a7260; font-size:12px; letter-spacing:2px;
+      padding:6px 0 16px; animation:pulse 2.2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:.9} }
+
+  /* ---------- flight HUD ---------- */
+  #hud { flex-direction:column; justify-content:space-between; pointer-events:none; }
+  #hudTop { display:flex; justify-content:center; gap:14px;
+      padding:calc(12px + env(safe-area-inset-top)) 12px 0;
+      font-size:clamp(12px,2.8vw,14px); color:#d8d2c2; text-shadow:0 1px 4px rgba(0,0,0,.8);
+      flex-wrap:wrap; }
+  #hudTop b { color:#f0e6c8; font-weight:normal; }
+  #distWrap { width:min(520px,86%); margin:8px auto 0; height:4px; background:rgba(232,226,212,.15);
+      border-radius:2px; }
+  #distFill { height:100%; width:0%; background:#c8b98a; border-radius:2px; transition:width .6s; }
+  #hudBot { display:flex; justify-content:center; gap:10px; padding:0 12px
+      calc(14px + env(safe-area-inset-bottom)); pointer-events:auto; }
+  .pace { background:rgba(10,12,16,.55); border:1px solid rgba(232,226,212,.25); color:#cfc8b6;
+      font-family:inherit; font-size:14px; letter-spacing:2px; padding:10px 22px; cursor:pointer; }
+  .pace.on { background:rgba(200,185,138,.25); color:#f0e6c8; border-color:#c8b98a; }
+
+  /* ---------- portraits & roster ---------- */
+  .pf { width:76px; height:76px; border-radius:50%; border:1px solid rgba(200,185,138,.5);
+      background:#1a1f28; display:block; margin:0 auto 10px; object-fit:cover;
+      box-shadow:0 6px 24px rgba(0,0,0,.55); transition:filter .6s; }
+  .pf.small { width:52px; height:52px; margin:0; }
+  #flockBtn { pointer-events:auto; background:rgba(10,12,16,.55); border:1px solid rgba(232,226,212,.3);
+      color:#cfc8b6; font-family:inherit; font-size:12px; letter-spacing:2px; padding:5px 14px;
+      cursor:pointer; }
+  #flockBtn.alert { border-color:#c98a5a; color:#e8b98a; }
+  #roster { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      background:rgba(5,7,9,.75); z-index:50; }
+  #roster.show { display:flex; }
+  #rosterBox { width:min(560px,94%); max-height:86vh; overflow-y:auto; background:#12161c;
+      border:1px solid rgba(200,185,138,.35); padding:20px; }
+  #rosterBox h2 { font-size:14px; letter-spacing:4px; color:#c8b98a; font-weight:normal;
+      margin-bottom:14px; text-align:center; }
+  .rrow { display:flex; gap:12px; align-items:center; padding:8px 4px;
+      border-bottom:1px solid rgba(232,226,212,.08); }
+  .rrow .ri b { font-weight:normal; color:#f0e6c8; font-size:15px; }
+  .rrow .ri small { display:block; color:#8d8672; font-size:12px; margin-top:2px; line-height:1.4; }
+  .rrow .cond { margin-left:auto; font-size:11px; letter-spacing:1px; color:#7a8a72; white-space:nowrap; }
+  .rrow .cond.bad { color:#c98a5a; }
+  #rosterClose { display:block; margin:16px auto 0; }
+
+  /* ---------- event / camp card ---------- */
+  #card { align-items:center; justify-content:center; background:rgba(5,7,9,.45); }
+  #cardBox { width:min(560px,92%); max-height:86vh; overflow-y:auto; background:#12161c;
+      border:1px solid rgba(200,185,138,.35); padding:26px 26px 20px;
+      box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  #cardBox h2 { font-size:15px; letter-spacing:4px; color:#c8b98a; font-weight:normal; margin-bottom:12px; }
+  #cardBox p { font-size:clamp(14px,3.2vw,16.5px); line-height:1.7; color:#ddd6c6; margin-bottom:18px; }
+  .choice { display:block; width:100%; text-align:left; background:rgba(232,226,212,.05);
+      border:1px solid rgba(232,226,212,.18); color:#e8e2d4; font-family:inherit;
+      font-size:15px; line-height:1.5; padding:12px 14px; margin-bottom:10px; cursor:pointer; }
+  .choice:hover, .choice:active { background:rgba(200,185,138,.15); border-color:#c8b98a; }
+  .outcome { font-style:italic; color:#b3ab97; }
+  #cardCont { margin-top:6px; text-align:center; }
+
+  /* ---------- end ---------- */
+  #end { flex-direction:column; align-items:center; justify-content:center; text-align:center;
+      background:rgba(5,7,9,.7); padding:20px; }
+  #end h2 { font-size:clamp(20px,5vw,30px); letter-spacing:5px; font-weight:normal; margin-bottom:8px; }
+  #end .act2 { color:#c8b98a; font-style:italic; margin:10px 0 22px; font-size:15px; }
+  #shareImg { width:min(420px,88vw); border:1px solid rgba(200,185,138,.4);
+      box-shadow:0 16px 50px rgba(0,0,0,.7); margin-bottom:18px; }
+  #muteBtn { position:fixed; top:10px; right:12px; z-index:60; background:none; border:none;
+      color:#6b6454; font-size:18px; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<video id="cutVid" muted loop playsinline style="position:fixed;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
+<a id="backLink" href="/">← more games</a>
+<button id="muteBtn" title="sound">♪</button>
+
+<div id="title" class="layer show">
+  <h1><small>A FREE FOWL STORY</small>THE LONG<br>MIGRATION</h1>
+  <div class="sub">Act I — The Burning</div>
+  <div class="menu">
+    <button class="tbtn" id="btnNew">BEGIN</button>
+    <button class="tbtn dim" id="btnCont" style="display:none">CONTINUE</button>
+  </div>
+  <div id="nameRow">the flock will call you&nbsp; <input id="pname" maxlength="10" value="Wren"></div>
+</div>
+
+<div id="cut" class="layer">
+  <div id="cutText"></div>
+  <div id="cutHint">TAP TO CONTINUE</div>
+</div>
+
+<div id="hud" class="layer">
+  <div>
+    <div id="hudTop"></div>
+    <div id="distWrap"><div id="distFill"></div></div>
+    <div style="text-align:center;margin-top:8px"><button id="flockBtn">FLOCK</button></div>
+  </div>
+  <div id="hudBot"></div>
+</div>
+
+<div id="card" class="layer">
+  <div id="cardBox">
+    <h2 id="cardTitle"></h2>
+    <p id="cardText"></p>
+    <div id="cardChoices"></div>
+    <div id="cardCont"></div>
+  </div>
+</div>
+
+<div id="roster">
+  <div id="rosterBox">
+    <h2>THE FLOCK</h2>
+    <div id="rosterRows"></div>
+    <button class="tbtn" id="rosterClose">CLOSE</button>
+  </div>
+</div>
+
+<div id="end" class="layer">
+  <h2>END OF ACT I</h2>
+  <div class="act2">The dogs have the scent. Act II — The Farmlands — is coming.</div>
+  <img id="shareImg" alt="journey record">
+  <div style="display:flex;gap:12px">
+    <button class="tbtn" id="shareBtn">SHARE</button>
+    <button class="tbtn" id="btnTitle">RETURN</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+   THE LONG MIGRATION — Act I  (Free Fowl universe, canon origin)
+   Tone: serious, thematic. Never break it.
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0;
+function resize(){ W = cv.width = innerWidth * devicePixelRatio; H = cv.height = innerHeight * devicePixelRatio;
+  cv.style.width = innerWidth+'px'; cv.style.height = innerHeight+'px'; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+addEventListener('resize', resize); resize();
+const vw = () => innerWidth, vh = () => innerHeight;
+
+/* ---------------- audio: mp3 theme (if provided) + synth fallback + SFX ---------------- */
+function hash(s){ let h=0; for (let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
+const AU = { ctx:null, on:true, nodes:[], intensity:.35, mp3:null, hasMp3:false, sfx:{} };
+/* theme.mp3 is decoded into WebAudio directly — no <audio> element, which
+   iOS Safari blocks unpredictably. If the synth plays, this plays. */
+function loadTheme(){ if (AU.themeBuf || AU.themeLoading || typeof fetch==='undefined') return;
+  AU.themeLoading = true;
+  fetch('audio/theme.mp3')
+    .then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); })
+    .then(buf => { AU.ctx.decodeAudioData(buf,
+        ab => { AU.themeBuf = ab; themeStart(); }, ()=>{}); })
+    .catch(()=>{});
+}
+function themeStart(){ if (!AU.ctx || AU.themeSrc || !AU.themeBuf) return;
+  const a = AU.ctx, s = a.createBufferSource(); s.buffer = AU.themeBuf; s.loop = true;
+  const g = a.createGain(); g.gain.value = 0;
+  s.connect(g); g.connect(a.destination); s.start();
+  AU.themeSrc = s; AU.themeGain = g; AU.mp3Active = true;
+  AU.nodes.forEach(n => n.gn.gain.linearRampToValueAtTime(0, a.currentTime+2));
+  if (AU.melT){ clearInterval(AU.melT); AU.melT = null; }
+  AU.mp3fade = setInterval(()=>{ const tgt = AU.on ? .28+AU.intensity*.5 : 0;
+    g.gain.value += (tgt-g.gain.value)*.08; }, 120);
+}
+function auInit(){ if (AU.ctx || !AU.on) return;
+  try { AU.ctx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ AU.on=false; return; }
+  const a = AU.ctx; if (a.state === 'suspended') a.resume();
+  const master = a.createGain(); master.gain.value = 0; master.connect(a.destination);
+  AU.master = master;
+  // noise buffer for wind/crackle/ui
+  const nb = a.createBuffer(1, a.sampleRate*2, a.sampleRate), d = nb.getChannelData(0);
+  for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  AU.noise = nb;
+  // quiet synth pad covers the seconds while the theme downloads, then fades out
+  [[110,.07],[164.8,.05],[220,.04],[329.6,.022]].forEach(([f,g])=>{
+    const o = a.createOscillator(), o2 = a.createOscillator(), gn = a.createGain();
+    o.type='sine'; o2.type='sine'; o.frequency.value=f; o2.frequency.value=f*1.004;
+    gn.gain.value=g; o.connect(gn); o2.connect(gn); gn.connect(master);
+    o.start(); o2.start(); AU.nodes.push({o,o2,gn,f,g}); });
+  const lfo = a.createOscillator(), lg = a.createGain();
+  lfo.frequency.value = .08; lg.gain.value = .3; lfo.connect(lg); lg.connect(master.gain); lfo.start();
+  AU.melN = 0; AU.melT = setInterval(()=>{ if (!AU.on || !AU.ctx) return;
+    const scale = AU.intensity>.6 ? [440,523.25,466.16,392,349.23] : [440,523.25,587.33,659.25,523.25];
+    const f = scale[AU.melN++ % scale.length];
+    const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+    o.type='sine'; o.frequency.value = f/2;
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(.03+AU.intensity*.03, t+.6);
+    g.gain.exponentialRampToValueAtTime(.001, t+3.4);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+3.5); }, 3800);
+  loadTheme();
+  master.gain.linearRampToValueAtTime(1, a.currentTime + 3);
+  auScene(scene);
+}
+function auTheme(intensity){ AU.intensity = intensity; if (!AU.ctx || AU.mp3Active) return;
+  const a = AU.ctx;
+  AU.nodes.forEach((n,i)=>{ const mult = intensity>.6 ? [1,1.189,2,2.378][i] : [1,1.498,2,2.996][i];
+    n.o.frequency.linearRampToValueAtTime(110*mult, a.currentTime+3);
+    n.o2.frequency.linearRampToValueAtTime(110*mult*1.004, a.currentTime+3);
+    n.gn.gain.linearRampToValueAtTime(n.g*(0.5+intensity*.9), a.currentTime+3); });
+}
+function noiseVoice(filterType, freq, gain){ const a = AU.ctx;
+  const src = a.createBufferSource(); src.buffer = AU.noise; src.loop = true;
+  const f = a.createBiquadFilter(); f.type = filterType; f.frequency.value = freq;
+  const g = a.createGain(); g.gain.value = gain;
+  src.connect(f); f.connect(g); g.connect(AU.master); src.start();
+  return { src, f, g };
+}
+function auScene(sc){ if (!AU.ctx || !AU.on) return;
+  // stop old extras
+  Object.values(AU.sfx).forEach(v=>{ try{ v.src ? v.src.stop() : clearInterval(v); }catch(e){} });
+  AU.sfx = {};
+  if (sc === 'burn'){ AU.sfx.wind = noiseVoice('lowpass', 220, .03);
+    AU.sfx.crk = setInterval(()=>{ const a = AU.ctx, t = a.currentTime + Math.random()*.3;
+      const s = a.createBufferSource(); s.buffer = AU.noise;
+      const f = a.createBiquadFilter(); f.type='bandpass'; f.frequency.value = 900+Math.random()*1600;
+      const g = a.createGain(); g.gain.setValueAtTime(.03+Math.random()*.035, t);
+      g.gain.exponentialRampToValueAtTime(.001, t+.06);
+      s.connect(f); f.connect(g); g.connect(AU.master); s.start(t); s.stop(t+.08); }, 150); }
+  else if (sc === 'dogs' || sc === 'hunter'){ AU.sfx.wind = noiseVoice('lowpass', 160, .035);
+    AU.sfx.bark = setInterval(()=>{ if (Math.random()<.5) return;
+      const a = AU.ctx, t = a.currentTime;
+      for (let i=0;i<2;i++){ const o = a.createOscillator(), g = a.createGain();
+        o.type='sawtooth'; o.frequency.setValueAtTime(260-i*40, t+i*.18);
+        o.frequency.exponentialRampToValueAtTime(140, t+i*.18+.12);
+        const f = a.createBiquadFilter(); f.type='lowpass'; f.frequency.value = 380;
+        g.gain.setValueAtTime(.025, t+i*.18); g.gain.exponentialRampToValueAtTime(.001, t+i*.18+.14);
+        o.connect(f); f.connect(g); g.connect(AU.master); o.start(t+i*.18); o.stop(t+i*.18+.16); } }, 4200); }
+  else if (sc === 'camp'){ AU.sfx.wind = noiseVoice('lowpass', 190, .022);
+    AU.sfx.crk = setInterval(()=>{ const a = AU.ctx, t = a.currentTime + Math.random()*.4;
+      const s = a.createBufferSource(); s.buffer = AU.noise;
+      const f = a.createBiquadFilter(); f.type='bandpass'; f.frequency.value = 800+Math.random()*1200;
+      const g = a.createGain(); g.gain.setValueAtTime(.02+Math.random()*.02, t);
+      g.gain.exponentialRampToValueAtTime(.001, t+.05);
+      s.connect(f); f.connect(g); g.connect(AU.master); s.start(t); s.stop(t+.07); }, 260); }
+  else { AU.sfx.wind = noiseVoice('lowpass', 260, .025); }
+}
+function uiTick(){ if (!AU.ctx || !AU.on) return; const a = AU.ctx, t = a.currentTime;
+  const s = a.createBufferSource(); s.buffer = AU.noise;
+  const f = a.createBiquadFilter(); f.type='highpass'; f.frequency.value = 2400;
+  const g = a.createGain(); g.gain.setValueAtTime(.045, t); g.gain.exponentialRampToValueAtTime(.001, t+.05);
+  s.connect(f); f.connect(g); g.connect(AU.master); s.start(t); s.stop(t+.06);
+}
+function murmur(name){ if (!AU.ctx || !AU.on) return;
+  const a = AU.ctx, base = 620 + (hash(name)%9)*55, n = 2 + hash(name+'c')%3;
+  for (let i=0;i<n;i++){
+    const t = a.currentTime + i*.16 + Math.random()*.04;
+    const o = a.createOscillator(), g = a.createGain(), v = a.createOscillator(), vg = a.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(base*(1+Math.random()*.08), t);
+    o.frequency.linearRampToValueAtTime(base*.86, t+.14);
+    v.frequency.value = 22; vg.gain.value = base*.02; v.connect(vg); vg.connect(o.frequency); v.start(t); v.stop(t+.16);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(.015,t+.03);
+    g.gain.exponentialRampToValueAtTime(.001,t+.15);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+.16);
+  }
+}
+$('muteBtn').onclick = () => { AU.on = !AU.on; $('muteBtn').textContent = AU.on?'♪':'∅';
+  if (AU.master) AU.master.gain.value = AU.on?1:0;
+  if (AU.themeGain && !AU.on) AU.themeGain.gain.value = 0; };
+
+/* ---------------- portraits: Flow art if present, code-drawn fallback ---------------- */
+const PAL = {
+  'Kevin':   { c:'#4a7fb5', sz:1.0,  f:'crest' },
+  'Gertie':  { c:'#b5884a', sz:.95,  f:'soft' },
+  'Waddles': { c:'#7d8590', sz:1.28, f:'round' },
+  'Pip':     { c:'#58a86a', sz:.8,   f:'tuft' },
+  'Mabel':   { c:'#a05a78', sz:.95,  f:'soft' },
+  'Dot':     { c:'#e0c060', sz:.58,  f:'chick' },
+  'Otis':    { c:'#9aa2ad', sz:1.05, f:'brows' },
+  'Hazel':   { c:'#c07840', sz:.9,   f:'keen' },
+  'Bram':    { c:'#5a4a68', sz:1.1,  f:'crest' },
+  'Reed':    { c:'#6a8a70', sz:.9,   f:'lean' },
+  'Cleo':    { c:'#d06060', sz:.9,   f:'song' },
+  'Finn':    { c:'#4a9aa8', sz:.95,  f:'lean' },
+  'Old Marra': { c:'#ded6c0', sz:1.0, f:'brows' },
+};
+const ART = {}, ARTT = {}; // base + talking portraits: Flow art (jpg) if present
+Object.keys(PAL).forEach(n => { const file = (n==='Old Marra'?'marra':n.toLowerCase());
+  const img = new Image();
+  img.onload  = () => { ART[n] = img; };
+  img.onerror = () => { ART[n] = null; };
+  img.src = 'art/' + file + '.jpg';
+  const tk = new Image();
+  tk.onload  = () => { ARTT[n] = tk; };
+  tk.onerror = () => { ARTT[n] = null; };
+  tk.src = 'art/' + file + '_talk.jpg'; });
+const TITLE_ART = new Image(); let titleArtOk = false;
+TITLE_ART.onload = () => { titleArtOk = true; }; TITLE_ART.onerror = ()=>{};
+TITLE_ART.src = 'art/title.png';
+const HUNTER_ART = new Image(); let hunterArtOk = false;
+HUNTER_ART.onload = () => { hunterArtOk = true; }; HUNTER_ART.onerror = ()=>{};
+HUNTER_ART.src = 'art/hunter.jpg';
+/* cutscene videos (10s loops) — fall back to code-drawn scene if absent */
+const CUTVIDS = { burn:'burning.mp4', fall:'falling.mp4', vow:'vow.mp4', hunter:'hunter.mp4' };
+const cutVid = $('cutVid'); let curVid = '', vidDead = {};
+if (cutVid) cutVid.onerror = () => { vidDead[curVid] = true; cutVid.style.display = 'none'; };
+function setCutVid(sc){ if (!cutVid) return;
+  const v = MODE==='cut' ? CUTVIDS[sc] : null;
+  if (v && !vidDead[v]){
+    if (curVid !== v){ curVid = v; cutVid.src = 'art/' + v; }
+    cutVid.style.display = 'block';
+    if (cutVid.play){ const p = cutVid.play(); if (p && p.catch) p.catch(()=>{}); }
+  } else { cutVid.style.display = 'none'; if (cutVid.pause) try{ cutVid.pause(); }catch(e){} }
+}
+
+function codePortrait(name, px){ const p = PAL[name] || { c:'#8a8a7a', sz:1, f:'soft' };
+  const c = document.createElement('canvas'); c.width = c.height = px;
+  const x = c.getContext('2d'), m = px/2;
+  const g = x.createRadialGradient(m, m*.8, px*.1, m, m, m);
+  g.addColorStop(0,'#232a36'); g.addColorStop(1,'#12161c');
+  x.fillStyle = g; x.fillRect(0,0,px,px);
+  const s = px*.3*p.sz;
+  x.fillStyle = shade(p.c,-25); x.beginPath(); x.ellipse(m, m*1.35, s*1.15, s*.95, 0, 0, 7); x.fill(); // breast
+  x.fillStyle = p.c; x.beginPath(); x.arc(m, m*.85, s*.72, 0, 7); x.fill(); // head
+  x.fillStyle = shade(p.c,18); x.beginPath(); x.ellipse(m, m*1.42, s*.6, s*.5, 0, 0, 7); x.fill(); // belly light
+  x.fillStyle = '#e8a03a'; x.beginPath(); // beak
+  x.moveTo(m+s*.55, m*.85); x.lineTo(m+s*1.05, m*.92); x.lineTo(m+s*.55, m*1.02); x.fill();
+  x.fillStyle = '#f4efe2'; x.beginPath(); x.arc(m+s*.25, m*.75, s*.2, 0, 7); x.fill(); // eye
+  x.fillStyle = '#181410'; x.beginPath(); x.arc(m+s*.31, m*.75, s*.1, 0, 7); x.fill();
+  x.strokeStyle = shade(p.c,-35); x.lineWidth = Math.max(1,px*.015); // wing hint
+  x.beginPath(); x.moveTo(m-s*.9, m*1.25); x.quadraticCurveTo(m-s*.2, m*1.5, m+s*.4, m*1.35); x.stroke();
+  if (p.f==='brows'){ x.strokeStyle='#e5e0d2'; x.lineWidth=px*.03;
+    x.beginPath(); x.moveTo(m+s*.05, m*.6); x.lineTo(m+s*.45, m*.66); x.stroke(); }
+  if (p.f==='tuft'||p.f==='crest'){ x.strokeStyle=shade(p.c,-20); x.lineWidth=px*.025;
+    for (let i=0;i<3;i++){ x.beginPath(); x.moveTo(m-s*.15+i*s*.15, m*.85-s*.7);
+      x.quadraticCurveTo(m-s*.1+i*s*.15, m*.85-s*1.05, m+i*s*.18, m*.85-s*.95); x.stroke(); } }
+  if (p.f==='chick'){ x.strokeStyle=shade(p.c,25); x.lineWidth=px*.02;
+    for (let i=0;i<5;i++){ x.beginPath(); const a0=-1.4+i*.35;
+      x.moveTo(m+Math.cos(a0)*s*.7, m*.85+Math.sin(a0)*s*.7);
+      x.lineTo(m+Math.cos(a0)*s*.95, m*.85+Math.sin(a0)*s*.95); x.stroke(); } }
+  if (p.f==='song'){ x.fillStyle='#e8a03a'; x.beginPath(); // open beak
+    x.moveTo(m+s*.55, m*.78); x.lineTo(m+s*1.1, m*.68); x.lineTo(m+s*.6, m*.9); x.fill(); }
+  return c;
+}
+function shade(hex, amt){ const n = parseInt(hex.slice(1),16);
+  const r = Math.max(0,Math.min(255,(n>>16)+amt)), g = Math.max(0,Math.min(255,((n>>8)&255)+amt)),
+        b = Math.max(0,Math.min(255,(n&255)+amt));
+  return 'rgb('+r+','+g+','+b+')'; }
+function portraitEl(name, small, talk){ let el;
+  const src = (talk && ARTT[name]) ? ARTT[name] : ART[name];
+  if (src){ el = document.createElement('img'); el.src = src.src; }
+  else el = codePortrait(name, small?104:152);
+  el.className = 'pf' + (small?' small':'');
+  const b = S && byName(name);
+  if (b && (b.hurt>0 || S.hope<30)) el.style.filter = 'saturate(.55) brightness(.8)';
+  return el;
+}
+function animPortrait(name, small){ const el = portraitEl(name, small);
+  if (el.tagName === 'IMG' && ART[name] && ARTT[name]){ let k = 0;
+    const iv = setInterval(() => { k++;
+      el.src = (k%2 ? ARTT[name] : ART[name]).src;
+      if (k > 7){ clearInterval(iv); el.src = ART[name].src; } }, 170); }
+  return el;
+}
+
+/* ---------------- state ---------------- */
+const ROLES = { scout:'Scout', forager:'Forager', medic:'Medic', elder:'Elder', chick:'Chick', flyer:'Flyer' };
+function newFlock(){ return [
+  { n:'Kevin',   r:'flyer',  note:'Gertie’s mate. Steadier than he looks.' },
+  { n:'Gertie',  r:'forager',note:'Kevin’s mate. Carries their unhatched egg.' , egg:true },
+  { n:'Waddles', r:'flyer',  note:'Slowest wings, biggest heart.' },
+  { n:'Pip',     r:'scout',  note:'Youngest scout the flock ever named.' },
+  { n:'Mabel',   r:'medic',  note:'Mends wings. Mother to Dot.' },
+  { n:'Dot',     r:'chick',  note:'Mabel’s chick. First migration.' },
+  { n:'Otis',    r:'elder',  note:'Remembers the last great flight south.' },
+  { n:'Hazel',   r:'forager',note:'Finds seeds where there are none.' },
+  { n:'Bram',    r:'flyer',  note:'Was the leader’s second. Watches you.' },
+  { n:'Reed',    r:'scout',  note:'Quiet. Flies point in bad wind.' },
+  { n:'Cleo',    r:'flyer',  note:'Sings at dusk. The flock needs it.' },
+  { n:'Finn',    r:'flyer',  note:'Lost his family in the fire.' },
+].map(b => ({ ...b, alive:true, left:false, hurt:0 })); }
+
+let S = null;
+function newState(){ return {
+  player: ($('pname').value.trim()||'Wren').slice(0,10),
+  flock: newFlock(), seeds: 60, hope: 70,
+  day: 1, dist: 0, distGoal: 100, pace: 'steady',
+  chapter: 1, seenEvents: [], nextEventAt: 10, camped: false,
+  choicesMade: 0, mercies: 0, // adaptive difficulty tracker
+}; }
+const SAVE_KEY = 'lm_save_v1', STONE_KEY = 'lm_stones_v1';
+function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){} }
+function loadSave(){ try{ return JSON.parse(localStorage.getItem(SAVE_KEY)); }catch(e){ return null; } }
+function stones(){ try{ return JSON.parse(localStorage.getItem(STONE_KEY))||[]; }catch(e){ return []; } }
+function addStone(name, dist){ const s = stones(); s.push({name, dist:Math.round(dist)});
+  try{ localStorage.setItem(STONE_KEY, JSON.stringify(s.slice(-30))); }catch(e){} }
+
+const alive = () => S.flock.filter(b=>b.alive && !b.left);
+const byName = n => S.flock.find(b=>b.n===n);
+function adapt(){ // adaptive difficulty: -1 merciful … +1 harsh
+  const a = alive().length, frac = a/12, h = S.hope/100, sd = Math.min(1,S.seeds/60);
+  return Math.max(-1, Math.min(1, (frac-.6)*1.5 + (h-.5) + (sd-.5) - S.mercies*.15));
+}
+
+/* ---------------- screens ---------------- */
+const LAYERS = ['title','cut','hud','card','end'];
+function show(name){ LAYERS.forEach(l=>$(l).classList.toggle('show', l===name));
+  $('backLink').style.display = (name==='title' || name==='end') ? '' : 'none'; }
+let MODE = 'title'; // title | cut | flight | card | end
+
+/* ---------------- painterly scene renderer ---------------- */
+/* scenes: 'burn' 'fall' 'vow' 'ash' 'plains' 'dusk' 'dogs' 'stone' */
+let t0 = performance.now(), scroll = 0;
+function sky(top, mid, bot){ const g = ctx.createLinearGradient(0,0,0,vh());
+  g.addColorStop(0,top); g.addColorStop(.55,mid); g.addColorStop(1,bot);
+  ctx.fillStyle = g; ctx.fillRect(0,0,vw(),vh()); }
+function ridge(yBase, amp, col, seed, sc){ ctx.fillStyle = col; ctx.beginPath();
+  ctx.moveTo(0,vh());
+  for (let x=0;x<=vw();x+=14){ const p = (x+scroll*sc+seed)*.006;
+    ctx.lineTo(x, yBase - Math.abs(Math.sin(p)*amp + Math.sin(p*2.7)*amp*.4)); }
+  ctx.lineTo(vw(),vh()); ctx.closePath(); ctx.fill(); }
+function trees(yBase, col, seed, sc, burnt){ ctx.fillStyle = col;
+  for (let x=-40;x<vw()+40;x+=52){ const wx = x - (scroll*sc+seed)%52;
+    const hgt = 26 + (hash('t'+Math.round((x+scroll*sc+seed)/52))%28);
+    if (burnt){ ctx.fillRect(wx, yBase-hgt, 3, hgt);
+      ctx.fillRect(wx-6, yBase-hgt*.7, 6, 2); ctx.fillRect(wx+3, yBase-hgt*.5, 7, 2); }
+    else { ctx.beginPath(); ctx.moveTo(wx, yBase); ctx.lineTo(wx+9, yBase-hgt); ctx.lineTo(wx+18, yBase); ctx.fill(); }
+  } }
+function bird(x, y, s, flap, col){ ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, s*.16);
+  ctx.lineCap = 'round'; const w = Math.sin(flap)* s*.7; ctx.beginPath();
+  ctx.moveTo(x - s, y - w); ctx.quadraticCurveTo(x - s*.3, y, x, y);
+  ctx.quadraticCurveTo(x + s*.3, y, x + s, y - w); ctx.stroke(); }
+function flock(cx, cy, s, time, col, count){ const n = count===undefined?9:count;
+  bird(cx, cy, s, time*7, col);
+  for (let i=1;i<=Math.floor(n/2);i++){
+    bird(cx - i*s*1.8, cy + i*s*1.2, s*.85, time*7 + i*.8, col);
+    if (i*2 <= n-1) bird(cx + i*s*1.8 - s*.4, cy + i*s*1.2, s*.85, time*7 + i*.9+.4, col); } }
+function flockRoster(cx, cy, s, time){ // each living bird drawn distinct: size, tint, flap, raggedness
+  const list = S ? alive() : [];
+  if (!list.length){ flock(cx, cy, s, time, 'rgba(14,12,10,.9)'); return; }
+  list.forEach((b, idx) => { const p = PAL[b.n] || {c:'#20242c', sz:1};
+    const side = idx===0 ? 0 : (idx%2===1 ? -1 : 1), row = Math.ceil(idx/2);
+    const px = cx + side*row*s*1.45 - (side===1?s*.35:0),
+          py = cy + row*s*1.0 + Math.sin(time*1.3 + idx*1.1)*2;
+    const rag = b.hurt>0 ? .55 : 1;
+    const flapRate = (7 + (hash(b.n)%3)) * (b.n==='Waddles'?.8:1) * (b.n==='Dot'?1.35:1);
+    const jitter = b.hurt>0 ? Math.sin(time*13+idx)*2.5 : 0;
+    const col = 'rgba(' + [Math.round(14+parseInt(p.c.slice(1,3),16)*.14),
+      Math.round(12+parseInt(p.c.slice(3,5),16)*.14),
+      Math.round(10+parseInt(p.c.slice(5,7),16)*.14)].join(',') + ',.92)';
+    bird(px, py + jitter, s*1.05*p.sz, time*flapRate + idx*.7, col);
+    if (rag<1){ ctx.strokeStyle = 'rgba(200,140,90,.35)'; ctx.lineWidth = 1; // faint strain mark
+      ctx.beginPath(); ctx.arc(px, py-6, 2, 0, 7); ctx.stroke(); }
+  });
+}
+/* ambient sky life during flight: no interaction, pure atmosphere */
+let ambType = null, ambStart = 0, ambNextAt = 14;
+function ambient(time){
+  if (!ambType && time > ambNextAt){
+    ambType = ['geese','heron','lights'][Math.floor(Math.random()*3)]; ambStart = time; }
+  if (!ambType) return;
+  const el = time - ambStart;
+  if (el > 13){ ambType = null; ambNextAt = time + 20 + Math.random()*24; return; }
+  if (ambType === 'geese'){ // a stranger V, heading the other way, high and small
+    const x = -80 + el*95, y = vh()*.14 + Math.sin(el*.8)*6;
+    for (let i=0;i<5;i++)
+      bird(x - i*11, y + Math.abs(i-2)*5, 4.5, time*10 + i, 'rgba(24,26,32,.5)');
+  } else if (ambType === 'heron'){ // one great slow bird, lower, unbothered
+    bird(vw()+70 - el*52, vh()*.52 + Math.sin(el*.6)*8, 15, time*2.1, 'rgba(28,30,38,.4)');
+  } else { // far town lights near the ground, drifting past
+    const x0 = vw()+50 - el*70;
+    for (let i=0;i<6;i++){ const lx = x0 + i*16 + (i%3)*7, ly = vh()*.93 + (i%2)*5;
+      ctx.globalAlpha = .35 + Math.sin(time*3 + i)*.15;
+      ctx.fillStyle = '#ffce8a'; ctx.fillRect(lx, ly, 2.4, 2.4); }
+    ctx.globalAlpha = 1;
+  }
+}
+function embers(n, time){ ctx.fillStyle = 'rgba(255,150,60,.7)';
+  for (let i=0;i<n;i++){ const p = hash('e'+i), x = (p%vw()) + Math.sin(time*.7+i)*30,
+    y = vh() - ((time*26 + p%700) % (vh()*1.1));
+    ctx.globalAlpha = .25 + (p%50)/100; ctx.fillRect(x, y, 2, 2); }
+  ctx.globalAlpha = 1; }
+function stars(n){ ctx.fillStyle = '#cfd6e4';
+  for (let i=0;i<n;i++){ const p = hash('s'+i);
+    ctx.globalAlpha = .2 + (p%60)/100; ctx.fillRect(p%vw(), (p>>3)%(vh()*.5), 1.5, 1.5); }
+  ctx.globalAlpha = 1; }
+
+function coverImg(img){ const iw = img.width||1, ih = img.height||1,
+    sc = Math.max(vw()/iw, vh()/ih), w = iw*sc, h = ih*sc;
+  ctx.drawImage(img, (vw()-w)/2, (vh()-h)/2, w, h); }
+const SCENES = {
+  burn(time){
+    if (titleArtOk && MODE==='title'){ coverImg(TITLE_ART);
+      embers(40,time); flock(vw()*.62, vh()*.3 + Math.sin(time)*6, 10, time, 'rgba(10,7,5,.85)', 12);
+      return; }
+    sky('#1a0f0e','#5c2415','#c4571e');
+    embers(60,time);
+    ridge(vh()*.8, 60, '#140a08', 0, .1); trees(vh()*.97, '#0d0605', 40, .2, true);
+    ctx.fillStyle = 'rgba(255,120,30,.14)'; ctx.beginPath();
+    ctx.arc(vw()*.5, vh()*1.05, vh()*.5 + Math.sin(time*2)*14, 0, 7); ctx.fill();
+    flock(vw()*.62, vh()*.32 + Math.sin(time)*6, 11, time, '#0e0806', 13); },
+  fall(time){ sky('#2a2f38','#454b55','#6a6a63');
+    ridge(vh()*.85, 40, '#23262c', 300, .05);
+    flock(vw()*.6, vh()*.3, 10, time, '#181a1e', 12);
+    const fy = vh()*.35 + (time%4)*vh()*.14;
+    bird(vw()*.38, fy, 9, time*2.4, '#181a1e');
+    ctx.strokeStyle = 'rgba(232,226,212,.35)'; ctx.lineWidth = 1;
+    for (let i=0;i<3;i++){ const yy = fy - 30 - i*26 + Math.sin(time*3+i)*6;
+      ctx.beginPath(); ctx.moveTo(vw()*.38 - 8, yy); ctx.quadraticCurveTo(vw()*.38, yy+5, vw()*.38+8, yy); ctx.stroke(); } },
+  vow(time){ sky('#141c2a','#3a3f52','#8a6a55');
+    stars(70); ridge(vh()*.86, 60, '#10141d', 800, .04);
+    ctx.strokeStyle = '#0c0f15'; ctx.lineWidth = 5; ctx.beginPath();
+    ctx.moveTo(0, vh()*.72); ctx.bezierCurveTo(vw()*.3, vh()*.66, vw()*.7, vh()*.7, vw(), vh()*.62); ctx.stroke();
+    for (let i=0;i<11;i++){ const bx = vw()*.14 + i*vw()*.07,
+      by = vh()*.7 - Math.sin((bx/vw())*3)*vh()*.03 - 7;
+      ctx.fillStyle = '#0c0f15'; ctx.beginPath(); ctx.ellipse(bx, by, 6, 8, 0, 0, 7); ctx.fill(); }
+    ctx.fillStyle = 'rgba(200,160,90,.12)'; ctx.beginPath();
+    ctx.arc(vw()*.78, vh()*.2, 60 + Math.sin(time)*4, 0, 7); ctx.fill(); },
+  flight(time){ // main travel scene — burns fade behind, plains ahead
+    const prog = Math.min(1, S ? S.dist/S.distGoal : 0);
+    const dusk = S && S.day % 3 === 0;
+    if (prog < .25) sky('#241412','#6b3a20','#a86a3a');
+    else if (dusk)  sky('#1b2233','#54425a','#c07a50');
+    else            sky('#33455e','#7a8aa0','#cdb98f');
+    if (prog < .25) embers(24, time);
+    ridge(vh()*.72, 90, prog<.25?'#1d1210':'#2c3648', 100, .3);
+    ridge(vh()*.84, 60, prog<.25?'#140b09':'#1e2634', 500, .55);
+    trees(vh()*.99, prog<.25?'#0d0705':'#141a24', 900, .9, prog<.25);
+    // memorial stones from past runs
+    stones().forEach(st => { const sx = (st.dist/100)*S.distGoal, dx = (sx - S.dist)*30 + vw()*.5;
+      if (dx>-40 && dx<vw()+40){ ctx.fillStyle = '#3a4152';
+        ctx.beginPath(); ctx.moveTo(dx-7,vh()*.985); ctx.lineTo(dx,vh()*.985-16); ctx.lineTo(dx+7,vh()*.985); ctx.fill();
+        ctx.fillStyle = 'rgba(232,226,212,.5)'; ctx.font = '10px Georgia'; ctx.textAlign='center';
+        ctx.fillText(st.name, dx, vh()*.985-22); } });
+    ambient(time);
+    flockRoster(vw()*.44, vh()*.34 + Math.sin(time*.9)*8, 13, time); },
+  camp(time){ sky('#0d1420','#162032','#243048');
+    stars(80); ridge(vh()*.8, 50, '#0b1018', 420, .02);
+    trees(vh()*.99, '#070a10', 620, 0, false);
+    const fx = vw()*.5, fy = vh()*.86, flick = .85 + Math.sin(time*9)*.08 + Math.sin(time*23)*.05;
+    const g = ctx.createRadialGradient(fx, fy, 4, fx, fy, 120*flick);
+    g.addColorStop(0,'rgba(255,190,90,.55)'); g.addColorStop(.4,'rgba(230,120,40,.22)');
+    g.addColorStop(1,'rgba(230,120,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(fx, fy, 130, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffcf7a'; for (let i=0;i<4;i++){ const a = time*2+i*1.7;
+      ctx.globalAlpha = .5+Math.sin(a)*.3;
+      ctx.fillRect(fx-6+Math.sin(a)*6, fy-8-((time*30+i*28)%40), 2, 3); }
+    ctx.globalAlpha = 1;
+    // roosting silhouettes on a branch
+    ctx.strokeStyle = '#05070c'; ctx.lineWidth = 4; ctx.beginPath();
+    ctx.moveTo(vw()*.12, vh()*.68); ctx.quadraticCurveTo(vw()*.5, vh()*.63, vw()*.88, vh()*.66); ctx.stroke();
+    const list = S ? alive() : [];
+    list.forEach((b,i) => { const p = PAL[b.n]||{sz:1};
+      const bx = vw()*.16 + i*(vw()*.68/Math.max(1,list.length-1)),
+            by = vh()*.655 - Math.sin((bx/vw())*3)*vh()*.012 - 7*p.sz;
+      ctx.fillStyle = '#05070c'; ctx.beginPath();
+      ctx.ellipse(bx, by, 5.5*p.sz, 7.5*p.sz, 0, 0, 7); ctx.fill(); }); },
+  hunter(time){
+    if (hunterArtOk){ coverImg(HUNTER_ART);
+      ctx.fillStyle = 'rgba(5,7,10,.25)'; ctx.fillRect(0,0,vw(),vh()); return; }
+    sky('#07080c','#0d0f14','#14161c');
+    const lx = vw()*.5, ly = vh()*.62;
+    const g = ctx.createRadialGradient(lx, ly, 4, lx, ly, 90+Math.sin(time*3)*6);
+    g.addColorStop(0,'rgba(255,190,90,.9)'); g.addColorStop(1,'rgba(255,190,90,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(lx, ly, 100, 0, 7); ctx.fill();
+    ctx.fillStyle = '#020304'; // coat, hat, boots — low angle silhouette
+    ctx.fillRect(lx-26, ly-150, 52, 150);
+    ctx.beginPath(); ctx.ellipse(lx, ly-158, 40, 10, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(lx, ly-166, 16, 0, 7); ctx.fill();
+    ctx.fillRect(lx-30, ly-6, 24, 10); ctx.fillRect(lx+8, ly-6, 24, 10);
+    for (let i=0;i<2;i++){ const dx = lx + (i?70:-78) + Math.sin(time+i)*3;
+      ctx.beginPath(); ctx.ellipse(dx, ly+2, 26, 9, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dx+(i?18:-18), ly-8, 8, 7, i?.3:-.3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = 'rgba(210,214,224,.06)'; // falling ash
+    for (let i=0;i<26;i++){ const p = hash('a'+i);
+      ctx.fillRect((p%vw()) + Math.sin(time+i)*14, ((time*18 + p%600) % vh()), 2, 2); } },
+  dogs(time){ sky('#0a0d14','#11141d','#1c1f28');
+    stars(50); ridge(vh()*.8, 30, '#0d0f16', 60, .02);
+    trees(vh()*.99, '#07080d', 200, 0, false);
+    for (let i=0;i<3;i++){ const lx = vw()*(.25+i*.22) + Math.sin(time*.8+i*2)*12;
+      const g = ctx.createRadialGradient(lx, vh()*.78, 2, lx, vh()*.78, 46);
+      g.addColorStop(0,'rgba(255,190,90,.8)'); g.addColorStop(1,'rgba(255,190,90,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(lx, vh()*.78, 46, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#05060a';
+    for (let i=0;i<2;i++){ const dx = vw()*(.36+i*.2)+Math.sin(time+i)*6, dy = vh()*.92;
+      ctx.beginPath(); ctx.ellipse(dx, dy, 26, 10, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dx+22, dy-8, 9, 7, .3, 0, 7); ctx.fill(); } },
+};
+let scene = 'burn', lastScene = '';
+function frame(now){ const time = now/1000;
+  if (MODE==='flight') scroll += 1.2;
+  if (scene !== lastScene){ lastScene = scene; if (AU.ctx) auScene(scene); }
+  ctx.clearRect(0,0,vw(),vh());
+  (SCENES[scene]||SCENES.flight)(time);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------------- cutscene engine ---------------- */
+let cutQ = [], cutDone = null, typing = false, typeTimer = null;
+function playCut(lines, done){ cutQ = lines.slice(); cutDone = done; MODE='cut'; show('cut'); nextLine(); }
+function nextLine(){
+  if (typing){ // finish instantly
+    clearInterval(typeTimer); typing = false;
+    const l = cutQ[0]; renderLine(l, l.t.length); cutQ.shift(); return; }
+  if (!cutQ.length){ const d = cutDone; cutDone = null;
+    if (d){ d(); setCutVid(scene); } return; }
+  const l = cutQ[0]; if (l.scene) scene = l.scene; if (l.theme!==undefined) auTheme(l.theme);
+  setCutVid(scene);
+  if (l.who && l.who!=='—') murmur(l.who);
+  let i = 0; typing = true;
+  typeTimer = setInterval(()=>{ i += 2; renderLine(l, i);
+    if (i >= l.t.length){ clearInterval(typeTimer); typing = false; cutQ.shift();
+      renderLine(l, l.t.length); } }, 24);
+}
+function renderLine(l, i){ const box = $('cutText'); box.innerHTML =
+  (l.who && l.who!=='—' ? '<span class="who">'+l.who.toUpperCase()+'</span>' : '') +
+  l.t.slice(0, i).replace(/\n/g,'<br>');
+  if (l.who && l.who!=='—' && PAL[l.who]){
+    const talk = i < l.t.length && Math.floor(Date.now()/170)%2===0;
+    box.prepend(portraitEl(l.who, false, talk)); } }
+$('cut').addEventListener('pointerdown', () => { uiTick(); nextLine(); });
+
+/* ---------------- story: opening ---------------- */
+function openCut(){ const P = S.player;
+  playCut([
+   {scene:'burn', theme:.9, who:'—', t:'They came in the grey hour before dawn, when the whole valley was asleep.'},
+   {scene:'burn', who:'—', t:'The hunters did not come to hunt. They came with fire.\nBy sunrise, the nesting grounds that held a thousand generations were ash.'},
+   {scene:'burn', who:'—', t:'The valley had held the flock since before birds kept names.\nOld Marra had led it thirty winters — through hawk years, through hungry years.\nShe led it out of the fire, too.'},
+   {scene:'burn', who:'Old Marra', t:'Kevin — the egg! Gertie, stay on his wing!\n'+P+', take the young ones HIGH!'},
+   {scene:'burn', who:'Old Marra', t:'Fly. All of you. Don’t look back at it. FLY!'},
+   {scene:'fall', theme:1, who:'—', t:'Old Marra was the last one out. She always was.'},
+   {scene:'fall', who:'—', t:'The shot found her over the tree line. She didn’t cry out.\nShe just folded, quietly, like a leaf giving up its branch.'},
+   {scene:'vow', theme:.5, who:'Bram', t:'She’s gone. Twelve of us left. And an egg.'},
+   {scene:'vow', who:'Otis', t:'There is a place, far south of the farmlands, past the mountains. The old flocks called it the Southern Nesting Grounds. I saw it once, when my wings were young.'},
+   {scene:'vow', who:'Bram', t:'That’s a story, old one.'},
+   {scene:'vow', who:'Otis', t:'So were the hunters, once. '+P+' — Marra chose you to fly her wing for a reason. The flock will follow you now.'},
+   {scene:'vow', who:'Gertie', t:'(quietly) The egg is warm. Whatever else is true tonight — the egg is warm.'},
+   {scene:'vow', who:'Finn', t:'I’ll fly. I don’t have anything back there to look at anyway.\nJust… somebody count us, each morning. So we know.'},
+   {scene:'vow', theme:.35, who:'—', t:'Twelve birds. One egg. A hundred leagues of sky you’ve never crossed.\nSouth, then. While there is still a south to reach.'},
+  ], startFlight);
+}
+function cliffCut(){ const P = S.player, n = alive().length;
+  playCut([
+   {scene:'dusk', theme:.4, who:'—', t:'The burned country finally slipped behind you. The flock made its first camp under whole, living trees.'},
+   {scene:'flight', who:'Cleo', t:'(singing, low)\nThe wind knows the way, the wind knows the way…'},
+   {scene:'dogs', theme:.95, who:'Reed', t:P+'. Wake up. Listen.'},
+   {scene:'dogs', who:'—', t:'Far off, down the valley — lanterns. Moving. And beneath the wind, a sound every bird now knows.\nDogs.'},
+   {scene:'dogs', who:'Bram', t:'That’s no farmer walking his fields at night. He’s following the burn line. He’s following US.'},
+   {scene:'dogs', who:'—', t:(n===12?'All twelve of you':n+' of you')+' fly on at first light.\nThe farmlands are ahead. So is he.'},
+   {scene:'hunter', theme:1, who:'—', t:'Miles behind, a man in a long coat kneels in the ash of a cold campfire\nand picks up a single feather.'},
+   {scene:'hunter', who:'The Hunter', t:'Burned birds fly straight, boys. Straight and south.\nAnd south has only so much sky.'},
+   {scene:'hunter', who:'—', t:'He pinches the feather to powder, lifts the lantern,\nand walks into the dark after you.'},
+  ], endAct);
+}
+
+/* ---------------- flight loop ---------------- */
+let flightTimer = null;
+function startFlight(){ MODE='flight'; scene='flight'; show('hud'); auTheme(.35); hud(); save();
+  clearInterval(flightTimer); flightTimer = setInterval(tick, 1600); }
+function tick(){ if (MODE!=='flight') return;
+  S.dist += 1.1;
+  const foragers = alive().filter(b=>b.r==='forager').length;
+  const drain = Math.max(0, alive().length*.05 - foragers*.045);
+  S.seeds = Math.max(0, S.seeds - drain);
+  if (S.seeds<=0){ S.hope = Math.max(0, S.hope-1); }
+  S.day = 1 + Math.floor(S.dist/9);
+  if (S.dist >= S.nextEventAt){ fireEvent(); return; }
+  if (!S.camped && S.dist >= S.distGoal*.6){ S.camped = true; campScene(); return; }
+  if (S.dist >= S.distGoal){ clearInterval(flightTimer); cliffCut(); return; }
+  hud();
+}
+function hud(){ const hopeTxt = S.hope>66?'high':S.hope>33?'wavering':'failing';
+  $('hudTop').innerHTML =
+    'DAY <b>'+S.day+'</b> &nbsp;·&nbsp; FLOCK <b>'+alive().length+'</b>' +
+    (byName('Gertie').alive&&!byName('Gertie').left?' <b>+ egg</b>':'') +
+    ' &nbsp;·&nbsp; SEEDS <b>'+Math.round(S.seeds)+'</b> &nbsp;·&nbsp; HOPE <b>'+hopeTxt+'</b>';
+  $('distFill').style.width = Math.min(100, S.dist/S.distGoal*100)+'%';
+  const worried = S.flock.some(b => b.alive && !b.left && b.hurt>0);
+  $('flockBtn').classList.toggle('alert', worried);
+  $('flockBtn').textContent = worried ? 'FLOCK •' : 'FLOCK';
+}
+/* ---------------- flock roster ---------------- */
+function condText(b){ if (!b.alive) return ['lost', true];
+  if (b.left) return ['resting at a haven', true];
+  if (b.hurt>0) return ['wing-strained', true];
+  if (S.hope<30) return ['weary', true];
+  return ['flying well', false]; }
+const VOICE = {
+  Kevin:  'If we make it — when we make it — I’m building the nest twice as deep.',
+  Gertie: 'The egg turned this morning. She’s listening now. So watch what you say.',
+  Waddles:'I’m not slow. I’m saving my burst for when it counts.',
+  Pip:    'I could scout the whole route in a day. Half a day, if Reed stopped saying “steady.”',
+  Mabel:  'Wings mend. The trick is convincing the bird.',
+  Dot:    'Otis says the stars have names. I’m learning ALL of them.',
+  Otis:   'I saw the southern grounds once. The reeds sing there. That part I did not make up.',
+  Hazel:  'Every seed is a mile. Waste neither.',
+  Bram:   'Marra chose you. I’m still deciding. Fly well and I’ll decide faster.',
+  Reed:   'Wind’s turning. Two days, maybe three. You’ll want the flock rested.',
+  Cleo:   'Songs are maps. My mother’s reached all the way south. I only remember half.',
+  Finn:   'I count us every morning. Twelve. I’ll keep counting, if that’s alright.',
+};
+function openRoster(){ const rows = $('rosterRows'); rows.innerHTML = '';
+  S.flock.forEach(b => { const r = document.createElement('div'); r.className = 'rrow';
+    r.style.cursor = 'pointer';
+    r.appendChild(portraitEl(b.n, true));
+    const ri = document.createElement('div'); ri.className = 'ri';
+    ri.innerHTML = '<b>' + b.n + '</b> <span style="color:#8d8672;font-size:12px">· ' +
+      (ROLES[b.r]||'Flyer') + (b.egg?' · carrying the egg':'') + '</span><small>' + b.note + '</small>';
+    r.appendChild(ri);
+    const [ct, bad] = condText(b);
+    const c = document.createElement('div'); c.className = 'cond' + (bad?' bad':'');
+    c.textContent = ct; r.appendChild(c);
+    r.onclick = () => rosterDetail(b);
+    rows.appendChild(r); });
+  $('roster').classList.add('show'); uiTick();
+}
+function rosterDetail(b){ const rows = $('rosterRows'); rows.innerHTML = ''; murmur(b.n);
+  const wrap = document.createElement('div'); wrap.style.cssText = 'text-align:center;padding:8px 4px';
+  const p = animPortrait(b.n); p.style.width = p.style.height = '128px'; wrap.appendChild(p);
+  const [ct] = condText(b);
+  wrap.innerHTML += '<div style="font-size:19px;color:#f0e6c8;margin-top:4px">' + b.n + '</div>' +
+    '<div style="font-size:12px;letter-spacing:2px;color:#8d8672;margin:2px 0 10px">' +
+    (ROLES[b.r]||'Flyer').toUpperCase() + (b.egg?' · CARRYING THE EGG':'') + ' · ' + ct.toUpperCase() + '</div>' +
+    '<div style="font-style:italic;color:#ddd6c6;line-height:1.6;font-size:15px">“' + (VOICE[b.n]||b.note) + '”</div>' +
+    '<div style="color:#8d8672;font-size:13px;margin-top:10px">' + b.note + '</div>';
+  const back = document.createElement('button'); back.className = 'tbtn';
+  back.style.marginTop = '16px'; back.textContent = 'BACK';
+  back.onclick = (e) => { e.stopPropagation(); openRoster(); };
+  wrap.appendChild(back);
+  rows.appendChild(wrap);
+}
+$('flockBtn').onclick = openRoster;
+$('rosterClose').onclick = () => { $('roster').classList.remove('show'); uiTick(); };
+
+/* ---------------- events (Act I pool) ---------------- */
+/* pure narrative picks — outcomes from fiction; adaptive difficulty nudges results */
+const EVENTS = [
+ { id:'thermal', t:'A RISING WIND', p:()=>'Reed banks suddenly and calls out — a thermal column, wide as a lake, spiraling up from the scorched rocks below. Riding it would save the flock a day of wingbeats. But it climbs into cold, thin air, and Dot has never flown that high.',
+   c:[ {t:'Ride it. Every day matters.', f:s=>{ s.dist+=6; if (adapt()<0||roll(.75)){ hopeUp(4); return 'The column takes you like a warm hand. Even Dot crests it, gasping, thrilled. The flock cheers her name on the far side.'; } hurt('Dot',1); hopeDn(6); return 'The cold bites harder than expected. Dot falters at the crest and Mabel dives after her. They glide down safe — but Dot’s wing is strained, and Mabel won’t look at you.'; } },
+       {t:'Stay low. No risks with the chick.', f:s=>{ hopeUp(2); return 'You keep the flock in the warm low air. Slower — but that night Mabel settles beside you and says, quietly, “Thank you.”'; } } ] },
+ { id:'silo', t:'THE SEED SILO', p:()=>'Hazel spots it first: a leaning wooden silo at the edge of a burned farm, split at the seam, bleeding golden grain into the grass. Enough seeds to feed the flock for days. Below it, in the mud — boot prints. Fresh.',
+   c:[ {t:'Feed. The flock is hungry.', f:s=>{ if (roll(.6+adapt()*-.15)){ s.seeds+=30; hopeUp(5); return 'You post Pip as lookout and strip the spill in minutes. Full crops, light hearts. The boot prints belonged to someone long gone.'; } s.seeds+=14; hopeDn(8); hurt('Hazel',1); return 'Halfway through the feast, a door bangs. A farmhand with a rake, shouting. The flock scatters — Hazel takes a glancing blow going over the fence. You got some of the grain. Not all.'; } },
+       {t:'Send only the foragers, quick and quiet.', f:s=>{ s.seeds+=16; return 'Hazel and Gertie go in alone, fast and silent, and come back heavy. Less than a full feast — but nobody saw a thing.'; } },
+       {t:'Pass it by. Boot prints mean people.', f:s=>{ hopeDn(3); s.mercies++; return 'The flock flies on, crops empty, eyes down. Waddles looks back at the silo for a long time. Hunger is a price too — but everyone is still here to pay it.'; } } ] },
+ { id:'crow', t:'THE CROW ON THE FENCEPOST', p:()=>'An old crow sits alone on a charred fencepost, feathers dull with ash. “Going south, little flock?” he rasps. “I’ve flown these farmlands forty years. For a crop of seeds, I’ll tell you which valleys the men watch.”',
+   c:[ {t:'Pay him. Knowledge is worth seeds.', f:s=>{ s.seeds-=10; s.crowMap=true; hopeUp(3); return 'He eats slowly, then tells you: which barns hold dogs, which fields hold wire, and a stream cut where a flock can pass unseen. “One more thing,” he adds. “There’s a man asking after burned birds. Fly high, strangers.”'; } },
+       {t:'Refuse politely. Seeds feed chicks, not crows.', f:s=>{ hopeDn(2); return 'The crow shrugs, unsurprised. “Suit yourselves.” As you lift off he calls after you: “The dogs are faster than you think, little flock.” The words follow you all day.'; } } ] },
+ { id:'rain', t:'FIRST RAIN', p:()=>'The first rain since the fire. It comes down grey and cold and endless. Otis’s old wings stiffen in weather like this. Push through it, or lose half a day sheltering in a dead oak?',
+   c:[ {t:'Push through the rain.', f:s=>{ s.dist+=4; if (adapt()>.3&&roll(.4)){ hurt('Otis',1); hopeDn(5); return 'You make good leagues, but Otis lands heavy and doesn’t speak at all that evening. Mabel works on his wing joints by feel in the dark.'; } hopeDn(2); return 'Wet, cold, mile after mile. But the flock holds formation, and something about surviving misery together makes it lighter to carry.'; } },
+       {t:'Shelter in the dead oak.', f:s=>{ s.seeds-=4; hopeUp(4); s.mercies++; return 'In the hollow of the oak, pressed together for warmth, Cleo starts a song. One by one the flock joins. For an hour, it almost sounds like home.'; } } ] },
+ { id:'wire', t:'THE WIRE FENCE', p:()=>'Pip comes streaking back from point, feathers wild: a fence of thin wire strung across the whole valley mouth, nearly invisible against the grey sky. A songbird hangs dead in it. Going over means climbing into open sky. Going around means the marsh.',
+   c:[ {t:'Climb over, fast and high.', f:s=>{ if (roll(.7)){ hopeUp(2); s.dist+=2; return 'You take the flock up in one hard spiral and clear the wire with height to spare. Below, the dead songbird sways. Nobody looks down twice.'; } hurt('Waddles',1); hopeDn(5); return 'Waddles, always half a beat slow, clips the top strand. He tumbles, rights himself, lands in a heap on the far side — alive, wing bent, pride worse.'; } },
+       {t:'Take the marsh way around.', f:s=>{ s.seeds-=6; s.dist-=1; hopeDn(1); return 'The marsh is mud and midges and one full day of grim slogging. But wire can’t reach you here, and Hazel finds marsh seeds bitter enough that only Waddles likes them. He eats like a king.'; } } ] },
+ { id:'starling', t:'THE STARLING FLOCK', p:()=>'A vast murmuration of starlings sweeps overhead like smoke given a will. A few peel off and circle you. “Burned out?” one asks. “We saw the smoke from two valleys off. You can fly in our shadow to the river country, if you keep up.”',
+   c:[ {t:'Fly in their shadow.', f:s=>{ if (roll(.65)){ s.dist+=7; hopeUp(5); return 'For one impossible afternoon your twelve fly inside a storm of ten thousand, hidden utterly. Hawks veer off. The land pours past. The starlings part at the river country and are gone without goodbye.'; } hopeDn(6); s.dist+=3; return 'The murmuration turns like a blade — too fast. The flock strings out, panicked, and you spend an hour in the reeds calling names into the wind until the last one, Finn, drops in beside you, shaking.'; } },
+       {t:'Decline. Twelve birds, one pace — ours.', f:s=>{ hopeUp(1); return 'The starling shrugs — a ripple through a hundred wings — and the smoke of them pours away south. Otis nods slowly. “A flock that flies another’s pace,” he says, “arrives as another’s flock.”'; } } ] },
+ { id:'eggnight', t:'THE COLD SNAP', p:()=>'A knife of cold rolls down off the mountains after dark. Gertie tucks the egg beneath her and stares at nothing. Kevin stands over them both. The flock’s warmth, pressed together, may not be enough tonight.',
+   c:[ {t:'Burn the seed reserve — eat double, everyone, and shiver together.', f:s=>{ s.seeds-=12; hopeUp(6); return 'Full crops burn like little furnaces. The flock packs tight around Gertie in a wall of feathers. Near dawn, Kevin whispers that he felt the egg move.'; } },
+       {t:'Send the strongest to gather deadgrass for a windbreak.', f:s=>{ if (roll(.7)){ hopeUp(4); return 'Bram, Finn and Reed haul grass until midnight and weave a rough wall. It holds. In the morning it looks like a nest — the first thing anyone has built since the fire. Nobody wants to leave it.'; } hopeDn(4); hurt('Finn',1); return 'The grass-gathering goes wrong in the dark — Finn puts a foot through hidden briar and tears it badly. The windbreak holds, barely. Finn says it was worth it. His eyes say the night was long.'; } } ] },
+ { id:'hawkshadow', t:'A SHADOW ON THE STUBBLE', p:()=>'A hawk. High, patient, riding the grey — and it has seen you. Old instinct says scatter, but scattered birds are exactly what a hawk wants. Bram’s eyes ask you the question the whole flock is asking.',
+   c:[ {t:'Dive to the hedgerows and freeze.', f:s=>{ if (roll(.75)){ hopeUp(2); return 'Twelve birds become twelve dead leaves in a hawthorn. The shadow crosses once, twice — and slides away down the valley. Dot is the last to breathe.'; } hurt('Cleo',1); hopeDn(5); return 'The hedge is thinner than it looked. The hawk stoops once, talons raking through twigs, and Cleo pays for the flock’s escape with a stripe of feathers and blood. She still sings that night. Softer.'; } },
+       {t:'Mob it. Twelve against one.', f:s=>{ if (adapt()<0||roll(.5)){ hopeUp(7); return 'You take the flock UP — all of you, screaming like the fire itself. The hawk, expecting prey, meets a storm. It breaks off, affronted, and does not come back. The flock lands trembling and thrilled.'; } hurt('Bram',1); hopeDn(6); return 'It nearly works. The hawk breaks — but not before its talons find Bram, boldest and closest. He tears free and glides down hard. “Worth it,” he grits, bleeding, “if it remembers us.”'; } } ] },
+ { id:'memorial', t:'THE STONES', p:()=>'On a low rise stand small cairns of piled pebble — bird-made, wing-stacked. Otis lands beside them without being asked. “Flocks before us,” he says. “They mark where their dead fell, so the sky remembers.”', once:true,
+   c:[ {t:'Add a stone for Old Marra.', f:s=>{ hopeUp(6); s.mercies++; return 'One by one, twelve birds carry twelve pebbles. The cairn that rises is small and crooked and yours. Nobody speaks. Nobody needs to. When the flock lifts off, it flies in the tightest formation it has ever held.'; } },
+       {t:'Pay respects and fly on. Grief is heavy cargo.', f:s=>{ hopeDn(2); return 'You dip low over the stones and fly on. It was the practical choice. That night you catch Finn, who lost everyone, staring back along the way you came.'; } } ] },
+ { id:'rations', t:'EMPTY CROPS', p:()=>'The seed reserve is thinner than anyone wants to say aloud. Hazel finally says it. Rationing means weak wings. Full rations mean empty crops in two days. Waddles offers, too loudly, to eat half of everyone else’s share “as a service.” No one laughs. He tried.', cond:s=>s.seeds<25,
+   c:[ {t:'Ration hard. Thin wings beat no wings.', f:s=>{ s.seeds+=6; hopeDn(5); return 'Hungry days. Short tempers. Pip and Reed fly wider scouting loops than they should, and twice come back with pockets of gleanings that keep the flock honest, if not full.'; } },
+       {t:'Full rations. A strong flock finds more.', f:s=>{ s.seeds-=8; hopeUp(4); return 'You bet on strength. The flock flies hard and forages harder, and the bet mostly pays — Hazel’s eye misses nothing when her crop is full.'; } } ] },
+ { id:'finn', t:'FINN STOPS FLYING', p:()=>'Finn simply stops. Lands on a fence rail in the middle of nowhere and stares back north, toward the ash. “Everyone I had is back there,” he says. “What exactly am I flying TO?” The flock circles. The wind is good and the day is wasting.', once:true,
+   c:[ {t:'Land the whole flock. However long it takes.', f:s=>{ s.dist-=1; hopeUp(8); s.mercies++; return 'You land twelve birds in the middle of nowhere, and wait. Cleo sits nearest. After a long while Finn says, “The egg. I’d like to see it hatch, is all.” And that is enough to fly on.'; } },
+       {t:'Send Cleo. Keep the flock moving overhead.', f:s=>{ hopeUp(3); return 'The flock carves slow circles while Cleo perches beside him and talks, too quiet to hear. Whatever she says, it works. He flies. But he flies at the edge of the formation now, and you notice.'; } } ] },
+ { id:'promise', t:'THE COLD MORNING', p:()=>'Gertie won’t fly. She stands over the egg, feathers spread wide, eyes wild. “It went cold in the night,” Kevin says, hollow. “She won’t let anyone near it. Not even Mabel.” The flock circles overhead, burning daylight.',
+   c:[ {t:'Land. Sit beside her. Say nothing.', f:s=>{ hopeUp(6); s.promiseKept=true; s.dist-=1; return 'You sit in the frost beside Gertie for one hour, then two. Finally she tucks the egg against your flank — just for a moment — and Mabel is there in a heartbeat. “Warm,” Mabel announces. “Deep-sleeping, is all.” Gertie laughs, and it breaks into something else. Kevin looks at you like you hung the Wayfinder star.'; } },
+       {t:'Send Mabel in — gently, but now. The flock can’t stop.', f:s=>{ hopeUp(2); return 'Mabel talks her way in the way only Mabel can, one soft word at a time. The egg is fine. Gertie flies the rest of the day in silence, and Kevin flies exactly one wingbeat behind her, all the way to dusk.'; } } ] },
+ { id:'duet', t:'THE HALF-REMEMBERED SONG', p:()=>'Cleo starts an old flight-song and stops mid-verse. “That’s all I have. My mother knew the rest — it maps the whole way south.” Finn, of all birds, clears his throat. “My family sang that one,” he says. “I might know the middle.”',
+   c:[ {t:'Give them the evening to piece it together.', f:s=>{ s.dist-=1; hopeUp(7); s.duet=true; return 'They trade verses over the wind until the light goes — her melody, his words, both of them laughing when the halves don’t meet. By dark the flock knows one more mile of the map. And Finn flies inside the formation again. Right beside Cleo.'; } },
+       {t:'Songs later. Miles now.', f:s=>{ s.dist+=2; hopeDn(2); return 'The flock makes good distance in silence. That night Finn hums the middle verse alone, very quietly, to nobody. Cleo pretends not to hear it. She doesn’t pretend well.'; } } ] },
+ { id:'firstglide', t:'DOT’S FIRST LEAD', p:()=>'Dot has flown point-shadow behind Reed for three days, copying every bank and rise. Now she wants the front of the V — just for an hour. Mabel is already saying no with her whole body.',
+   c:[ {t:'Let her lead. The whole flock behind one chick.', f:s=>{ hopeUp(8); return 'Dot leads like she’s been doing it for years — chin up, wings sure, correcting for gusts Reed hadn’t even called. The flock cheers her back to her place in the V. Mabel doesn’t say a word. She doesn’t have to. She’s flying taller than the hawks.'; } },
+       {t:'Not yet, little one. The sky ahead is no training ground.', f:s=>{ hopeDn(2); return 'Dot takes it better than Mabel does — “She EARNED an hour,” Mabel mutters. Dot drops back behind Reed and copies him twice as hard. She isn’t sulking. She’s studying.'; } } ] },
+ { id:'gorge', t:'THE GORGE', p:()=>'The land splits: a river gorge, deep and loud, spanned by one rotten rail bridge. Crossing the bridge deck is fast and out of the wind. Flying the gorge itself means whitewater spray and hard turns. Otis mutters that bridges are men’s things.', cond:s=>s.crowMap!==true,
+   c:[ {t:'Cross under the bridge deck.', f:s=>{ if (roll(.7)){ s.dist+=3; return 'Under the deck, among the beams, the wind dies to nothing and the crossing is almost easy. Men’s things have their uses, whatever Otis says. He crosses last, and pointedly does not enjoy it.'; } hurt('Pip',1); hopeDn(4); return 'A train. Nobody knew what the humming rails meant until it was overhead like the end of the world. The flock spills out in every direction; Pip is knocked into a beam by the shock of it. Bruised. Alive. Older.'; } },
+       {t:'Fly the gorge, spray and all.', f:s=>{ hopeUp(3); s.dist+=1; return 'It’s hard, wet, loud flying — and somewhere in the middle of it, it becomes joy. Even Otis whoops, once, and swears forever after that it was the wind.'; } } ] },
+];
+function roll(p){ return Math.random() < p; }
+function hopeUp(n){ S.hope = Math.min(100, S.hope+n); }
+function hopeDn(n){ S.hope = Math.max(0, S.hope-n); }
+function hurt(name, amt){ const b = byName(name); if (b) b.hurt += amt; }
+
+/* speaker = the character actually featured/talking in the event text.
+   Strangers (Crow, Starling) only show a face if art/crow.jpg etc. exists. */
+const SPEAKER = { thermal:'Reed', silo:'Hazel', crow:'Crow', rain:'Otis', wire:'Pip',
+  starling:'Starling', eggnight:'Kevin', hawkshadow:'Bram', memorial:'Otis',
+  rations:'Hazel', finn:'Finn', gorge:'Otis',
+  promise:'Kevin', duet:'Cleo', firstglide:'Mabel' };
+const STRANGERS = ['Crow','Starling'];
+STRANGERS.forEach(n => { const img = new Image();
+  img.onload = () => { ART[n] = img; }; img.onerror = () => { ART[n] = null; };
+  img.src = 'art/' + n.toLowerCase() + '.jpg';
+  const tk = new Image();
+  tk.onload = () => { ARTT[n] = tk; }; tk.onerror = () => { ARTT[n] = null; };
+  tk.src = 'art/' + n.toLowerCase() + '_talk.jpg'; });
+function fireEvent(){ const pool = EVENTS.filter(e =>
+    !S.seenEvents.includes(e.id) && (!e.cond || e.cond(S)));
+  S.nextEventAt = S.dist + 5 + Math.random()*3.5;
+  if (!pool.length){ hud(); return; }
+  const ev = pool[Math.floor(Math.random()*pool.length)];
+  S.seenEvents.push(ev.id);
+  MODE='card'; show('card'); scene='flight';
+  $('cardTitle').textContent = ev.t;
+  const sp = SPEAKER[ev.id];
+  const txt = $('cardText'); txt.textContent = ev.p();
+  txt.classList.remove('outcome');
+  const spOk = sp && (STRANGERS.includes(sp) ? !!ART[sp] : (byName(sp) && byName(sp).alive));
+  if (spOk){ txt.prepend(animPortrait(sp)); murmur(sp); }
+  $('cardCont').innerHTML = '';
+  const box = $('cardChoices'); box.innerHTML = '';
+  ev.c.forEach(ch => { const b = document.createElement('button');
+    b.className = 'choice'; b.textContent = ch.t;
+    b.onclick = () => { uiTick(); S.choicesMade++;
+      const out = ch.f(S); S.seeds = Math.max(0, S.seeds);
+      box.innerHTML = '';
+      txt.textContent = out; txt.classList.add('outcome');
+      if (spOk) txt.prepend(portraitEl(sp));
+      const c = document.createElement('button'); c.className='tbtn'; c.textContent='FLY ON';
+      c.onclick = () => { uiTick(); resumeFlight(); }; $('cardCont').appendChild(c); };
+    box.appendChild(b); });
+}
+function resumeFlight(){ MODE='flight'; show('hud'); hud(); save(); }
+
+/* ---------------- camp: full night scene, three phases ---------------- */
+const CAMP_TALKS = {
+  'Bram': ['Sit with Bram, who was the leader’s second.', 'Bram is quiet a long time. Then: “I thought it should have been me. Marra knew better. You land the flock gentler than I would have.” It costs him to say it. You both pretend it doesn’t.', 5],
+  'Kevin': ['Sit with Kevin, Gertie, and the egg.', 'Gertie lets you rest a wing near the egg. “If it’s a girl,” Kevin says, “Gertie wants Marra.” Gertie looks at him. “Kevin wants Marra,” she corrects softly. “I want her to hatch somewhere safe enough to be anyone.”', 6],
+  'Otis': ['Sit with Otis while he names the stars for Dot.', '“That one,” Otis tells Dot, “is the Wayfinder. Every bird that ever flew south flew under it.” Dot asks if Marra is up there now. Otis doesn’t miss a wingbeat: “Who do you think is holding the lantern?”', 6],
+  'Cleo': ['Sit with Cleo and Finn at the fire’s edge.', 'Cleo hums, low, until Finn’s shoulders come down from around his ears. “I don’t remember the words,” Finn admits. “Nobody does,” Cleo says. “That’s why flocks hum.” You stay until the ember-light dies.', 5],
+  'Waddles': ['Sit with Waddles and Hazel, who found supper.', 'Hazel splits her last gleanings twelve ways with terrifying precision. Waddles solemnly donates his share to Dot, then spends an hour pretending he isn’t hungry. Hazel slips him hers when she thinks no one sees. You see.', 5],
+  'watch': ['Take the first watch alone at the edge of camp.', 'You watch the dark so the others don’t have to. Near midnight, Reed lands beside you without a word and takes the north half of the sky. Leaders, it turns out, get watched over too.', 4],
+};
+function campScene(){ MODE='card'; show('card'); scene='camp'; auTheme(.25);
+  S.campTalks = 0;
+  campIntro();
+}
+function campIntro(){
+  $('cardTitle').textContent = 'CAMP — THE FIRST GREEN TREES';
+  const txt = $('cardText'); txt.classList.remove('outcome');
+  txt.textContent = 'The flock lands in living branches for the first time since the fire. Green leaves. Unburned bark. A small fire of deadfall crackles below the roost. For a while nobody says anything at all. The night is yours — spend it well.';
+  $('cardCont').innerHTML = ''; const box = $('cardChoices'); box.innerHTML = '';
+  const c = document.createElement('button'); c.className='tbtn'; c.textContent='JOIN THE FIRE';
+  c.onclick = () => { uiTick(); campTalkMenu(); }; $('cardCont').appendChild(c);
+}
+function campTalkMenu(){
+  if (S.campTalks >= 2){ campRations(); return; }
+  $('cardTitle').textContent = S.campTalks===0 ? 'THE FIRE — EARLY NIGHT' : 'THE FIRE — LATE NIGHT';
+  const txt = $('cardText'); txt.classList.remove('outcome');
+  txt.textContent = S.campTalks===0 ? 'Small circles of feathers and firelight. Who do you spend this hour beside?'
+    : 'The fire burns lower. One more hour before sleep. Who needs you now?';
+  $('cardCont').innerHTML = ''; const box = $('cardChoices'); box.innerHTML = '';
+  Object.keys(CAMP_TALKS).filter(k => !(S.campDone||[]).includes(k)).forEach(k => {
+    const [label, out, hp] = CAMP_TALKS[k];
+    const b = document.createElement('button'); b.className='choice';
+    b.textContent = label;
+    if (k!=='watch' && PAL[k]){ const p = portraitEl(k, true);
+      p.style.cssText += ';float:left;margin-right:10px'; b.prepend(p); }
+    b.onclick = () => { uiTick(); if (k!=='watch') murmur(k);
+      S.campDone = (S.campDone||[]); S.campDone.push(k); S.campTalks++;
+      hopeUp(hp); box.innerHTML='';
+      txt.textContent = out; txt.classList.add('outcome');
+      if (k!=='watch') txt.prepend(animPortrait(k));
+      const c = document.createElement('button'); c.className='tbtn';
+      c.textContent = S.campTalks>=2 ? 'THE FIRE DIES DOWN' : 'ANOTHER HOUR';
+      c.onclick = () => { uiTick(); campTalkMenu(); }; $('cardCont').appendChild(c); };
+    box.appendChild(b); });
+}
+function campRations(){
+  $('cardTitle').textContent = 'BEFORE SLEEP — THE SEED STORE';
+  const txt = $('cardText'); txt.classList.remove('outcome');
+  txt.textContent = 'Hazel lays out what the flock carries: ' + Math.round(S.seeds) + ' seeds, give or take a crop. Tomorrow starts hungry or it doesn’t.';
+  $('cardCont').innerHTML = ''; const box = $('cardChoices'); box.innerHTML = '';
+  [ ['Eat well tonight. Tomorrow needs strong wings.', ()=>{ S.seeds=Math.max(0,S.seeds-8); hopeUp(4);
+      return 'Full crops all around. Waddles declares it the finest meal of his life, which he also said yesterday. Spirits lift like sparks.'; }],
+    ['Half rations. The green country may not stay generous.', ()=>{ S.seeds+=2; hopeDn(1);
+      return 'Nobody complains out loud. Hazel nods at you once, which from Hazel is a standing ovation. The store will stretch.'; }],
+  ].forEach(([label, fn]) => { const b = document.createElement('button');
+    b.className='choice'; b.textContent = label;
+    b.onclick = () => { uiTick(); const out = fn(); box.innerHTML='';
+      txt.textContent = out; txt.classList.add('outcome');
+      const c = document.createElement('button'); c.className='tbtn'; c.textContent='SLEEP';
+      c.onclick = () => { uiTick(); scene='flight'; auTheme(.35); resumeFlight(); };
+      $('cardCont').appendChild(c); };
+    box.appendChild(b); });
+}
+
+/* ---------------- end of act ---------------- */
+function endAct(){ MODE='end';
+  S.flock.forEach(b => { if (!b.alive) addStone(b.n, S.dist); });
+  S.act1done = true; save();
+  $('shareImg').src = shareCard(); show('end');
+}
+function shareCard(){ const c = document.createElement('canvas');
+  c.width = 640; c.height = 800; const x = c.getContext('2d');
+  const g = x.createLinearGradient(0,0,0,800);
+  g.addColorStop(0,'#141c2a'); g.addColorStop(.6,'#3a3f52'); g.addColorStop(1,'#8a6a55');
+  x.fillStyle = g; x.fillRect(0,0,640,800);
+  x.fillStyle = '#0c0f15'; x.beginPath(); x.moveTo(0,800);
+  for (let px=0;px<=640;px+=10) x.lineTo(px, 700 - Math.abs(Math.sin(px*.008)*70));
+  x.lineTo(640,800); x.fill();
+  for (let i=0;i<9;i++){ const bx = 140+i*45, by = 200+Math.abs(i-4)*22;
+    x.strokeStyle = '#0e0c0a'; x.lineWidth = 3; x.lineCap='round'; x.beginPath();
+    x.moveTo(bx-12, by-6); x.quadraticCurveTo(bx, by+2, bx+12, by-6); x.stroke(); }
+  x.fillStyle = '#c8b98a'; x.font = '13px Georgia'; x.textAlign = 'center';
+  x.fillText('T H E   L O N G   M I G R A T I O N', 320, 90);
+  x.fillStyle = '#e8e2d4'; x.font = '30px Georgia';
+  x.fillText('Act I — The Burning', 320, 130);
+  x.font = '15px Georgia'; x.fillStyle = '#c8b98a';
+  x.fillText('Led by ' + S.player + '  ·  Day ' + S.day, 320, 320);
+  // survivor portrait row(s)
+  const surv = alive(); const per = Math.min(6, surv.length), pw = 72, gap = 14;
+  surv.forEach((b, i) => { const row = Math.floor(i/per), inRow = Math.min(per, surv.length - row*per),
+      x0 = 320 - (inRow*pw + (inRow-1)*gap)/2, px = x0 + (i%per)*(pw+gap), py = 350 + row*(pw+30);
+    const src = ART[b.n] || codePortrait(b.n, pw);
+    x.save(); x.beginPath(); x.arc(px+pw/2, py+pw/2, pw/2, 0, 7); x.clip();
+    x.drawImage(src, px, py, pw, pw); x.restore();
+    x.strokeStyle = 'rgba(200,185,138,.6)'; x.lineWidth = 1.5;
+    x.beginPath(); x.arc(px+pw/2, py+pw/2, pw/2, 0, 7); x.stroke();
+    x.fillStyle = '#ddd6c6'; x.font = '12px Georgia';
+    x.fillText(b.n, px+pw/2, py+pw+16); });
+  const gone = S.flock.filter(b=>!b.alive).map(b=>b.n),
+        left = S.flock.filter(b=>b.left).map(b=>b.n);
+  if (byName('Gertie').alive && !byName('Gertie').left){
+    x.fillStyle = '#c8b98a'; x.font = 'italic 14px Georgia';
+    x.fillText('— and the egg —', 320, 350 + Math.ceil(surv.length/per)*(pw+30) + 8); }
+  x.fillStyle = '#b3ab97'; x.font = 'italic 14px Georgia';
+  if (gone.length) wrap(x, 'The sky remembers: ' + gone.join(', '), 320, 600, 520, 22);
+  if (left.length) wrap(x, 'Resting at havens: ' + left.join(', '), 320, 640, 520, 22);
+  if (!gone.length && !left.length) x.fillText('Not one feather lost. Yet.', 320, 610);
+  x.fillStyle = '#8d8672'; x.font = '13px Georgia';
+  x.fillText('The dogs have the scent.  Act II is coming.', 320, 690);
+  x.fillText('freefowl.com/migration', 320, 760);
+  return c.toDataURL('image/png');
+}
+function wrap(x, text, cx, y, w, lh){ const words = text.split(' '); let line = '';
+  words.forEach(word => { if (x.measureText(line+word).width > w){ x.fillText(line, cx, y); y += lh; line=''; }
+    line += word+' '; }); x.fillText(line, cx, y); }
+
+/* ---------------- boot ---------------- */
+function begin(fresh){ auInit();
+  if (!fresh){ const sv = loadSave();
+    if (sv && !sv.act1done){ S = sv; startFlight(); return; } }
+  S = newState(); save(); scene='burn'; openCut();
+}
+$('btnNew').onclick  = () => begin(true);
+$('btnCont').onclick = () => begin(false);
+$('btnTitle').onclick = () => { show('title'); MODE='title'; scene='vow'; };
+$('shareBtn').onclick = async () => { uiTick();
+  try { const res = await fetch($('shareImg').src), blob = await res.blob();
+    const file = new File([blob], 'long-migration-act1.png', { type:'image/png' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title:'The Long Migration',
+        text:'We made it out of the burning. freefowl.com/migration' }); return; }
+  } catch(e){}
+  const a = document.createElement('a'); a.href = $('shareImg').src;
+  a.download = 'long-migration-act1.png'; a.click();
+};
+(function initTitle(){ const sv = loadSave();
+  if (sv && !sv.act1done){ $('btnCont').style.display=''; $('btnCont').classList.remove('dim');
+    if (sv.player) $('pname').value = sv.player; }
+  scene = 'burn';
+})();
+
+/* test hooks */
+globalThis.__lm = { get S(){return S;}, newState, begin, fireEvent, EVENTS, nextLine,
+  startFlight, tick, campScene, endAct, alive:()=>alive(), adapt, stones };
+</script>
+</body>
+</html>

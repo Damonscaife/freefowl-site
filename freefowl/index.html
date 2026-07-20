@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Project Free Fowl — Prototype</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:none; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#87b558; font-family:'Arial Rounded MT Bold', Arial, sans-serif; }
+  canvas { display:block; }
+  #hud { position:fixed; inset:0; pointer-events:none; }
+  .bankbars { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:min(300px,38vw); }
+  .barrow { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+  .barlabel { font-size:12px; font-weight:bold; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.4); width:52px; }
+  .bartrack { flex:1; height:14px; background:rgba(0,0,0,.35); border-radius:8px; overflow:hidden; }
+  .barfill { height:100%; width:0%; border-radius:8px; transition:width .3s; }
+  #fill0 { background:linear-gradient(90deg,#4aa3ff,#7cc4ff); }
+  #fill1 { background:linear-gradient(90deg,#ff5d4a,#ff9b7c); }
+  #fill2 { background:linear-gradient(90deg,#2ecc71,#7ce8a8); }
+  #fill3 { background:linear-gradient(90deg,#f4d03f,#ffe98a); }
+  .barrow { margin-bottom:3px !important; }
+  .bartrack { height:10px !important; }
+  #timer { position:absolute; top:66px; left:50%; transform:translateX(-50%); color:#fff; font-size:15px; font-weight:bold; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+  #carryTag { position:absolute; bottom:86px; left:50%; transform:translateX(-50%); color:#fff; font-size:14px; font-weight:bold; text-shadow:0 1px 3px rgba(0,0,0,.6); text-align:center; }
+  #hint { position:absolute; bottom:64px; left:50%; transform:translateX(-50%); color:#ffe98a; font-size:13px; font-weight:bold; text-shadow:0 1px 3px rgba(0,0,0,.6); }
+  #upgrades { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); display:flex; gap:8px; pointer-events:auto; }
+  .upbtn { padding:8px 14px; border:none; border-radius:10px; font-size:12px; font-weight:bold; color:#fff; background:#2e6b9e; box-shadow:0 2px 5px rgba(0,0,0,.35); cursor:pointer; }
+  .upbtn:disabled { opacity:.45; }
+  #banner { position:absolute; top:26%; left:50%; transform:translateX(-50%); color:#fff; font-size:clamp(18px,4vw,30px); font-weight:bold; text-shadow:0 2px 6px rgba(0,0,0,.6); text-align:center; opacity:0; transition:opacity .4s; }
+  #overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; background:rgba(20,30,15,.72); pointer-events:auto; }
+  #overlay h1 { color:#ffe98a; font-size:clamp(28px,7vw,52px); text-shadow:0 3px 8px rgba(0,0,0,.6); margin-bottom:8px; }
+  #overlay p { color:#fff; font-size:16px; margin-bottom:22px; text-align:center; padding:0 20px; }
+  #overlay button { padding:12px 30px; font-size:17px; font-weight:bold; border:none; border-radius:12px; background:#4aa3ff; color:#fff; cursor:pointer; }
+  #menu { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; background:rgba(20,30,15,.88); pointer-events:auto; z-index:5; }
+  #menu h1 { color:#ffe98a; font-size:clamp(26px,6vw,46px); text-shadow:0 3px 8px rgba(0,0,0,.6); margin-bottom:6px; }
+  #menu p { color:#cfe3b8; font-size:13px; margin-bottom:16px; }
+  #menu input { padding:10px 14px; font-size:16px; border-radius:10px; border:none; margin-bottom:16px; text-align:center; -webkit-user-select:text; user-select:text; touch-action:auto; }
+  #colors { display:flex; gap:10px; margin-bottom:20px; }
+  .swatch { width:34px; height:34px; border-radius:50%; border:3px solid transparent; cursor:pointer; }
+  .swatch.sel { border-color:#ffe98a; }
+  #startBtn { padding:12px 36px; font-size:18px; font-weight:bold; border:none; border-radius:12px; background:#4aa3ff; color:#fff; cursor:pointer; margin-bottom:10px; }
+  #onlineBtn { padding:12px 36px; font-size:18px; font-weight:bold; border:none; border-radius:12px; background:#2ecc71; color:#fff; cursor:pointer; }
+  #title { position:absolute; top:8px; left:10px; color:rgba(255,255,255,.85); font-size:13px; font-weight:bold; text-shadow:0 1px 2px rgba(0,0,0,.4); }
+  #lb { position:absolute; top:10px; left:10px; background:rgba(0,0,0,.32); border-radius:8px; padding:6px 10px; font-size:11px; color:#fff; min-width:130px; }
+  #lb .lbt { font-weight:bold; color:#ffe98a; margin-bottom:3px; font-size:10px; letter-spacing:1px; }
+  #lb .row { display:flex; justify-content:space-between; gap:8px; line-height:1.5; }
+  #quests { position:absolute; top:140px; left:10px; background:rgba(0,0,0,.32); border-radius:8px; padding:6px 10px; font-size:11px; color:#fff; min-width:130px; }
+  #quests .lbt { font-weight:bold; color:#ffe98a; margin-bottom:3px; font-size:10px; letter-spacing:1px; }
+  #quests .row { display:flex; justify-content:space-between; gap:8px; line-height:1.5; }
+  #emotes { position:absolute; bottom:10px; left:10px; display:flex; gap:6px; pointer-events:auto; }
+  .embtn { width:38px; height:38px; border:none; border-radius:50%; background:rgba(0,0,0,.35); font-size:17px; cursor:pointer; }
+  #feed { position:absolute; top:40px; right:10px; width:190px; text-align:right; font-size:11px; color:#fff; }
+  .feeditem { background:rgba(0,0,0,.32); border-radius:6px; padding:3px 8px; margin-bottom:3px; transition:opacity .5s; display:inline-block; }
+  #muteBtn { position:absolute; top:6px; right:10px; pointer-events:auto; background:rgba(0,0,0,.35); border:none; color:#fff; font-size:15px; border-radius:8px; padding:4px 8px; cursor:pointer; }
+  #ovAwards { color:#fff; font-size:14px; text-align:center; margin-bottom:18px; line-height:1.9; }
+  #ovXp { color:#ffe98a; font-size:15px; font-weight:bold; margin-bottom:14px; }
+  #speciesRow { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; justify-content:center; max-width:90vw; }
+  .spchip { padding:6px 10px; border-radius:9px; font-size:12px; font-weight:bold; color:#fff; background:rgba(255,255,255,.12); border:2px solid transparent; cursor:pointer; }
+  .spchip.sel { border-color:#ffe98a; }
+  .spchip.lock { opacity:.4; cursor:default; }
+  #authRow { display:none; gap:8px; margin-bottom:14px; align-items:center; flex-wrap:wrap; justify-content:center; max-width:92vw; }
+  #lvlLine { color:#ffe98a; font-size:14px; font-weight:bold; margin-bottom:12px; }
+  #classRow, #subRow { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; justify-content:center; max-width:92vw; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="lb"><div class="lbt">TOP DEPOSITORS</div><div id="lbRows"></div></div>
+  <div id="quests"><div class="lbt">DAILY QUESTS</div><div id="qRows"></div></div>
+  <div id="feed"></div>
+  <button id="muteBtn">🔊</button>
+  <div id="emotes">
+    <button class="embtn">❤️</button><button class="embtn">😂</button>
+    <button class="embtn">👍</button><button class="embtn">⚡</button>
+  </div>
+  <div class="bankbars">
+    <div class="barrow"><div class="barlabel">BLUE</div><div class="bartrack"><div class="barfill" id="fill0"></div></div></div>
+    <div class="barrow"><div class="barlabel">RED</div><div class="bartrack"><div class="barfill" id="fill1"></div></div></div>
+    <div class="barrow"><div class="barlabel">GREEN</div><div class="bartrack"><div class="barfill" id="fill2"></div></div></div>
+    <div class="barrow"><div class="barlabel">GOLD</div><div class="bartrack"><div class="barfill" id="fill3"></div></div></div>
+  </div>
+  <div id="timer">25:00</div>
+  <div id="carryTag"></div>
+  <div id="hint"></div>
+  <div id="upgrades">
+    <div class="upbtn" id="bankChip" style="background:#5d3a14; cursor:default;"></div>
+    <button class="upbtn" id="genBtn"></button>
+    <button class="upbtn" id="magBtn"></button>
+  </div>
+  <div id="banner"></div>
+  <div id="menu">
+    <h1>PROJECT FREE FOWL</h1>
+    <p>Pick your name and feathers</p>
+    <div id="authRow">
+      <input id="emailInput" type="email" placeholder="email for login" style="margin-bottom:0;">
+      <button class="spchip" id="linkBtn">✉️ Login link</button>
+      <button class="spchip" id="googleBtn">Google</button>
+      <span id="authState" style="color:#cfe3b8;font-size:12px;"></span>
+      <button class="spchip" id="outBtn" style="display:none;">Sign out</button>
+    </div>
+    <div id="lvlLine"></div>
+    <input id="nameInput" maxlength="12" placeholder="Your name" value="You">
+    <input id="seedInput" maxlength="20" placeholder="Map seed (optional)">
+    <div id="speciesRow"></div>
+    <div id="colors"></div>
+    <button id="startBtn">FLY! (vs bots)</button>
+    <button id="onlineBtn">PLAY ONLINE</button>
+  </div>
+  <div id="overlay"><h1 id="ovTitle"></h1><p id="ovText"></p><div id="ovAwards"></div><div id="ovXp"></div><button id="restart">Play Again</button></div>
+</div>
+<script src="https://unpkg.com/colyseus.js@0.15.26/dist/colyseus.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+"use strict";
+// ============ CONFIG (mirrors GDD tuning table) ============
+const CFG = {
+  worldW: 10400, worldH: 6800,
+  baseRadius: 260,
+  victoryTarget: 10000,
+  matchSeconds: 1500,
+  pelletCount: 2400,
+  hunterRange: 430, hunterAimTime: 1.1, bulletSpeed: 900,
+  absorbThreshold: 1.2,        // must be 20% larger
+  absorbYield: 0.75,           // 75% to absorber, 25% scatters
+  loadSpeedExp: 0.9,           // speed falloff with size
+  dashCost: 0.05, dashCooldown: 2.0,
+  decayPerSec: 0.001,          // ~1% per 10s
+  depositTime: 3.0,            // seconds to fully deposit
+  respawnTime: 10,
+  bloomEvery: 90, bloomWarn: 5,
+  catchupGap: 600, catchupMaxBots: 2,
+  birdBaseR: 15, birdBaseSpeed: 250,
+};
+const SPECIES = [
+  {n:"Pigeon",  c:"#9aa2ad"}, {n:"Canary",  c:"#f4d03f"},
+  {n:"Bluebird",c:"#5dade2"}, {n:"Cardinal",c:"#e74c3c"},
+  {n:"Yellowtail",c:"#f5b041"}, {n:"Toucan", c:"#2c3e50"},
+  {n:"Crow",    c:"#4d4d59"}, {n:"Eagle",   c:"#a04000"},
+];
+const TEAM = { BLUE:0, RED:1, GREEN:2, GOLD:3, HAWK:4 };
+const NTEAMS = 4;
+const TEAMNAMES = ["BLUE","RED","GREEN","GOLD"];
+const TEAMCOL = ["#4aa3ff", "#ff5d4a", "#2ecc71", "#f4d03f", "#f0a41e"];
+const TEAMDARK = ["#2e6b9e", "#b03a2e", "#1e8c4f", "#b7920c", "#8a5a10"];
+const HAWKSPEC = {n:"Hawk", c:"#7c4a1e"};
+// per-species silhouettes — each rank should LOOK like a step up
+const FEATS={
+  Pigeon:     {},
+  Canary:     {crest:"tuft", beakS:0.85, eyeS:1.2},
+  Bluebird:   {wingSharp:true, wingTip:"#ffffff", tailS:1.2},
+  Cardinal:   {crest:"tall", mask:"#26262b", beakC:"#e67e22"},
+  Yellowtail: {tailS:2.0, tailC:"#ffd84a", plume:true},
+  Toucan:     {beakS:2.2, beakC:"#f39c12", beakTip:"#e74c3c", belly:"#f5f6fa", eyeRing:"#aed6f1"},
+  Crow:       {brow:1, beakC:"#3a3a44", tailS:1.3, sleek:true},
+  Eagle:      {headC:"#f5f0e6", brow:2, beakS:1.3, beakC:"#f1c40f", hook:true, wingS:1.3, aura:"rgba(255,210,80,.30)"},
+  Hawk:       {brow:2, beakS:1.15, beakC:"#d68910", hook:true, wingS:1.15},
+  Owl:        {owl:true, beakS:0.6, beakC:"#c9a13b", tailS:0.55, wingS:1.1},
+};
+
+// ============ CANVAS ============
+const cv = document.getElementById("game"), cx = cv.getContext("2d");
+let VW=0, VH=0, DPR=1;
+function resize(){ DPR = Math.min(window.devicePixelRatio||1, 2);
+  VW = window.innerWidth; VH = window.innerHeight;
+  cv.width = VW*DPR; cv.height = VH*DPR; cv.style.width=VW+"px"; cv.style.height=VH+"px";
+  cx.setTransform(DPR,0,0,DPR,0,0); }
+window.addEventListener("resize", resize); resize();
+
+// ============ STATE ============
+let birds=[], pellets=[], orbs=[], bases=[], teams=[], player=null;
+let obstacles=[], bushes=[], hunters=[], bullets=[];
+let camX=0, camY=0, timeLeft=CFG.matchSeconds, gameOver=false;
+let bloomTimer=CFG.bloomEvery, bloomActive=null, lastTap=0, decor=[];
+let goldenEgg=null, eggTimer=100, bountyT=0, mapSeed="";
+let wr01=Math.random;
+const wrand=(a,b)=>a+wr01()*(b-a);
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; } }
+function strSeed(s){ let h=2166136261; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+let grannys=[], feathers=[], elapsed=0;
+let nightA=0, nightFlag=false, suddenDeath=false, sdT=0, flock=null;
+let started=false, playerName="You", playerColor="#9aa2ad";
+let lobbyT=0, lastLobbyS=-1;
+const EMOTES=["❤️","😂","👍","😮","⚡","🐛"];
+function setEmote(b,e){ if(b&&!b.dead){ b.emote=e; b.emoteT=2.2; } }
+// ---- daily quests ----
+const QUESTS=[{k:"bank",n:"Bank 400 seeds",t:400},{k:"kills",n:"Defeat 3 birds",t:3},{k:"avenge",n:"Avenge 2 teammates",t:2}];
+const today=new Date().toISOString().slice(0,10);
+let daily={date:today,bank:0,kills:0,avenge:0,claimed:{}};
+try{ const d=JSON.parse(localStorage.getItem("ff_daily")); if(d&&d.date===today) daily=d; }catch(e){}
+function saveMeta(){ try{ localStorage.setItem("ff_daily",JSON.stringify(daily)); localStorage.setItem("ff_meta",JSON.stringify(meta)); }catch(e){} }
+function questAdd(k,v){ if(daily.claimed[k]) return;
+  daily[k]+=v; const q=QUESTS.find(q=>q.k===k);
+  if(daily[k]>=q.t){ daily.claimed[k]=true; meta.xp=(meta.xp||0)+100; saveMeta();
+    showBanner("QUEST COMPLETE: "+q.n+" (+100 XP)"); sfx.egg(); } }
+function gain(b,v){ // in sudden death, pickups bank instantly (nests are outside the ring)
+  if(suddenDeath && b.team<4){ teams[b.team].bank+=v; teams[b.team].total+=v; b.deposited+=v; }
+  else b.carried+=v; }
+function dropFeather(b){ if(b.team<4) feathers.push({x:b.x,y:b.y,team:b.team,life:10,owner:b}); }
+// ---- meta progression (persists in this browser) ----
+let meta={xp:0}; try{ meta=JSON.parse(localStorage.getItem("ff_meta"))||{xp:0}; }catch(e){ meta={xp:0}; }
+let selSpecies=0; try{ selSpecies=Math.max(0,Math.min(7,parseInt(localStorage.getItem("ff_sp"))||0)); }catch(e){}
+function levelOf(xp){ return Math.floor(Math.sqrt(xp/120)); }
+function speciesReq(i){ return i*2; }   // Pigeon lv0 ... Eagle lv14
+// ---- bot names ----
+const NAMES=["Chirpy","Beaky","Kevin","Waddles","Pip","Sunny","Gertie","Rocco","Mabel","Ziggy",
+  "Doris","Bruno","Twig","Olive","Rex","Poppy","Ace","Hazel","Gus","Luna","Biscuit","Cleo",
+  "Duke","Fern","Milo","Ruby","Scout","Tilly","Vinnie","Wren","Basil","Coco","Dot","Ernie",
+  "Flo","Goose","Iris","Jasper","Kiwi","Nina"];
+let nameIdx=(Math.random()*NAMES.length)|0;
+// ---- bloodhound mode (type "hunt" / "bird") ----
+let hunterMode=false, playerDog=null, dogStealth=false, dogDashT=0, dogDashCd=0, typeBuf="", zoom=1;
+let owlMode=false, playerOwl=null, owlDashT=0, owlDashCd=0;
+function addEscort(){
+  if(!hunterMode||!playerDog) return;
+  if(hunters.filter(h=>h.escort).length>=30) return;
+  hunters.push({x:playerDog.x+rand(-80,80), y:playerDog.y+rand(-80,80),
+    heading:0, state:"wander", target:null, aimT:0, cd:rand(0.2,1), dead:false, deadT:0,
+    escort:true, ox:rand(-160,160), oy:rand(-160,160)});
+}
+function removeEscort(){
+  const i=hunters.findIndex(h=>h.escort);
+  if(i>=0) hunters.splice(i,1);
+}
+function switchToHunter(){
+  if(netMode||hunterMode||!started||gameOver||!player||player.dead) return;
+  hunterMode=true;
+  if(owlMode){ owlMode=false; playerOwl=null; }
+  playerDog={x:CFG.worldW/2, y:CFG.worldH/2, heading:0};
+  dogStealth=false; dogDashT=0; dogDashCd=0;
+  addEscort();   // one hunter follows you from the start
+  player.isPlayer=false;   // your bird keeps fighting — as a bot
+  showBanner("BLOODHOUND MODE — W/E add/remove hunters • S/D stealth • X golden egg • double-tap = kill burst • 'bird' to return");
+}
+function switchToBird(){
+  if(!hunterMode && !owlMode) return;
+  hunterMode=false; owlMode=false;
+  hunters=hunters.filter(h=>!h.escort);
+  playerDog=null; playerOwl=null;
+  player.isPlayer=true;
+  showBanner("Back on the "+TEAMNAMES[player.team]+" team!");
+}
+function switchToOwl(){
+  if(owlMode||netMode||!started||gameOver||!player||player.dead) return;
+  if(hunterMode){ hunterMode=false; hunters=hunters.filter(h=>!h.escort); playerDog=null; }
+  owlMode=true; owlDashT=0; owlDashCd=0;
+  playerOwl={x:CFG.worldW/2, y:CFG.worldH/2, heading:0};
+  player.isPlayer=false;
+  showBanner("NIGHT OWL MODE — darkness falls • touch = kill • double-tap = long dash • 'bird' to return");
+}
+function dropEggHere(){
+  if(!hunterMode||!playerDog) return;
+  goldenEgg={x:playerDog.x+Math.cos(playerDog.heading)*130,
+             y:playerDog.y+Math.sin(playerDog.heading)*130, holder:null};
+  showBanner("The bloodhound dug up a GOLDEN EGG!"); sfx.egg();
+}
+// (old class-combat system removed — combat is size-based absorption + dash strikes again)
+try{ globalThis.__ff={ hunt:()=>switchToHunter(), bird:()=>switchToBird(), add:()=>addEscort(), sub:()=>removeEscort(), egg:()=>dropEggHere(), fire:(on)=>{ptr.active=!!on;} }; }catch(e){}
+// ---- floaters & kill feed ----
+let floaters=[];
+function addFloat(x,y,txt,color){ floaters.push({x,y,txt,color:color||"#fff",life:1.4}); }
+function nameSpan(b){ const col=b.hawk?TEAMCOL[2]:TEAMCOL[b.team];
+  return '<span style="color:'+col+'">'+b.name+'</span>'; }
+function feed(html){ try{
+  const f=document.getElementById("feed"), d=document.createElement("div");
+  d.className="feeditem"; d.innerHTML=html; f.prepend(d);
+  while(f.children.length>6) f.removeChild(f.lastChild);
+  setTimeout(()=>{ d.style.opacity=0; setTimeout(()=>d.remove(),500); },6000);
+}catch(e){} }
+// ---- tiny synth sound engine (no assets) ----
+const sfx=(()=>{ let ctx=null, on=true;
+  function ac(){ if(!ctx){ try{ ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } return ctx; }
+  function tone(f,d,type,v,f2){ const c=ac(); if(!c||!on) return;
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type||"square"; o.frequency.setValueAtTime(f,c.currentTime);
+    if(f2) o.frequency.exponentialRampToValueAtTime(Math.max(1,f2), c.currentTime+d);
+    g.gain.setValueAtTime(v||0.07, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime+d);
+    o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime+d); }
+  function noise(d,v){ const c=ac(); if(!c||!on) return;
+    const n=(c.sampleRate*d)|0, buf=c.createBuffer(1,n,c.sampleRate), ch=buf.getChannelData(0);
+    for(let i=0;i<n;i++) ch[i]=(Math.random()*2-1)*(1-i/n);
+    const s=c.createBufferSource(); s.buffer=buf; const g=c.createGain(); g.gain.value=v||0.1;
+    s.connect(g); g.connect(c.destination); s.start(); }
+  return {
+    get on(){return on}, set on(v){on=v}, unlock(){ ac(); },
+    peck(){ tone(650+Math.random()*350,0.05,"square",0.045); },
+    worm(){ tone(300,0.25,"sawtooth",0.06,900); },
+    dash(){ noise(0.16,0.11); },
+    deposit(){ tone(660,0.09,"square",0.05); setTimeout(()=>tone(880,0.09,"square",0.05),70); setTimeout(()=>tone(1100,0.12,"square",0.05),140); },
+    kill(){ tone(200,0.15,"sawtooth",0.1,80); noise(0.09,0.09); },
+    death(){ tone(420,0.5,"sawtooth",0.09,60); },
+    shot(){ noise(0.13,0.18); tone(140,0.12,"square",0.09,55); },
+    aim(){ tone(1250,0.28,"sine",0.06,1250); setTimeout(()=>tone(1250,0.28,"sine",0.06),340); },
+    bonk(){ tone(180,0.13,"square",0.11,85); },
+    egg(){ tone(880,0.1,"sine",0.07); setTimeout(()=>tone(1320,0.13,"sine",0.07),90); setTimeout(()=>tone(1760,0.18,"sine",0.07),180); },
+    streak(){ tone(500,0.1,"square",0.07,750); setTimeout(()=>tone(760,0.15,"square",0.07,1050),100); },
+  }; })();
+function sdRadius(){ return Math.max(360, 3400-sdT*28); }
+const rand=(a,b)=>a+Math.random()*(b-a);
+const dist2=(a,b)=>{const dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy;};
+
+function radiusFor(carried){ return CFG.birdBaseR*Math.sqrt(1+carried/60); }
+function speedFor(r){ return CFG.birdBaseSpeed*Math.pow(CFG.birdBaseR/r, CFG.loadSpeedExp); }
+
+function makeBird(team, isPlayer, extra){
+  const hawk = team===TEAM.HAWK;
+  const base = hawk ? {x:rand(CFG.worldW*0.3,CFG.worldW*0.7), y:rand(CFG.worldH*0.25,CFG.worldH*0.75)} : bases[team];
+  const sp = hawk ? HAWKSPEC : (isPlayer ? SPECIES[0] : SPECIES[(Math.random()*SPECIES.length)|0]);
+  const nm = hawk ? "Hawk" : (isPlayer ? playerName : NAMES[(nameIdx++)%NAMES.length]);
+  return { team, hawk, owl:false, huntable:!hawk, terr:null, isPlayer:!!isPlayer, extra:!!extra, species:sp,
+    name:nm, kills:0, deposited:0, hunterKills:0, purseDeaths:0, gainAcc:0, gainT:0, depAcc:0, depT:0,
+    emote:"", emoteT:0, buddy:false,
+    x:base.x+rand(-80,80), y:base.y+rand(-80,80),
+    vx:0, vy:0, carried: hawk?40:0, dead:false, deadT:0,
+    dashT:0, dashCd:0, heading:rand(0,Math.PI*2),
+    dashDur: hawk?1.1:0.55, dashMult: hawk?4.2:2.6, dashCdMax: hawk?1.4:2.0, dashHeading:0,
+    aiTarget:null, aiPrey:null, aiGreed:rand(50,140), aiCourage:rand(0.4,1.1), aiThink:0,
+    streak:0, boostT:0, flap:rand(0,10) };
+}
+function nearestHunter(p){ let best=null,bd=1e12;
+  for(const h of hunters){ if(h.dead) continue; const d=dist2(p,h); if(d<bd){bd=d;best=h;} } return best; }
+function segHits(a,b,c){ // does segment a->b cross circle c?
+  const dx=b.x-a.x, dy=b.y-a.y, fx=a.x-c.x, fy=a.y-c.y, len2=dx*dx+dy*dy||1;
+  let t=-(fx*dx+fy*dy)/len2; t=Math.max(0,Math.min(1,t));
+  const px=a.x+dx*t-c.x, py=a.y+dy*t-c.y;
+  return px*px+py*py < c.r*c.r; }
+function losBlocked(a,b){
+  for(const ob of obstacles){ if(segHits(a,b,ob)) return true; }
+  for(const bu of bushes){ if(segHits(a,b,{x:bu.x,y:bu.y,r:bu.r*0.75})) return true; }
+  return false; }
+function scatterOrbs(x,y,total){
+  if(total<1) return;   // empty birds drop nothing
+  const n = Math.min(10, 4+Math.floor(total/25));
+  for(let i=0;i<n;i++){ const a=rand(0,Math.PI*2), s=rand(60,190);
+    orbs.push({x,y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, v: total/n, life:20}); }
+}
+function spawnPellet(inBloom){
+  let x,y;
+  if(inBloom && bloomActive){ const a=rand(0,Math.PI*2), r=rand(0,bloomActive.r);
+    x=bloomActive.x+Math.cos(a)*r; y=bloomActive.y+Math.sin(a)*r; }
+  else { // center-weighted: most seeds spawn mid-map, rewarding exploration
+    const t=Math.pow(Math.random(),1.7);
+    x = CFG.worldW/2 + (Math.random()<.5?-1:1)*t*CFG.worldW*0.46;
+    y = rand(60, CFG.worldH-60);
+    x = Math.max(60, Math.min(CFG.worldW-60, x)); }
+  // safe zones grow 90% fewer seeds — nest camping shouldn't pay
+  if(!inBloom && bases.length &&
+     bases.some(bs=>{const dx=x-bs.x,dy=y-bs.y;return dx*dx+dy*dy<Math.pow(CFG.baseRadius*1.6,2);})){
+    x=CFG.worldW/2+rand(-CFG.worldW*0.32,CFG.worldW*0.32); y=rand(120,CFG.worldH-120); }
+  // keep seeds out of rocks/trees
+  for(const ob of obstacles){ const dx=x-ob.x, dy=y-ob.y;
+    if(dx*dx+dy*dy<ob.r*ob.r){ const d=Math.hypot(dx,dy)||1; x=ob.x+dx/d*(ob.r+12); y=ob.y+dy/d*(ob.r+12); } }
+  const centerBoost = 1 - Math.abs(x-CFG.worldW/2)/(CFG.worldW/2);
+  pellets.push({x,y, v: inBloom? rand(5,9) : rand(1.5,3)+centerBoost*3, bloom:!!inBloom,
+    worm: !inBloom && Math.random()<0.01});   // 1% of seeds are worms: eat for a speed boost
+}
+function inBush(e){ for(const bu of bushes){ if(dist2(e,bu)<bu.r*bu.r*0.81) return true; } return false; }
+function nearestBush(p){ let best=null,bd=1e12; for(const bu of bushes){ const d=dist2(p,bu); if(d<bd){bd=d;best=bu;} } return best; }
+
+function reset(){
+  birds=[]; pellets=[]; orbs=[]; bloomActive=null; bloomTimer=CFG.bloomEvery;
+  timeLeft=CFG.matchSeconds; gameOver=false;
+  wr01 = mapSeed ? mulberry32(strSeed(mapSeed)) : Math.random;
+  bases=[ {x:400, y:400, team:0}, {x:CFG.worldW-400, y:CFG.worldH-400, team:1},
+          {x:CFG.worldW-400, y:400, team:2}, {x:400, y:CFG.worldH-400, team:3} ]; // four corners
+  teams=[]; for(let i=0;i<4;i++) teams.push({bank:0,total:0,gen:0,mag:0,genT:0,rally:false,rallyUsed:false,rallyT:0,grannysBought:0});
+  goldenEgg=null; eggTimer=100;
+  // obstacles: rocks & trees (solid)
+  obstacles=[]; let tries=0;
+  while(obstacles.length<135 && tries++<2600){
+    const o={x:wrand(180,CFG.worldW-180), y:wrand(180,CFG.worldH-180), r:wrand(45,110), tree:wr01()<0.5};
+    if(bases.some(b=>dist2(o,b)<Math.pow(CFG.baseRadius+o.r+100,2))) continue;
+    obstacles.push(o); }
+  // hiding bushes
+  bushes=[]; tries=0;
+  while(bushes.length<56 && tries++<1800){
+    const bu={x:wrand(180,CFG.worldW-180), y:wrand(180,CFG.worldH-180), r:wrand(85,135)};
+    if(bases.some(b=>dist2(bu,b)<Math.pow(CFG.baseRadius+bu.r+70,2))) continue;
+    if(obstacles.some(o=>dist2(bu,o)<Math.pow(o.r+bu.r,2))) continue;
+    bushes.push(bu); }
+  hunters=[];
+  for(const [hx,hy,hc] of [[0.35,0.78,3],[0.65,0.22,5],[0.25,0.30,7],[0.75,0.70,9]])
+    hunters.push({x:CFG.worldW*hx, y:CFG.worldH*hy, tx:null, ty:null, heading:0,
+      state:"wander", target:null, aimT:0, cd:hc, dead:false, deadT:0});
+  hunters[0].nestPatrol=true;   // this one prowls the nest outskirts
+  bullets=[];
+  player=makeBird(TEAM.BLUE,true); birds.push(player);
+  for(let i=0;i<29;i++) birds.push(makeBird(TEAM.BLUE,false));
+  for(const tm of [TEAM.RED,TEAM.GREEN,TEAM.GOLD]) for(let i=0;i<30;i++) birds.push(makeBird(tm,false));
+  lobbyT = started?6:0; lastLobbyS=-1;
+  hunterMode=false; playerDog=null; dogStealth=false; typeBuf=""; zoom=1;
+  for(let i=0;i<4;i++) birds.push(makeBird(TEAM.HAWK,false));
+  { // hawk territories: left / right / center x2; one center hawk is the hunters' quarry
+    const hk=birds.filter(b=>b.hawk);
+    hk[0].terr={x:CFG.worldW*0.20, y:CFG.worldH/2};
+    hk[1].terr={x:CFG.worldW*0.80, y:CFG.worldH/2};
+    hk[2].terr={x:CFG.worldW*0.50, y:CFG.worldH*0.40};
+    hk[3].terr={x:CFG.worldW*0.50, y:CFG.worldH*0.60};
+    hk[2].huntable=true;
+    for(const h of hk){ h.x=h.terr.x+rand(-200,200); h.y=h.terr.y+rand(-200,200); } }
+  // owls: night predators that roam the whole map
+  for(let i=0;i<2;i++){ const o=makeBird(TEAM.HAWK,false);
+    o.owl=true; o.name="Owl"; o.species={n:"Owl",c:"#7a68a6"};
+    o.terr={x:CFG.worldW/2, y:CFG.worldH/2}; o.maxHp=180; o.hp=180;
+    birds.push(o); }
+  player.species={...SPECIES[0], c:playerColor};
+  // grannys: two per nest, posted between nest and map center
+  grannys=[]; feathers=[];
+  for(const bs of bases){
+    const ca=Math.atan2(CFG.worldH/2-bs.y, CFG.worldW/2-bs.x);
+    for(const off of [-0.8,0,0.8]) grannys.push({team:bs.team,
+      ax:bs.x+Math.cos(ca+off)*CFG.baseRadius*0.9, ay:bs.y+Math.sin(ca+off)*CFG.baseRadius*0.9,
+      x:0,y:0, cd:rand(0,2), purse:null, phase:rand(0,6)}); }
+  elapsed=0; nightA=0; nightFlag=false;
+  suddenDeath=false; sdT=0; flock=null;
+  for(let i=0;i<CFG.pelletCount;i++) spawnPellet(false);
+  decor=[]; for(let i=0;i<300;i++) decor.push({x:wrand(0,CFG.worldW),y:wrand(0,CFG.worldH),r:wrand(18,55),g:wrand(0.06,0.16)});
+  document.getElementById("overlay").style.display="none";
+}
+
+// ============ INPUT ============
+let ptr={x:0,y:0,active:false};
+function toWorld(px,py){ return {x:(px-VW/2)/zoom+camX, y:(py-VH/2)/zoom+camY}; }
+cv.addEventListener("touchstart", e=>e.preventDefault(), {passive:false});
+cv.addEventListener("touchmove", e=>e.preventDefault(), {passive:false});
+window.addEventListener("contextmenu", e=>e.preventDefault());
+cv.addEventListener("pointerdown", e=>{ ptr.active=true; ptr.x=e.clientX; ptr.y=e.clientY;
+  ptr.isTouch = e.pointerType==="touch";
+  ptr.ox=e.clientX; ptr.oy=e.clientY; ptr.hasDir=false; ptr.kx=0; ptr.ky=0;
+  const now=performance.now(); if(now-lastTap<300) tryDash(); lastTap=now; });
+cv.addEventListener("pointermove", e=>{ ptr.x=e.clientX; ptr.y=e.clientY;
+  if(ptr.active && ptr.isTouch){
+    let dx=ptr.x-ptr.ox, dy=ptr.y-ptr.oy, len=Math.hypot(dx,dy);
+    if(len>18){ // finger has DRAWN a direction - fly that way
+      ptr.dirX=dx/len; ptr.dirY=dy/len; ptr.hasDir=true;
+      if(len>90){ ptr.ox+=dx/len*(len-90); ptr.oy+=dy/len*(len-90); len=90; }
+      ptr.kx=ptr.dirX*len; ptr.ky=ptr.dirY*len; } } });
+window.addEventListener("pointerup", ()=>{ ptr.active=false; ptr.hasDir=false; });
+window.addEventListener("keydown", e=>{
+  if(e.code==="Space") tryDash();
+  if(!started) return;
+  const k=(e.key||"").toLowerCase();
+  if(hunterMode){
+    if(k==="w") addEscort();
+    else if(k==="e") removeEscort();
+    else if(k==="s") dogStealth=true;
+    else if(k==="d") dogStealth=false;
+    else if(k==="x") dropEggHere(); }
+  if(k.length===1 && k>="a" && k<="z"){ typeBuf=(typeBuf+k).slice(-6);
+    if(typeBuf.endsWith("hunt")) switchToHunter();
+    else if(typeBuf.endsWith("owl")) switchToOwl();
+    else if(typeBuf.endsWith("bird")) switchToBird(); } });
+function tryDash(){ if(!started) return;
+  if(owlMode){ if(playerOwl && owlDashCd<=0){ owlDashCd=1.6; owlDashT=0.8; sfx.dash(); } return; }
+  if(netMode){ if(netRoom){ netRoom.send("i",{dx:netDir.x,dy:netDir.y,active:true,dash:true}); netMyDash=0.55; } return; }
+  if(hunterMode){ if(playerDog && dogDashCd<=0){ dogDashCd=1.6; dogDashT=0.4; sfx.dash(); } return; }
+  if(!player||player.dead||player.dashCd>0) return;
+  player.dashCd=player.dashCdMax; player.dashT=player.dashDur;
+  player.carried*= (1-CFG.dashCost); sfx.dash(); }
+
+// ============ AI ============
+function aiUpdate(b, dt){
+  b.aiThink-=dt; if(b.aiThink>0 && b.aiTarget) return;
+  b.aiThink=rand(0.25,0.6); b.aiPrey=null;
+  const myR=radiusFor(b.carried), home=b.team<4?bases[b.team]:null;
+  const vis = nightA>0.5 ? 0.6 : 1;   // everyone sees less at night
+  // lobby: mill about your own nest
+  if(lobbyT>0 && !b.hawk){
+    b.aiTarget={x:home.x+rand(-CFG.baseRadius,CFG.baseRadius)*0.8, y:home.y+rand(-CFG.baseRadius,CFG.baseRadius)*0.8};
+    return; }
+  // hunters trump everything (hawks only fear them if huntable): hide in a bush or flee
+  if(!b.hawk || b.huntable){
+    const hn=nearestHunter(b);
+    if(hn && !inBush(b) && dist2(b,hn)<340*340*vis*vis){
+      const bu=nearestBush(b);
+      if(bu && dist2(b,bu)<620*620) b.aiTarget={x:bu.x,y:bu.y};
+      else b.aiTarget={x:b.x+(b.x-hn.x)*2, y:b.y+(b.y-hn.y)*2};
+      return; } }
+  // hawks: territorial predators (left / right / center); owls roam everywhere at night
+  if(b.hawk){
+    const noHunt = CFG.baseRadius*2.2, tc=b.terr||{x:CFG.worldW/2,y:CFG.worldH/2};
+    const leash=b.owl?5200:1500, huntTerr=b.owl?6000:1600, seeing=b.owl?1:vis; // owls see in the dark
+    for(const bs of bases){ if(dist2(b,bs)<noHunt*noHunt){
+      b.aiTarget={x:tc.x+rand(-300,300), y:tc.y+rand(-300,300)}; return; } }
+    if(dist2(b,tc)>leash*leash){
+      b.aiTarget={x:tc.x+rand(-300,300), y:tc.y+rand(-300,300)}; return; }
+    // self-preservation: flee birds strong enough to beat it
+    let danger=null, dd=380*380*seeing*seeing;
+    for(const o of birds){ if(o===b||o.dead||o.hawk||inBush(o)) continue;
+      if(radiusFor(o.carried)>myR*0.9){ const d=dist2(b,o); if(d<dd){dd=d;danger=o;} } }
+    if(danger){ b.aiTarget={x:b.x+(b.x-danger.x)*2.5, y:b.y+(b.y-danger.y)*2.5}; return; }
+    let prey=null, best=-1;
+    for(const o of birds){ if(o===b||o.dead||o.hawk||inBush(o)) continue;
+      if(radiusFor(o.carried)>myR*0.9) continue;                 // too big to bite
+      if(bases.some(bs=>dist2(o,bs)<noHunt*noHunt)) continue;   // won't chase birds near a nest
+      if(dist2(o,tc)>huntTerr*huntTerr) continue;
+      const d=Math.sqrt(dist2(b,o))+1, s=(20+o.carried)/d;
+      if(s>best && d<(b.owl?1400:1100)*seeing){best=s;prey=o;} }
+    if(prey){ b.aiTarget={x:prey.x,y:prey.y}; b.aiPrey=prey; }
+    else b.aiTarget={x:tc.x+rand(-650,650), y:tc.y+rand(-550,550)};
+    return; }
+  // threats & prey (can't see birds hiding in bushes; hawks are scary even at similar size)
+  let threat=null, threatD=1e12, prey=null, preyD=1e12;
+  for(const o of birds){ if(o===b||o.dead||o.team===b.team||inBush(o)) continue;
+    const oR=radiusFor(o.carried), d=dist2(b,o);
+    const danger = o.hawk ? oR>myR*0.75 : oR>myR*CFG.absorbThreshold;
+    if(danger && d<340*340*vis*vis && d<threatD){threat=o;threatD=d;}
+    if(!o.hawk && myR>oR*CFG.absorbThreshold && o.carried>8 && d<520*520*vis*vis && d<preyD){prey=o;preyD=d;} }
+  if(threat){ // flee toward home
+    const fx=b.x+(b.x-threat.x)*2+(home.x-b.x)*0.35, fy=b.y+(b.y-threat.y)*2+(home.y-b.y)*0.35;
+    b.aiTarget={x:fx,y:fy}; return; }
+  // golden egg awareness
+  if(goldenEgg){
+    if(goldenEgg.holder===b){ b.aiTarget={x:home.x,y:home.y}; return; }   // I have it — run home!
+    if(!goldenEgg.holder && dist2(b,goldenEgg)<1000*1000 && Math.random()<0.55){
+      b.aiTarget={x:goldenEgg.x,y:goldenEgg.y}; return; }
+    const hold=goldenEgg.holder;
+    if(hold && hold.team!==b.team && !hold.hawk && dist2(b,hold)<800*800 && Math.random()<b.aiCourage*0.8){
+      b.aiTarget={x:hold.x,y:hold.y}; b.aiPrey=hold; return; } }
+  if(b.carried>b.aiGreed){ b.aiTarget={x:home.x+rand(-40,40),y:home.y+rand(-40,40)}; return; }
+  if(prey && Math.random()<b.aiCourage*0.75){ b.aiTarget={x:prey.x,y:prey.y}; b.aiPrey=prey; return; }
+  if(bloomActive && Math.random()<0.45){ b.aiTarget={x:bloomActive.x+rand(-60,60),y:bloomActive.y+rand(-60,60)}; return; }
+  // nearest decent pellet
+  let best=null, bestScore=-1;
+  for(let i=0;i<26;i++){ const p=pellets[(Math.random()*pellets.length)|0]; if(!p) continue;
+    const d=Math.sqrt(dist2(b,p))+1, s=p.v/d*1000; if(s>bestScore){bestScore=s;best=p;} }
+  b.aiTarget = best ? {x:best.x,y:best.y} : {x:rand(200,CFG.worldW-200),y:rand(200,CFG.worldH-200)};
+}
+
+// ============ UPDATE ============
+function update(dt){
+  if(gameOver||!started) return;
+  elapsed+=dt;
+  // pre-match lobby: everyone hangs out at their nest
+  const inLobby = lobbyT>0;
+  if(inLobby){ lobbyT-=dt;
+    const s=Math.ceil(Math.max(0,lobbyT));
+    if(s!==lastLobbyS){ lastLobbyS=s;
+      showBanner(s>0? "MATCH STARTS IN "+s+"..." : "GO! FILL THE NEST!");
+      if(s===0) sfx.streak(); }
+    if(Math.random()<0.08){ const tb=birds[(Math.random()*birds.length)|0];
+      if(tb&&!tb.isPlayer&&!tb.hawk) setEmote(tb, EMOTES[(Math.random()*EMOTES.length)|0]); } }
+  if(!suddenDeath && !inLobby) timeLeft-=dt;
+  // day/night cycle: ~140s of day, 40s of night
+  const isNight=(elapsed%180)>140 || owlMode;
+  nightA += ((isNight?1:0)-nightA)*Math.min(1,dt*0.9);
+  if(isNight&&!nightFlag){ nightFlag=true; showBanner("NIGHT FALLS... THE OWLS ARE OUT"); }
+  if(!isNight&&nightFlag){ nightFlag=false; showBanner("The sun rises!"); }
+  // feathers fade
+  for(const f of feathers) f.life-=dt;
+  feathers=feathers.filter(f=>f.life>0);
+  // bloom events
+  bloomTimer-=dt;
+  if(!bloomActive && !suddenDeath && bloomTimer<=CFG.bloomWarn && bloomTimer>0) showBanner("SEED BLOOM INCOMING!");
+  if(bloomTimer<=0 && !bloomActive && !suddenDeath && !inLobby){ bloomActive={x:CFG.worldW/2+rand(-450,450), y:CFG.worldH/2+rand(-350,350), r:260, life:26};
+    for(let i=0;i<46;i++) spawnPellet(true); showBanner("SEED BLOOM! CENTER MAP!"); }
+  if(bloomActive){ bloomActive.life-=dt; if(bloomActive.life<=0){ bloomActive=null; bloomTimer=CFG.bloomEvery; } }
+
+  // generators grow real seeds around the nest (pick them up & deposit)
+  for(let tm=0;tm<4 && !suddenDeath;tm++){ const t=teams[tm];
+    if(t.gen>0){ t.genT+=dt*t.gen*1.6;
+      while(t.genT>1){ t.genT-=1;
+        const a=rand(0,Math.PI*2), rr=rand(CFG.baseRadius*1.05,CFG.baseRadius*1.4);
+        pellets.push({x:bases[tm].x+Math.cos(a)*rr, y:bases[tm].y+Math.sin(a)*rr, v:rand(2,3.5), bloom:true}); } } }
+
+  // catch-up: ONE rally per team per match — 20 seconds of +10% speed
+  for(const tm of [0,1,2,3]){ const t=teams[tm];
+    const gap=Math.max(...teams.map((o,i)=>i===tm?-1e9:o.total))-t.total;
+    if(t.rallyT>0){ t.rallyT-=dt; t.rally=t.rallyT>0; } else t.rally=false;
+    if(!t.rallyUsed && gap>CFG.catchupGap){ t.rallyUsed=true; t.rallyT=20; t.rally=true;
+      showBanner(TEAMNAMES[tm]+" TEAM RALLIES! +speed for 20 seconds!"); } }
+  // golden egg event
+  if(!goldenEgg && !gameOver && !suddenDeath && !inLobby){ eggTimer-=dt;
+    if(eggTimer<=0){ goldenEgg={x:CFG.worldW/2+rand(-350,350), y:CFG.worldH/2+rand(-300,300), holder:null};
+      showBanner("A GOLDEN EGG HAS APPEARED MID-MAP!"); } }
+  if(goldenEgg){
+    const e=goldenEgg;
+    if(e.holder){
+      const hb=e.holder;
+      if(hb.dead){ e.holder=null; }             // dropped where they died (x,y already tracked)
+      else { e.x=hb.x; e.y=hb.y;
+        if(hb.team<4 && dist2(hb,bases[hb.team])<CFG.baseRadius*CFG.baseRadius){
+          teams[hb.team].bank+=400; teams[hb.team].total+=400; hb.deposited+=400;
+          showBanner(TEAMNAMES[hb.team]+" BANKED THE GOLDEN EGG! +400");
+          feed(nameSpan(hb)+' 🥚 banked the golden egg!');
+          addFloat(hb.x,hb.y-30,"+400","#ffd84a"); sfx.egg();
+          goldenEgg=null; eggTimer=240; } } }
+    else { for(const b of birds){ if(b.dead||b.hawk) continue; const r=radiusFor(b.carried);
+      if(dist2(b,e)<(r+16)*(r+16)){ e.holder=b;
+        if(b.isPlayer) sfx.egg();
+        showBanner(b.isPlayer ? "You grabbed the GOLDEN EGG — run home! (it's heavy)"
+          : b.name+" grabbed the GOLDEN EGG!"); break; } } }
+  }
+
+  // birds
+  for(const b of birds){
+    // owls roost at the center of the map by day, hunt by night
+    if(b.owl && nightA<0.4 && !b.dead){
+      if(!b.roostX){ b.roostX=b.terr.x+rand(-160,160); b.roostY=b.terr.y+rand(-160,160); }
+      b.x=b.roostX; b.y=b.roostY; b.vx=b.vy=0; continue; }
+    if(b.dead){ b.deadT-=dt; if(b.deadT<=0){ b.dead=false; b.carried=b.hawk?40:0;
+      const h=b.team<4?bases[b.team]:(b.terr?{x:b.terr.x+rand(-200,200),y:b.terr.y+rand(-200,200)}:{x:rand(400,CFG.worldW-400),y:rand(400,CFG.worldH-400)});
+      let hx=h.x+rand(-60,60), hy=h.y+rand(-60,60);
+      if(suddenDeath){ // respawn on the shrinking ring's edge, toward home
+        const a=Math.atan2(hy-CFG.worldH/2, hx-CFG.worldW/2), R=sdRadius()*0.75;
+        hx=CFG.worldW/2+Math.cos(a)*R; hy=CFG.worldH/2+Math.sin(a)*R; }
+      b.x=hx; b.y=hy; b.vx=b.vy=0; } continue; }
+    const r=radiusFor(b.carried); let sp=speedFor(r);
+    if(b.hawk) sp*= b.owl?0.85:0.55; // hawks slow; owls quicker
+    if(b.boostT>0){ b.boostT-=dt; sp*=1.6; }                    // worm boost
+    if(b.team<4 && teams[b.team].rally) sp*=1.10;               // trailing-team rally
+    if(b.streak>=3) sp*=1.08;                                   // killstreak aura
+    if(goldenEgg && goldenEgg.holder===b) sp*=0.7;              // the egg is heavy
+    b.dashCd=Math.max(0,b.dashCd-dt);
+    if(b.dashT>0){ b.dashT-=dt; sp*=b.dashMult; }   // ...but their dash is a long, fast charge
+    // steering
+    let tx=null,ty=null;
+    if(b.isPlayer){ if(ptr.active){
+      if(ptr.isTouch){ if(ptr.hasDir){ tx=b.x+ptr.dirX*260; ty=b.y+ptr.dirY*260; } }
+      else { const w=toWorld(ptr.x,ptr.y); tx=w.x; ty=w.y; } } }
+    else { aiUpdate(b,dt); if(b.aiTarget){tx=b.aiTarget.x;ty=b.aiTarget.y;}
+      // bots dash to strike prey or to escape when heavy
+      if(b.aiPrey && !b.aiPrey.dead && b.dashCd<=0 && dist2(b,b.aiPrey)<(b.hawk?420:230)*(b.hawk?420:230)){
+        b.dashCd=b.dashCdMax; b.dashT=b.dashDur; b.carried*=(1-CFG.dashCost);
+        b.dashHeading=Math.atan2(b.aiPrey.y-b.y, b.aiPrey.x-b.x); }
+      else if(!b.hawk && b.dashCd<=0 && b.carried>60 && Math.random()<0.004){
+        b.dashCd=b.dashCdMax; b.dashT=b.dashDur; b.carried*=(1-CFG.dashCost);
+        b.dashHeading=b.heading; } }
+    if(b.hawk && b.dashT>0){ // hawk dash = locked straight-line charge, no steering
+      b.vx=Math.cos(b.dashHeading)*sp; b.vy=Math.sin(b.dashHeading)*sp; b.heading=b.dashHeading; }
+    else if(tx!==null){ const dx=tx-b.x, dy=ty-b.y, d=Math.hypot(dx,dy);
+      if(d>6){ b.vx+= (dx/d*sp - b.vx)*Math.min(1,dt*6); b.vy+= (dy/d*sp - b.vy)*Math.min(1,dt*6); b.heading=Math.atan2(dy,dx); }
+      else { b.vx*=0.85; b.vy*=0.85; } }
+    else { b.vx*=Math.pow(0.2,dt); b.vy*=Math.pow(0.2,dt); }
+    b.x=Math.max(r,Math.min(CFG.worldW-r,b.x+b.vx*dt));
+    b.y=Math.max(r,Math.min(CFG.worldH-r,b.y+b.vy*dt));
+    // solid obstacles: push out AND slide along the surface (kills corner-sticking)
+    for(const ob of obstacles){ const dx=b.x-ob.x, dy=b.y-ob.y, d=Math.hypot(dx,dy), min=ob.r+r*0.6;
+      if(d<min && d>0){ const nx=dx/d, ny=dy/d;
+        b.x=ob.x+nx*min; b.y=ob.y+ny*min;
+        const dot=b.vx*nx+b.vy*ny;
+        if(dot<0){ b.vx-=nx*dot; b.vy-=ny*dot; } } }
+    // stuck detection for bots: barely moving toward a goal? sidestep.
+    if(!b.isPlayer){
+      b.moveAcc=(b.moveAcc||0)+Math.hypot(b.x-(b.px??b.x), b.y-(b.py??b.y)); b.px=b.x; b.py=b.y;
+      b.stuckT=(b.stuckT||0)+dt;
+      if(b.stuckT>1.2){
+        if(b.moveAcc<30 && b.aiTarget){
+          const a=Math.atan2(b.aiTarget.y-b.y,b.aiTarget.x-b.x)+(Math.random()<.5?1:-1)*Math.PI/2;
+          b.aiTarget={x:b.x+Math.cos(a)*380, y:b.y+Math.sin(a)*380}; b.aiThink=0.9; b.aiPrey=null; }
+        b.stuckT=0; b.moveAcc=0; } }
+    // nests are physically hawk-proof
+    if(b.hawk) for(const bs of bases){ const dx=b.x-bs.x, dy=b.y-bs.y, d=Math.hypot(dx,dy), min=CFG.baseRadius+r*0.5;
+      if(d<min && d>0){ b.x=bs.x+dx/d*min; b.y=bs.y+dy/d*min; b.dashT=0; } }
+    // during the countdown, nobody leaves the nest
+    if(lobbyT>0 && b.team<4){ const hm=bases[b.team];
+      const dx=b.x-hm.x, dy=b.y-hm.y, d=Math.hypot(dx,dy), max=CFG.baseRadius-r*0.6;
+      if(d>max && d>0){ b.x=hm.x+dx/d*max; b.y=hm.y+dy/d*max; } }
+    b.flap+=dt*(4+Math.hypot(b.vx,b.vy)/40);
+    b.emoteT=Math.max(0,(b.emoteT||0)-dt);
+    // decay
+    b.carried*= Math.max(0, 1-CFG.decayPerSec*dt); // ~1% per 10s
+    // deposit at home (hawks have no home — they just stay fat)
+    if(b.team<4){
+      const home=bases[b.team];
+      if(dist2(b,home)<CFG.baseRadius*CFG.baseRadius && b.carried>0.5){
+        const amt=Math.min(b.carried, Math.max(b.carried/CFG.depositTime, 25)*dt);
+        b.carried-=amt; teams[b.team].bank+=amt; teams[b.team].total+=amt; b.deposited+=amt;
+        if(b.isPlayer){ b.depAcc+=amt; questAdd("bank",amt); } } }
+    // pellet & orb pickup
+    const magR = r + 26 + (b.team<4 ? teams[b.team].mag*22 : 0);
+    for(let i=pellets.length-1;i>=0;i--){ const p=pellets[i];
+      const dd=dist2(b,p); if(dd<magR*magR){ if(dd<r*r*1.4){ gain(b,p.v);
+          if(b.isPlayer){ b.gainAcc+=p.v;
+            if(!b.lastPeck||elapsed-b.lastPeck>0.09){ sfx.peck(); b.lastPeck=elapsed; } }
+          if(p.worm){ b.boostT=10; gain(b,50);
+            if(b.isPlayer){ b.gainAcc+=50; showBanner("Worm! +50 seeds & 10s speed boost!"); sfx.worm(); } }
+          pellets.splice(i,1); if(!p.bloom && !suddenDeath) spawnPellet(false); }
+        else { p.x+=(b.x-p.x)*dt*5; p.y+=(b.y-p.y)*dt*5; } } }
+    for(let i=orbs.length-1;i>=0;i--){ const o=orbs[i];
+      if(dist2(b,o)<(r+8)*(r+8)){ gain(b,o.v); if(b.isPlayer) b.gainAcc+=o.v; orbs.splice(i,1); } }
+    // molting feathers: bots avenge (+30); YOU can stand on one for 2s to REVIVE the fallen teammate
+    for(let i=feathers.length-1;i>=0;i--){ const f=feathers[i];
+      if(f.team!==b.team || dist2(b,f)>(r+16)*(r+16)) continue;
+      if(b.isPlayer && f.owner && f.owner.dead){
+        f.ch=(f.ch||0)+dt;
+        if(f.ch>=2){ const o=f.owner;
+          o.dead=false; o.deadT=0; o.carried=0; o.streak=0;
+          o.x=b.x+rand(-50,50); o.y=b.y+rand(-50,50); o.vx=o.vy=0;
+          feathers.splice(i,1);
+          showBanner("You revived "+o.name+"!"); sfx.egg(); questAdd("avenge",1);
+          feed(nameSpan(b)+' ✨ revived '+nameSpan(o)); } }
+      else if(!b.isPlayer){ gain(b,30); feathers.splice(i,1);
+        addFloat(b.x,b.y-24,"AVENGED +30","#ffe98a"); }
+      else { gain(b,30); feathers.splice(i,1);
+        addFloat(b.x,b.y-24,"AVENGED +30","#ffe98a");
+        showBanner("Avenged a fallen teammate! +30 seeds"); sfx.deposit(); questAdd("avenge",1); } }
+  }
+  // PvP: passive absorption (20% bigger) OR active dash strike (dash into anyone >= 85% of your reach)
+  for(const a of birds){ if(a.dead||inLobby) continue; const ra=radiusFor(a.carried);
+    if(a.owl && nightA<0.4) continue;                      // roosting owls are asleep
+    for(const v of birds){ if(v===a||v.dead||v.team===a.team) continue;
+      if(v.owl && nightA<0.4) continue;
+      const rv=radiusFor(v.carried), reach=Math.max(ra,rv)*0.9;
+      if(dist2(a,v)<reach*reach){
+        const canAbsorb = ra>rv*CFG.absorbThreshold;
+        const canStrike = a.dashT>0 && ra>=rv*0.85;
+        if(canAbsorb||canStrike){
+          const loot=v.carried, mult=v.bounty?2:1;
+          gain(a, loot*CFG.absorbYield*mult);
+          scatterOrbs(v.x,v.y, loot*(1-CFG.absorbYield));
+          v.dead=true; v.deadT=CFG.respawnTime; v.carried=0;
+          if(loot>=1) dropFeather(v);
+          a.streak++; a.kills++; v.streak=0;
+          if(a.isPlayer) questAdd("kills",1);
+          if(!a.isPlayer && !a.hawk && Math.random()<0.4) setEmote(a, Math.random()<0.5?"😂":"⚡");
+          addFloat(v.x, v.y-20, "+"+Math.round(loot*CFG.absorbYield*mult)+(v.bounty?" 👑":""), a.hawk?TEAMCOL[4]:TEAMCOL[a.team]);
+          feed(nameSpan(a)+(canStrike&&!canAbsorb?" ⚡ ":" 🗡 ")+nameSpan(v));
+          if(a.isPlayer){ sfx.kill(); if(a.streak===3){ showBanner("ON FIRE! 3-kill streak — speed aura active!"); sfx.streak(); } }
+          if(v.isPlayer){ sfx.death(); showBanner(a.hawk?"A "+(a.owl?"owl":"hawk")+" got you! Respawning...":"You got "+(canAbsorb?"gobbled":"dash-struck")+"! Respawning..."); }
+          else if(a.isPlayer) showBanner((canAbsorb?"Absorbed":"DASH STRIKE!")+" "+v.name+"! +"+Math.round(loot*CFG.absorbYield)); } } } }
+  // orbs physics
+  for(const o of orbs){ o.x+=o.vx*dt; o.y+=o.vy*dt; o.vx*=Math.pow(0.05,dt); o.vy*=Math.pow(0.05,dt); o.life-=dt; }
+  orbs=orbs.filter(o=>o.life>0);
+  // the hunters
+  if(!inLobby) hunterUpdate(dt);
+  // backstab takedown: dash into a hunter's BACK to knock him out (15s), he drops a seed bounty
+  for(const h of hunters){ if(h.dead||inLobby) continue;
+    for(const b of birds){ if(b.dead||b.dashT<=0) continue;
+      const r=radiusFor(b.carried);
+      if(dist2(b,h)<(r+18)*(r+18)){
+        const ang=Math.atan2(b.y-h.y, b.x-h.x);          // where the bird is, relative to the hunter
+        if(Math.cos(ang-h.heading)<-0.35){               // behind him = blindside
+          h.dead=true; h.deadT=15; h.state="wander"; h.target=null;
+          scatterOrbs(h.x,h.y,140); b.streak++; b.hunterKills++;
+          feed(nameSpan(b)+" 💥 KO'd a hunter!");
+          if(b.isPlayer){ sfx.kill();
+            showBanner("HUNTER DOWN! You blindsided him — grab the bounty!");
+            if(b.streak===3){ sfx.streak(); } }
+          break; } } } }
+  for(let i=bullets.length-1;i>=0;i--){ const u=bullets[i];
+    u.x+=u.vx*dt; u.y+=u.vy*dt; u.life-=dt;
+    let gone=u.life<=0;
+    if(!gone) for(const ob of obstacles){ if(dist2(u,ob)<ob.r*ob.r){gone=true;break;} }
+    if(!gone) for(const b of birds){ if(b.dead) continue;
+      if(b.owl) continue;                               // owls are undetectable & untouchable by hunters
+      if(b.hawk && !b.huntable && !u.admin) continue;   // AI hunters only harm the one huntable hawk
+      const r=radiusFor(b.carried);
+      if(dist2(u,b)<r*r){ const loot=b.carried; scatterOrbs(b.x,b.y,loot);
+        b.dead=true; b.deadT=CFG.respawnTime; b.carried=0; b.streak=0;
+        if(loot>=1) dropFeather(b); gone=true;
+        feed('🔫 Hunter got '+nameSpan(b));
+        if(b.isPlayer){ showBanner("You got shot! You dropped everything!"); sfx.death(); }
+        break; } }
+    if(gone) bullets.splice(i,1); }
+  // grannys: purse-throwing nest guardians
+  for(const g of grannys){
+    const base=bases[g.team]; g.cd=Math.max(0,g.cd-dt);
+    g.x=g.ax+Math.cos(elapsed*0.7+g.phase)*10; g.y=g.ay+Math.sin(elapsed*0.5+g.phase)*8;
+    if(g.cd<=0 && !g.purse){
+      let tgt=null, td=Math.pow(CFG.baseRadius*7.2,2);   // 3x range
+      for(const b of birds){ if(b.dead||b.team===g.team||inBush(b)) continue;   // visible enemies & hawks
+        const d=dist2(base,b); if(d<td){ td=d; tgt=b; } }
+      for(const h of hunters){ if(h.dead) continue;
+        const d=dist2(base,h); if(d<td){ td=d; tgt=h; } }
+      if(tgt){ const dx=tgt.x-g.x, dy=tgt.y-g.y, dd=Math.hypot(dx,dy)||1;
+        g.purse={x:g.x,y:g.y, vx:dx/dd*520, vy:dy/dd*520, phase:"out", dist:0,
+          maxDist:Math.min(dd+80, CFG.baseRadius*7.8), rot:0};
+        g.cd = td<Math.pow(CFG.baseRadius*2.4,2) ? 1.75 : 3.5; } }   // intruders up close: 2x fire rate
+    const p=g.purse;
+    if(p){ p.rot+=dt*14;
+      if(p.phase==="out"){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.dist+=520*dt; if(p.dist>=p.maxDist) p.phase="back"; }
+      else { const dx=g.x-p.x, dy=g.y-p.y, dd=Math.hypot(dx,dy);
+        if(dd<26){ g.purse=null; }
+        else { p.x+=dx/dd*600*dt; p.y+=dy/dd*600*dt; } }
+      if(g.purse){
+        for(const b of birds){ if(b.dead||b.team===g.team) continue; const r=radiusFor(b.carried);
+          if(dist2(p,b)<(r+10)*(r+10)){
+            const loot=b.carried; scatterOrbs(b.x,b.y,loot); b.dead=true; b.deadT=CFG.respawnTime;
+            b.carried=0; b.streak=0; b.purseDeaths++; if(loot>=1) dropFeather(b);
+            feed('👜 Granny bonked '+nameSpan(b));
+            if(b.isPlayer){ showBanner("BONKED by a granny's purse! No nest-camping!"); sfx.bonk(); sfx.death(); }
+            break; } }
+        for(const h of hunters){ if(h.dead) continue;
+          if(dist2(p,h)<28*28){ h.dead=true; h.deadT=15; h.state="wander"; h.target=null;
+            showBanner("A granny bonked a hunter with her purse!"); break; } } } }
+  }
+  // flock buddy follows in formation
+  if(player && !player.dead){
+    if(!flock) flock={x:player.x-60,y:player.y+30};
+    const bh=player.heading, fd=radiusFor(player.carried)+44;
+    const tx=player.x-Math.cos(bh)*fd-Math.cos(bh+Math.PI/2)*26;
+    const ty=player.y-Math.sin(bh)*fd-Math.sin(bh+Math.PI/2)*26;
+    const k=Math.min(1,dt*4.5);
+    flock.x+=(tx-flock.x)*k; flock.y+=(ty-flock.y)*k; }
+  // floaters + player pickup/deposit aggregation
+  for(const f of floaters){ f.life-=dt; f.y-=42*dt; }
+  floaters=floaters.filter(f=>f.life>0);
+  if(player && !player.dead){
+    player.gainT+=dt;
+    if(player.gainT>0.45){ if(player.gainAcc>0.5)
+        addFloat(player.x, player.y-radiusFor(player.carried)-16, "+"+Math.round(player.gainAcc), "#ffffff");
+      player.gainAcc=0; player.gainT=0; }
+    player.depT+=dt;
+    if(player.depT>0.7){ if(player.depAcc>0.5){
+        addFloat(player.x, player.y-radiusFor(player.carried)-16, "+"+Math.round(player.depAcc)+" BANKED", "#ffd84a");
+        sfx.deposit(); }
+      player.depAcc=0; player.depT=0; } }
+  // sudden death: shrinking ring, instant banking, first to lead by 300
+  if(suddenDeath){
+    sdT+=dt; const R=sdRadius();
+    for(const b of birds){ if(b.dead) continue;
+      const d=Math.hypot(b.x-CFG.worldW/2, b.y-CFG.worldH/2);
+      if(d>R){ b.stormT=(b.stormT||0)+dt; b.carried*=Math.max(0,1-0.08*dt);
+        if(b.stormT>4){ b.stormT=0;
+          const loot=b.carried; scatterOrbs(b.x,b.y,loot); if(loot>=1) dropFeather(b);
+          b.dead=true; b.deadT=CFG.respawnTime; b.carried=0; b.streak=0;
+          feed('🌑 '+nameSpan(b)+' faded in the dark');
+          if(b.isPlayer){ showBanner("The dark closed in on you! Stay inside the ring!"); sfx.death(); } } }
+      else b.stormT=0; } }
+  // bots manage their team economy: generators, magnets, extra grannys
+  for(const tm of [0,1,2,3]){ const t=teams[tm];
+    if(Math.random()<0.006){
+      const gc=250*(t.gen+1), mc=200*(t.mag+1);
+      const opts=[];
+      if(t.bank>=gc+150) opts.push("g");
+      if(t.bank>=mc+150) opts.push("m");
+      if(opts.length){ const c=opts[(Math.random()*opts.length)|0];
+        if(c==="g"){ t.bank-=gc; t.gen++; if(tm===0) showBanner("A teammate upgraded the Generator!"); }
+        else { t.bank-=mc; t.mag++; if(tm===0) showBanner("A teammate upgraded the Magnet!"); } } } }
+  // bounty crowns: each team's top depositor is worth DOUBLE
+  bountyT-=dt;
+  if(bountyT<=0){ bountyT=1;
+    for(const b of birds) b.bounty=false;
+    for(let tm=0;tm<4;tm++){ let best=null;
+      for(const b of birds){ if(b.team!==tm||b.deposited<150) continue;
+        if(!best||b.deposited>best.deposited) best=b; }
+      if(best){ best.bounty=true;
+        if(best.isPlayer&&!best.bountyTold){ best.bountyTold=true;
+          showBanner("👑 YOU'RE THE BOUNTY — enemies earn double for taking you down!"); } } } }
+  // the bloodhound (you)
+  if(hunterMode && playerDog){
+    const d=playerDog;
+    dogDashCd=Math.max(0,dogDashCd-dt);
+    let sp=CFG.birdBaseSpeed;                     // as fast as the fastest bird
+    if(dogDashT>0){ dogDashT-=dt; sp*=3; }
+    if(ptr.active){
+      if(ptr.isTouch){ if(ptr.hasDir){ d.heading=Math.atan2(ptr.dirY,ptr.dirX);
+        d.x+=ptr.dirX*sp*dt; d.y+=ptr.dirY*sp*dt; } }
+      else { const w=toWorld(ptr.x,ptr.y);
+        const dx=w.x-d.x, dy=w.y-d.y, dd=Math.hypot(dx,dy);
+        if(dd>12){ d.heading=Math.atan2(dy,dx); d.x+=dx/dd*sp*dt; d.y+=dy/dd*sp*dt; } } }
+    d.x=Math.max(24,Math.min(CFG.worldW-24,d.x)); d.y=Math.max(24,Math.min(CFG.worldH-24,d.y));
+    for(const bs of bases){ const dx=d.x-bs.x, dy=d.y-bs.y, dd=Math.hypot(dx,dy), min=CFG.baseRadius+30;
+      if(dd<min&&dd>0){ d.x=bs.x+dx/dd*min; d.y=bs.y+dy/dd*min; } }
+    for(const ob of obstacles){ const dx=d.x-ob.x, dy=d.y-ob.y, dd=Math.hypot(dx,dy), min=ob.r+16;
+      if(dd<min&&dd>0){ d.x=ob.x+dx/dd*min; d.y=ob.y+dy/dd*min; } }
+    // kill burst: anything the dog touches mid-burst goes down
+    if(dogDashT>0) for(const b of birds){ if(b.dead) continue;
+      const r=radiusFor(b.carried);
+      if(dist2(d,b)<(r+22)*(r+22)){
+        const loot=b.carried; scatterOrbs(b.x,b.y,loot); b.dead=true; b.deadT=CFG.respawnTime;
+        b.carried=0; b.streak=0; if(loot>=1) dropFeather(b);
+        feed('🐕 Bloodhound got '+nameSpan(b)); sfx.kill(); } }
+  }
+  // the night owl (you)
+  if(owlMode && playerOwl){
+    const o=playerOwl;
+    owlDashCd=Math.max(0,owlDashCd-dt);
+    let sp=CFG.birdBaseSpeed;                       // as fast as the fastest bird
+    if(owlDashT>0){ owlDashT-=dt; sp*=3; }
+    if(ptr.active){
+      if(ptr.isTouch){ if(ptr.hasDir){ o.heading=Math.atan2(ptr.dirY,ptr.dirX);
+        o.x+=ptr.dirX*sp*dt; o.y+=ptr.dirY*sp*dt; } }
+      else { const w=toWorld(ptr.x,ptr.y);
+        const dx=w.x-o.x, dy=w.y-o.y, dd=Math.hypot(dx,dy);
+        if(dd>12){ o.heading=Math.atan2(dy,dx); o.x+=dx/dd*sp*dt; o.y+=dy/dd*sp*dt; } } }
+    o.x=Math.max(24,Math.min(CFG.worldW-24,o.x)); o.y=Math.max(24,Math.min(CFG.worldH-24,o.y));
+    for(const bs of bases){ const dx=o.x-bs.x, dy=o.y-bs.y, dd=Math.hypot(dx,dy), min=CFG.baseRadius+30;
+      if(dd<min&&dd>0){ o.x=bs.x+dx/dd*min; o.y=bs.y+dy/dd*min; } }
+    for(const ob of obstacles){ const dx=o.x-ob.x, dy=o.y-ob.y, dd=Math.hypot(dx,dy), min=ob.r+16;
+      if(dd<min&&dd>0){ o.x=ob.x+dx/dd*min; o.y=ob.y+dy/dd*min; } }
+    // death on contact — always
+    for(const b of birds){ if(b.dead||b.hawk) continue;
+      const r=radiusFor(b.carried);
+      if(dist2(o,b)<(r+22)*(r+22)){
+        const loot=b.carried; scatterOrbs(b.x,b.y,loot);
+        b.dead=true; b.deadT=CFG.respawnTime; b.carried=0; b.streak=0;
+        if(loot>=1) dropFeather(b);
+        feed('\ud83e\udd89 The Night Owl took '+nameSpan(b)); sfx.kill(); } }
+  }
+  // camera (bloodhound sees far; the owl sees TWICE as far)
+  const camT = (owlMode&&playerOwl) ? playerOwl : ((hunterMode&&playerDog) ? playerDog : player);
+  zoom += ((owlMode?0.275:(hunterMode?0.55:1))-zoom)*Math.min(1,dt*3);
+  camX+= (camT.x-camX)*Math.min(1,dt*5); camY+=(camT.y-camY)*Math.min(1,dt*5);
+  const hw=VW/(2*zoom), hh=VH/(2*zoom);
+  camX=Math.max(Math.min(hw,CFG.worldW/2), Math.min(CFG.worldW-hw, camX));
+  camY=Math.max(Math.min(hh,CFG.worldH/2), Math.min(CFG.worldH-hh, camY));
+  // win check (4 teams): first to target, or highest at the timer; sudden death if top two are close
+  const totals=[...teams.map(t=>t.total)].sort((a,b)=>b-a);
+  const lead=totals[0]-totals[1];
+  if(teams.some(t=>t.total>=CFG.victoryTarget)) endGame();
+  else if(suddenDeath){ if(lead>=300||sdT>110) endGame(); }
+  else if(timeLeft<=0){
+    if(lead<300){ suddenDeath=true; sdT=0;
+      showBanner("SUDDEN DEATH! Ring shrinks — pickups bank instantly. Lead by 300 to win!"); }
+    else endGame(); }
+}
+function hunterUpdate(dt){
+  const inAnyBase = (e)=> bases.some(bs=>dist2(e,bs)<CFG.baseRadius*CFG.baseRadius);
+  for(const h of hunters){
+    if(h.dead){ h.deadT-=dt;
+      if(h.deadT<=0){ h.dead=false; h.state="wander"; h.cd=3; h.tx=null;
+        if(h.escort && playerDog){ h.x=playerDog.x+rand(-120,120); h.y=playerDog.y+rand(-120,120); }
+        else { h.x=rand(CFG.worldW*0.25,CFG.worldW*0.75); h.y=rand(CFG.worldH*0.25,CFG.worldH*0.75); }
+        showBanner("A hunter is back on the prowl..."); }
+      continue; }
+    if(h.escort){
+      // the bloodhound's pack: follows the dog, never stops moving,
+      // snap-shoots any bird at 4x normal range with map-crossing bullets
+      const anchor=playerDog||h;
+      const tx=anchor.x+h.ox, ty=anchor.y+h.oy;
+      const ddx=tx-h.x, ddy=ty-h.y, dd=Math.hypot(ddx,ddy)||1;
+      if(dd>36){ h.x+=ddx/dd*230*dt; h.y+=ddy/dd*230*dt; h.heading=Math.atan2(ddy,ddx); }
+      h.cd-=dt;
+      const rng=CFG.hunterRange*4;
+      if(h.cd<=0 && !h.target){ let best=null, bd=rng*rng;
+        for(const b of birds){ if(b.dead||b.owl||inBush(b)||inAnyBase(b)) continue;
+          const d=dist2(h,b); if(d>=bd) continue;
+          if(losBlocked(h,b)) continue;
+          bd=d; best=b; }
+        if(best){ h.target=best; h.aimT=0.7; } }   // takes aim (no visible sight line)
+      if(h.target){ const t=h.target;
+        if(t.dead||inBush(t)||inAnyBase(t)||losBlocked(h,t)||dist2(h,t)>rng*rng*1.4){ h.target=null; }
+        else { h.heading=Math.atan2(t.y-h.y, t.x-h.x); h.aimT-=dt;
+          if(h.aimT<=0){ const d=Math.hypot(t.x-h.x,t.y-h.y)||1;
+            bullets.push({x:h.x,y:h.y, vx:(t.x-h.x)/d*CFG.bulletSpeed, vy:(t.y-h.y)/d*CFG.bulletSpeed, life:16, admin:true});
+            if(playerDog && dist2(h,playerDog)<1400*1400) sfx.shot();
+            h.target=null; h.cd=1.2; } } }
+      for(const ob of obstacles){ const dx=h.x-ob.x, dy=h.y-ob.y, d=Math.hypot(dx,dy), min=ob.r+14;
+        if(d<min&&d>0){ h.x=ob.x+dx/d*min; h.y=ob.y+dy/d*min; } }
+      continue; }
+    h.cd=Math.max(0,h.cd-dt);
+    if(h.state==="wander"){
+      if(h.tx===null || dist2(h,{x:h.tx,y:h.ty})<60*60){
+        if(h.nestPatrol){ // lurks around a random nest, just outside granny range
+          const bs=bases[(Math.random()*4)|0], a=rand(0,Math.PI*2), d=CFG.baseRadius*rand(2.3,3.4);
+          h.tx=Math.max(200,Math.min(CFG.worldW-200, bs.x+Math.cos(a)*d));
+          h.ty=Math.max(200,Math.min(CFG.worldH-200, bs.y+Math.sin(a)*d)); }
+        else { const quarry=birds.find(b=>b.hawk&&b.huntable&&!b.dead);   // the rest stalk the center hawk
+          if(quarry){ h.tx=quarry.x+rand(-300,300); h.ty=quarry.y+rand(-300,300); }
+          else { h.tx=rand(250,CFG.worldW-250); h.ty=rand(250,CFG.worldH-250); } } }
+      const dx=h.tx-h.x, dy=h.ty-h.y, d=Math.hypot(dx,dy)||1;
+      h.x+=dx/d*78*dt; h.y+=dy/d*78*dt; h.heading=Math.atan2(dy,dx);
+      if(h.cd<=0){ let best=null, bd=CFG.hunterRange*CFG.hunterRange;
+        for(const b of birds){ if(b.dead||inBush(b)||inAnyBase(b)) continue;
+          if(b.hawk && !b.huntable) continue;         // hunters only care about one hawk
+          const dd=dist2(h,b); if(dd>=bd) continue;
+          if(losBlocked(h,b)) continue;               // needs clear line of sight
+          bd=dd; best=b; }
+        if(best){ h.state="aim"; h.target=best; h.aimT=CFG.hunterAimTime;
+          if(best.isPlayer){ showBanner("A HUNTER HAS YOU IN HIS SIGHTS — MOVE!"); sfx.aim(); } } }
+    } else if(h.state==="aim"){
+      const t=h.target;
+      if(!t || t.dead || inBush(t) || inAnyBase(t) || dist2(h,t)>Math.pow(CFG.hunterRange*1.3,2) || losBlocked(h,t)){
+        h.state="wander"; h.target=null; }
+      else { h.heading=Math.atan2(t.y-h.y,t.x-h.x); h.aimT-=dt;
+        if(h.aimT<=0){ const d=Math.hypot(t.x-h.x,t.y-h.y)||1;
+          bullets.push({x:h.x,y:h.y, vx:(t.x-h.x)/d*CFG.bulletSpeed, vy:(t.y-h.y)/d*CFG.bulletSpeed, life:1.1});
+          if(player && dist2(h,player)<1100*1100) sfx.shot();
+          h.cd=2.6; h.state="wander"; h.target=null; } }
+    }
+    // hunters respect nests and can't walk through obstacles
+    for(const bs of bases){ const dx=h.x-bs.x, dy=h.y-bs.y, d=Math.hypot(dx,dy), min=CFG.baseRadius+40;
+      if(d<min&&d>0){ h.x=bs.x+dx/d*min; h.y=bs.y+dy/d*min; h.tx=null; } }
+    for(const ob of obstacles){ const dx=h.x-ob.x, dy=h.y-ob.y, d=Math.hypot(dx,dy), min=ob.r+14;
+      if(d<min&&d>0){ h.x=ob.x+dx/d*min; h.y=ob.y+dy/d*min; } }
+  }
+  hunters=hunters.filter(h=>!h.gone);
+}
+function endGame(){ gameOver=true;
+  let w=0; for(let i=1;i<4;i++) if(teams[i].total>teams[w].total) w=i;
+  const tie=teams.filter(t=>t.total===teams[w].total).length>1;
+  const ov=document.getElementById("overlay");
+  document.getElementById("ovTitle").textContent = tie?"TIE!":(TEAMNAMES[w]+" WINS!");
+  document.getElementById("ovTitle").style.color = TEAMCOL[w];
+  document.getElementById("ovText").textContent =
+    teams.map((t,i)=>TEAMNAMES[i]+" "+Math.round(t.total)).join(" • ")+"  (target "+CFG.victoryTarget+")";
+  // awards
+  try{
+    const tb=birds.filter(b=>b.team<4);
+    const by=(k)=>[...tb].sort((a,b)=>(b[k]||0)-(a[k]||0))[0];
+    const lines=[];
+    const th=by("kills");     if(th&&th.kills>0)      lines.push("🗡 Top Hunter: "+nameSpan(th)+" ("+th.kills+" kills)");
+    const tg=by("deposited"); if(tg&&tg.deposited>0)  lines.push("🌰 Top Gatherer: "+nameSpan(tg)+" ("+Math.round(tg.deposited)+" seeds)");
+    const ts=by("hunterKills"); if(ts&&ts.hunterKills>0) lines.push("💥 Hunter-Slayer: "+nameSpan(ts)+" ("+ts.hunterKills+")");
+    const tp=by("purseDeaths"); if(tp&&tp.purseDeaths>0) lines.push("👜 Granny Victim: "+nameSpan(tp)+" (bonked "+tp.purseDeaths+"x)");
+    document.getElementById("ovAwards").innerHTML=lines.join("<br>");
+  }catch(e){}
+  // persistent XP
+  try{
+    const preLvl=levelOf(meta.xp);
+    if(w===0) meta.wins=(meta.wins||0)+1;   // a new trophy for your nest
+    const mxp=Math.round(player.deposited*0.5 + player.kills*25 + player.hunterKills*50 + (w===0?200:50));
+    meta.xp+=mxp; saveMeta();
+    const lvl=levelOf(meta.xp);
+    document.getElementById("ovXp").textContent="+"+mxp+" XP — Level "+lvl+(lvl>preLvl?"  🎉 LEVEL UP!":"");
+    rebuildSpecies();
+  }catch(e){}
+  ov.style.display="flex"; }
+document.getElementById("restart").addEventListener("click", ()=>{ if(netMode) location.reload(); else reset(); });
+
+// ============ BANNER / HUD ============
+let bannerT=0;
+function showBanner(msg){ const el=document.getElementById("banner"); el.textContent=msg; el.style.opacity=1; bannerT=2.2; }
+function hud(dt){
+  if(bannerT>0){ bannerT-=dt; if(bannerT<=0) document.getElementById("banner").style.opacity=0; }
+  for(let i=0;i<4;i++) document.getElementById("fill"+i).style.width=Math.min(100,teams[i].total/CFG.victoryTarget*100)+"%";
+  const m=Math.max(0,timeLeft), mm=(m/60)|0, ss=String((m%60)|0).padStart(2,"0");
+  document.getElementById("timer").textContent = suddenDeath? "SUDDEN DEATH" : mm+":"+ss;
+  document.getElementById("carryTag").textContent = owlMode ? "NIGHT OWL"
+    : hunterMode
+    ? "BLOODHOUND"+(dogStealth?" (stealth)":"")+" · pack: "+hunters.filter(h=>h.escort).length+" hunters"
+    : (player.dead? "Respawning..." : "Carrying: "+Math.round(player.carried));
+  let hint = "";
+  if(owlMode) hint="Touch = kill \u2022 double-tap = long dash \u2022 type \u0027bird\u0027 to return";
+  else if(hunterMode) hint="W/E add/remove hunters • S/D stealth • X golden egg • double-tap = kill burst • type 'bird' to return";
+  else {
+    const hn=nearestHunter(player);
+    if(player.carried>80) hint="You're heavy — fly home to bank it!";
+    else if(hn && !player.dead && !inBush(player) && dist2(player,hn)<450*450) hint="Hunter nearby — dive into a bush!";
+     }
+  document.getElementById("hint").textContent = hint;
+  const t=teams[(netMode&&player)?player.team:0]||teams[0], gc=250*(t.gen+1), mc=200*(t.mag+1);
+  const gb=document.getElementById("genBtn"), mb=document.getElementById("magBtn");
+  const atNest = !hunterMode && player && !player.dead && bases.length>0 && dist2(player,bases[player.team]||bases[0])<CFG.baseRadius*CFG.baseRadius;
+  document.getElementById("upgrades").style.display = atNest ? "flex" : "none";
+  document.getElementById("bankChip").textContent="Bank: "+Math.round(t.bank)+(atNest?"":" — fly home to upgrade");
+  gb.textContent="🌱 Generator L"+t.gen+" — "+gc; gb.disabled=!atNest||t.bank<gc;
+  mb.textContent="🧲 Magnet L"+t.mag+" — "+mc; mb.disabled=!atNest||t.bank<mc;
+  // live leaderboard: most seeds turned in
+  hud.lbT=(hud.lbT||0)+dt;
+  if(hud.lbT>0.5){ hud.lbT=0;
+    try{ const top=[...birds].filter(b=>b.team<4).sort((a,b)=>b.deposited-a.deposited).slice(0,5);
+      document.getElementById("lbRows").innerHTML = top.map((b,i)=>
+        '<div class="row"><span style="color:'+TEAMCOL[b.team]+'">'+(i+1)+'. '+b.name+(b.isPlayer?' (you)':'')+'</span><span>'+Math.round(b.deposited)+'</span></div>').join("");
+      document.getElementById("qRows").innerHTML = QUESTS.map(q=>
+        '<div class="row"><span>'+q.n+'</span><span>'+(daily.claimed[q.k]?'✅':(Math.min(q.t,Math.round(daily[q.k]))+'/'+q.t))+'</span></div>').join("");
+    }catch(e){} }
+}
+function bindBtn(id,fn){ const el=document.getElementById(id);
+  el.addEventListener("pointerdown", e=>{ e.preventDefault(); e.stopPropagation(); if(!el.disabled) fn(); }); }
+function playerAtNest(){ return !hunterMode && player && !player.dead && dist2(player,bases[0])<CFG.baseRadius*CFG.baseRadius; }
+bindBtn("genBtn",()=>{ if(netMode){ if(netRoom) netRoom.send("buy","gen"); return; } const t=teams[0],c=250*(t.gen+1); if(playerAtNest()&&t.bank>=c){t.bank-=c;t.gen++; sfx.deposit(); showBanner("Generator upgraded! Seeds now sprout at your nest.");}});
+bindBtn("magBtn",()=>{ if(netMode){ if(netRoom) netRoom.send("buy","mag"); return; } const t=teams[0],c=200*(t.mag+1); if(playerAtNest()&&t.bank>=c){t.bank-=c;t.mag++; sfx.deposit(); showBanner("Magnet upgraded! Whole team picks up from farther away.");}});
+
+// ============ RENDER ============
+function drawBird(b){
+  const r=radiusFor(b.carried), col=b.species.c, tc=TEAMCOL[b.team];
+  cx.save(); cx.translate(b.x,b.y); cx.rotate(b.heading);
+  if(b.streak>=3){ // killstreak flame trail
+    const f=Math.sin(b.flap*3)*0.3;
+    for(let k=0;k<3;k++){ const fx=-r-8-k*11, fr=(7-k*1.8)*(1+f);
+      cx.fillStyle=k===0?"rgba(255,200,60,.85)":(k===1?"rgba(255,130,40,.65)":"rgba(230,70,30,.45)");
+      cx.beginPath(); cx.arc(fx,Math.sin(b.flap*4+k)*3,fr,0,Math.PI*2); cx.fill(); } }
+  if(goldenEgg && goldenEgg.holder===b){ // golden glow on the egg carrier
+    cx.strokeStyle="rgba(255,210,60,.8)"; cx.lineWidth=4;
+    cx.beginPath(); cx.arc(0,0,r+8+Math.sin(b.flap*2)*2,0,Math.PI*2); cx.stroke(); }
+  const F=FEATS[b.species.n]||{};
+  const w=Math.sin(b.flap)*0.5, wingS=F.wingS||1, tailS=F.tailS||1, beakS=F.beakS||1;
+  // prestige aura (Eagle)
+  if(F.aura){ cx.fillStyle=F.aura; cx.beginPath();
+    cx.arc(0,0,r+7+Math.sin(b.flap*1.5)*2,0,Math.PI*2); cx.fill(); }
+  // wings
+  cx.fillStyle=shade(col,-18);
+  if(F.wingSharp){ // swept, pointed wings
+    cx.beginPath(); cx.moveTo(r*0.3,-r*0.5); cx.lineTo(-r*0.9,-r*(1.15+0.25*w)); cx.lineTo(-r*0.5,-r*0.35); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(r*0.3, r*0.5); cx.lineTo(-r*0.9, r*(1.15-0.25*w)); cx.lineTo(-r*0.5, r*0.35); cx.closePath(); cx.fill();
+    if(F.wingTip){ cx.fillStyle=F.wingTip;
+      cx.beginPath(); cx.arc(-r*0.82,-r*(1.05+0.22*w),r*0.14,0,Math.PI*2); cx.fill();
+      cx.beginPath(); cx.arc(-r*0.82, r*(1.05-0.22*w),r*0.14,0,Math.PI*2); cx.fill(); } }
+  else {
+    ellipse(0,-r*0.85*wingS, r*0.75*wingS, (r*0.34+ r*0.2*w)*wingS);
+    ellipse(0, r*0.85*wingS, r*0.75*wingS, (r*0.34+ r*0.2*(-w))*wingS); }
+  // tail
+  cx.fillStyle=F.tailC||shade(col,-25);
+  if(F.plume){ // long showy twin plumes
+    cx.lineWidth=r*0.22; cx.strokeStyle=F.tailC||shade(col,-25);
+    cx.beginPath(); cx.moveTo(-r*0.6,0); cx.quadraticCurveTo(-r*1.4,-r*0.5,-r*(0.9+0.9*tailS),-r*0.35); cx.stroke();
+    cx.beginPath(); cx.moveTo(-r*0.6,0); cx.quadraticCurveTo(-r*1.4, r*0.5,-r*(0.9+0.9*tailS), r*0.35); cx.stroke(); }
+  else { cx.beginPath();
+    cx.moveTo(-r*0.7,0); cx.lineTo(-r*(0.7+0.75*tailS),-r*0.42); cx.lineTo(-r*(0.7+0.75*tailS),r*0.42); cx.closePath(); cx.fill(); }
+  // body
+  cx.fillStyle=col; cx.beginPath(); cx.arc(0,0,r,0,Math.PI*2); cx.fill();
+  // team ring
+  cx.lineWidth=Math.max(2.5,r*0.14); cx.strokeStyle=tc; cx.beginPath(); cx.arc(0,0,r*0.99,0,Math.PI*2); cx.stroke();
+  // belly
+  cx.fillStyle=F.belly||shade(col,28); cx.beginPath(); cx.arc(r*0.15,0,r*0.55,0,Math.PI*2); cx.fill();
+  // white head (Eagle)
+  if(F.headC){ cx.fillStyle=F.headC; cx.beginPath(); cx.arc(r*0.45,0,r*0.52,0,Math.PI*2); cx.fill(); }
+  // face mask (Cardinal)
+  if(F.mask){ cx.fillStyle=F.mask; cx.beginPath();
+    cx.moveTo(r*0.95,0); cx.arc(r*0.4,0,r*0.55,-1.1,1.1); cx.closePath(); cx.fill(); }
+  // crest
+  if(F.crest==="tuft"){ cx.fillStyle=shade(col,-12);
+    cx.beginPath(); cx.arc(r*0.2,-r*0.95,r*0.22,0,Math.PI*2); cx.fill();
+    cx.beginPath(); cx.arc(r*0.42,-r*0.88,r*0.16,0,Math.PI*2); cx.fill(); }
+  else if(F.crest==="tall"){ cx.fillStyle=shade(col,-10); cx.beginPath();
+    cx.moveTo(r*0.05,-r*0.75); cx.lineTo(r*0.15,-r*1.5); cx.lineTo(r*0.45,-r*0.85);
+    cx.lineTo(r*0.62,-r*1.25); cx.lineTo(r*0.72,-r*0.6); cx.closePath(); cx.fill(); }
+  // beak
+  cx.fillStyle=F.beakC||"#f7a11a";
+  if(F.hook){ cx.beginPath();
+    cx.moveTo(r*0.9,-r*0.3*beakS); cx.quadraticCurveTo(r*(0.9+0.75*beakS),-r*0.15, r*(0.85+0.65*beakS), r*0.3*beakS);
+    cx.lineTo(r*(0.8+0.35*beakS), r*0.1); cx.lineTo(r*0.9, r*0.25*beakS); cx.closePath(); cx.fill(); }
+  else { cx.beginPath();
+    cx.moveTo(r*0.95,-r*0.28*beakS); cx.lineTo(r*(0.95+0.55*beakS),0); cx.lineTo(r*0.95,r*0.28*beakS); cx.closePath(); cx.fill();
+    if(F.beakTip){ cx.fillStyle=F.beakTip; cx.beginPath();
+      cx.moveTo(r*(0.95+0.34*beakS),-r*0.11*beakS); cx.lineTo(r*(0.95+0.55*beakS),0); cx.lineTo(r*(0.95+0.34*beakS),r*0.11*beakS); cx.closePath(); cx.fill(); } }
+  // eyes
+  const eyeS=(F.eyeS||1)*r*0.22;
+  if(F.owl){ // huge frontal owl eyes with disc
+    cx.fillStyle=shade(col,20); cx.beginPath(); cx.arc(r*0.4,0,r*0.62,0,Math.PI*2); cx.fill();
+    for(const s of [-1,1]){
+      cx.fillStyle="#ffe9a8"; cx.beginPath(); cx.arc(r*0.42,s*r*0.3,r*0.3,0,Math.PI*2); cx.fill();
+      cx.fillStyle="#1e1410"; cx.beginPath(); cx.arc(r*0.48,s*r*0.3,r*0.14,0,Math.PI*2); cx.fill(); } }
+  else {
+    cx.fillStyle="#fff"; cx.beginPath(); cx.arc(r*0.45,-r*0.32,eyeS,0,Math.PI*2); cx.fill();
+    if(F.eyeRing){ cx.strokeStyle=F.eyeRing; cx.lineWidth=2; cx.beginPath(); cx.arc(r*0.45,-r*0.32,eyeS+1.5,0,Math.PI*2); cx.stroke(); }
+    cx.fillStyle="#222"; cx.beginPath(); cx.arc(r*0.52,-r*0.32,eyeS*0.5,0,Math.PI*2); cx.fill();
+    if(F.brow){ cx.strokeStyle=F.brow>1?"#2b1d0e":"#333"; cx.lineWidth=Math.max(2,r*0.1);
+      cx.beginPath(); cx.moveTo(r*0.18,-r*0.62); cx.lineTo(r*0.72,-r*0.38); cx.stroke(); } }
+  cx.restore();
+  // labels
+  cx.font="bold 11px Arial"; cx.textAlign="center"; cx.fillStyle="rgba(255,255,255,.92)";
+  const tag=(b.bounty?"👑 ":"")+(b.buddy?"⭐ ":"")+(b.name||b.species.n);
+  cx.fillText(tag, b.x, b.y-r-8);
+  if(b.emoteT>0){ const by=b.y-r-32;
+    cx.fillStyle="rgba(255,255,255,.94)"; cx.beginPath(); cx.arc(b.x,by,13,0,Math.PI*2); cx.fill();
+    cx.font="14px Arial"; cx.fillText(b.emote,b.x,by+5); cx.font="bold 11px Arial"; }
+  if(b.dashT>0){ cx.strokeStyle="rgba(255,255,255,.5)"; cx.lineWidth=2; cx.beginPath(); cx.arc(b.x,b.y,r+5,0,Math.PI*2); cx.stroke(); }
+}
+function ellipse(x,y,rx,ry){ cx.beginPath(); cx.ellipse(x,y,Math.abs(rx),Math.abs(ry),0,0,Math.PI*2); cx.fill(); }
+function shade(hex,amt){ const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return "rgb("+r+","+g+","+b+")"; }
+function drawBase(base){
+  const t=teams[base.team];
+  cx.save(); cx.translate(base.x,base.y);
+  // safe zone
+  cx.fillStyle=["rgba(74,163,255,.10)","rgba(255,93,74,.10)","rgba(46,204,113,.10)","rgba(244,208,63,.10)"][base.team];
+  cx.beginPath(); cx.arc(0,0,CFG.baseRadius,0,Math.PI*2); cx.fill();
+  cx.setLineDash([10,8]); cx.strokeStyle=TEAMCOL[base.team]; cx.lineWidth=2;
+  cx.beginPath(); cx.arc(0,0,CFG.baseRadius,0,Math.PI*2); cx.stroke(); cx.setLineDash([]);
+  // nest
+  cx.fillStyle="#8a5a2b"; cx.beginPath(); cx.arc(0,0,56,0,Math.PI*2); cx.fill();
+  cx.strokeStyle="#6e4218"; cx.lineWidth=3;
+  for(let i=0;i<9;i++){ cx.beginPath(); cx.arc(0,0,42+((i*13)%14), i, i+2.2); cx.stroke(); }
+  cx.fillStyle="#5d3a14"; cx.beginPath(); cx.arc(0,0,34,0,Math.PI*2); cx.fill();
+  // victory trophies from past matches (your nest only, persists between sessions)
+  if(base.team===0){ const n=Math.min(8,(meta.wins||0));
+    for(let i=0;i<n;i++){ const a=-Math.PI*0.85+i*0.34, fx=Math.cos(a)*78, fy=Math.sin(a)*78;
+      cx.strokeStyle="#8a5a2b"; cx.lineWidth=2;
+      cx.beginPath(); cx.moveTo(fx,fy); cx.lineTo(fx,fy-15); cx.stroke();
+      cx.fillStyle="#ffd84a"; cx.beginPath();
+      cx.moveTo(fx,fy-15); cx.lineTo(fx+9,fy-12); cx.lineTo(fx,fy-9); cx.closePath(); cx.fill(); } }
+  // eggs = bank fullness
+  const eggs=Math.min(6,Math.floor(t.total/(CFG.victoryTarget/6))+ (t.total>0?1:0));
+  for(let i=0;i<eggs;i++){ const a=i/6*Math.PI*2;
+    cx.fillStyle="#fdf6e3"; cx.save(); cx.translate(Math.cos(a)*16,Math.sin(a)*16);
+    cx.beginPath(); cx.ellipse(0,0,8,11,a,0,Math.PI*2); cx.fill(); cx.restore(); }
+  cx.restore();
+  cx.font="bold 13px Arial"; cx.textAlign="center"; cx.fillStyle="rgba(255,255,255,.95)";
+  cx.fillText(TEAMNAMES[base.team]+" NEST — "+Math.round(t.bank)+" seed", base.x, base.y-CFG.baseRadius-10);
+}
+function drawHunter(){
+ for(const h of hunters){
+  if(h.dead) continue;
+  if(h.state==="aim" && h.target){
+    cx.setLineDash([8,7]); cx.strokeStyle="rgba(220,40,40,.75)"; cx.lineWidth=2;
+    cx.beginPath(); cx.moveTo(h.x,h.y); cx.lineTo(h.target.x,h.target.y); cx.stroke(); cx.setLineDash([]); }
+  cx.save(); cx.translate(h.x,h.y); cx.rotate(h.heading);
+  cx.fillStyle="rgba(0,0,0,.15)"; cx.beginPath(); cx.arc(3,4,16,0,Math.PI*2); cx.fill();
+  cx.strokeStyle="#5a3b1e"; cx.lineWidth=5;            // the gun
+  cx.beginPath(); cx.moveTo(4,8); cx.lineTo(38,4); cx.stroke();
+  cx.fillStyle="#d3651f"; cx.beginPath(); cx.arc(0,0,14,0,Math.PI*2); cx.fill();   // orange vest
+  cx.fillStyle="#e8c39e"; cx.beginPath(); cx.arc(9,0,8,0,Math.PI*2); cx.fill();    // head
+  cx.fillStyle="#7a4f21"; cx.beginPath(); cx.arc(9,0,8.5,Math.PI*0.75,Math.PI*1.6); cx.fill(); // cap
+  cx.restore();
+  cx.font="bold 12px Arial"; cx.textAlign="center"; cx.fillStyle="#ffd0c0";
+  cx.fillText("HUNTER", h.x, h.y-24);
+ }
+ // the bloodhound (you)
+ if(hunterMode && playerDog){ const d=playerDog;
+  cx.save(); cx.translate(d.x,d.y); cx.rotate(d.heading);
+  cx.globalAlpha = dogStealth?0.35:1;
+  if(dogDashT>0){ cx.strokeStyle="rgba(255,255,255,.6)"; cx.lineWidth=3;
+    cx.beginPath(); cx.arc(0,0,30,0,Math.PI*2); cx.stroke(); }
+  cx.fillStyle="rgba(0,0,0,.15)"; cx.beginPath(); cx.ellipse(3,5,26,15,0,0,Math.PI*2); cx.fill();
+  cx.fillStyle="#8a5a33"; cx.beginPath(); cx.ellipse(0,0,25,14,0,0,Math.PI*2); cx.fill();     // body
+  cx.fillStyle="#6e4423"; cx.beginPath(); cx.ellipse(20,0,11,8,0,0,Math.PI*2); cx.fill();      // head/snout
+  cx.fillStyle="#1e1410"; cx.beginPath(); cx.arc(30,0,3.4,0,Math.PI*2); cx.fill();             // nose
+  cx.fillStyle="#5d3a1c";                                                                       // droopy ears
+  cx.beginPath(); cx.ellipse(14,-11,10,5,-0.5,0,Math.PI*2); cx.fill();
+  cx.beginPath(); cx.ellipse(14, 11,10,5, 0.5,0,Math.PI*2); cx.fill();
+  cx.strokeStyle="#6e4423"; cx.lineWidth=4;                                                     // tail
+  cx.beginPath(); cx.moveTo(-24,0); cx.quadraticCurveTo(-34,-6,-38,-12); cx.stroke();
+  cx.strokeStyle="#c0392b"; cx.lineWidth=3;                                                     // collar
+  cx.beginPath(); cx.arc(11,0,9,-1.1,1.1); cx.stroke();
+  cx.restore(); cx.globalAlpha=1;
+  cx.font="bold 12px Arial"; cx.textAlign="center"; cx.fillStyle="#ffe4b0";
+  cx.fillText("🐕 "+playerName+(dogStealth?" 👻":""), d.x, d.y-26); }
+ if(owlMode && playerOwl){ const o=playerOwl;
+  cx.save(); cx.translate(o.x,o.y); cx.rotate(o.heading);
+  cx.globalAlpha=0.72;
+  if(owlDashT>0){ cx.strokeStyle="rgba(200,180,255,.6)"; cx.lineWidth=3;
+    cx.beginPath(); cx.arc(0,0,34,0,Math.PI*2); cx.stroke(); }
+  const w2=Math.sin(performance.now()/70)*0.4;
+  cx.fillStyle="#584a80";
+  cx.beginPath(); cx.ellipse(0,-22,20,9+5*w2,0,0,Math.PI*2); cx.fill();
+  cx.beginPath(); cx.ellipse(0, 22,20,9-5*w2,0,0,Math.PI*2); cx.fill();
+  cx.fillStyle="#7a68a6"; cx.beginPath(); cx.arc(0,0,22,0,Math.PI*2); cx.fill();
+  cx.fillStyle="#8f7cbd"; cx.beginPath(); cx.arc(9,0,13,0,Math.PI*2); cx.fill();
+  for(const s of [-1,1]){
+    cx.fillStyle="#ffe9a8"; cx.beginPath(); cx.arc(9,s*7,6.5,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#1e1410"; cx.beginPath(); cx.arc(10.5,s*7,3,0,Math.PI*2); cx.fill(); }
+  cx.fillStyle="#c9a13b"; cx.beginPath();
+  cx.moveTo(20,-4); cx.lineTo(28,0); cx.lineTo(20,4); cx.closePath(); cx.fill();
+  cx.restore(); cx.globalAlpha=1;
+  cx.font="bold 12px Arial"; cx.textAlign="center"; cx.fillStyle="#d8ccff";
+  cx.fillText("\ud83e\udd89 "+playerName, o.x, o.y-34); }
+}
+function render(){
+  cx.clearRect(0,0,VW,VH);
+  cx.save(); cx.translate(VW/2,VH/2); cx.scale(zoom,zoom); cx.translate(-camX,-camY);
+  // ground
+  cx.fillStyle="#8ab961"; cx.fillRect(0,0,CFG.worldW,CFG.worldH);
+  for(const d of decor){ cx.fillStyle="rgba(60,110,45,"+d.g+")"; cx.beginPath(); cx.arc(d.x,d.y,d.r,0,Math.PI*2); cx.fill(); }
+  // grid
+  cx.strokeStyle="rgba(255,255,255,.07)"; cx.lineWidth=1;
+  for(let x=0;x<=CFG.worldW;x+=130){ cx.beginPath(); cx.moveTo(x,0); cx.lineTo(x,CFG.worldH); cx.stroke(); }
+  for(let y=0;y<=CFG.worldH;y+=130){ cx.beginPath(); cx.moveTo(0,y); cx.lineTo(CFG.worldW,y); cx.stroke(); }
+  cx.strokeStyle="rgba(255,255,255,.35)"; cx.lineWidth=4; cx.strokeRect(0,0,CFG.worldW,CFG.worldH);
+  // bloom zone
+  if(bloomActive){ cx.fillStyle="rgba(255,235,120,.14)"; cx.beginPath(); cx.arc(bloomActive.x,bloomActive.y,bloomActive.r,0,Math.PI*2); cx.fill();
+    cx.strokeStyle="rgba(255,235,120,.5)"; cx.lineWidth=2; cx.stroke(); }
+  // pellets (seeds & worms)
+  const wt=performance.now()/250;
+  for(const p of pellets){
+    if(p.worm){ cx.strokeStyle="#e87ea1"; cx.lineWidth=3.2; cx.lineCap="round"; cx.beginPath();
+      for(let k=0;k<=4;k++){ const px=p.x+(k-2)*4, py=p.y+Math.sin(wt+p.x*0.1+k)*3;
+        k===0?cx.moveTo(px,py):cx.lineTo(px,py); } cx.stroke();
+      cx.fillStyle="#c9556f"; cx.beginPath(); cx.arc(p.x+8,p.y+Math.sin(wt+p.x*0.1+4)*3,2.2,0,Math.PI*2); cx.fill(); }
+    else { cx.fillStyle=p.bloom?"#ffe45c":"#f0d290";
+      cx.beginPath(); cx.ellipse(p.x,p.y,3.6+p.v*0.5,2.6+p.v*0.35,p.x%3,0,Math.PI*2); cx.fill(); } }
+  // orbs
+  for(const o of orbs){ cx.fillStyle="rgba(255,250,180,.95)"; cx.beginPath(); cx.arc(o.x,o.y,5+Math.min(6,o.v*0.3),0,Math.PI*2); cx.fill(); }
+  // obstacles: rocks & trees
+  for(const ob of obstacles){
+    if(ob.tree){
+      cx.fillStyle="rgba(0,0,0,.12)"; cx.beginPath(); cx.arc(ob.x+6,ob.y+8,ob.r,0,Math.PI*2); cx.fill();
+      cx.fillStyle="#3d6b33"; cx.beginPath(); cx.arc(ob.x,ob.y,ob.r,0,Math.PI*2); cx.fill();
+      cx.fillStyle="#4e8040"; cx.beginPath(); cx.arc(ob.x-ob.r*0.25,ob.y-ob.r*0.25,ob.r*0.62,0,Math.PI*2); cx.fill();
+    } else {
+      cx.fillStyle="rgba(0,0,0,.12)"; cx.beginPath(); cx.arc(ob.x+5,ob.y+7,ob.r,0,Math.PI*2); cx.fill();
+      cx.fillStyle="#9d9d94"; cx.beginPath(); cx.arc(ob.x,ob.y,ob.r,0,Math.PI*2); cx.fill();
+      cx.fillStyle="#b3b3aa"; cx.beginPath(); cx.arc(ob.x-ob.r*0.2,ob.y-ob.r*0.25,ob.r*0.55,0,Math.PI*2); cx.fill();
+    } }
+  for(const b of bases) drawBase(b);
+  // grannys & their flying purses
+  for(const g of grannys){
+    cx.save(); cx.translate(g.x,g.y);
+    cx.fillStyle="rgba(0,0,0,.12)"; cx.beginPath(); cx.arc(2,4,13,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#d9a7e0"; cx.beginPath(); cx.arc(0,0,12,0,Math.PI*2); cx.fill();
+    cx.fillStyle="rgba(255,255,255,.5)";
+    for(let k=0;k<4;k++){ cx.beginPath(); cx.arc(Math.cos(k*1.7)*6,Math.sin(k*2.3)*6,1.6,0,Math.PI*2); cx.fill(); }
+    cx.fillStyle="#e8c39e"; cx.beginPath(); cx.arc(0,-3,6.5,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#cfd2d6"; cx.beginPath(); cx.arc(0,-9,3.5,0,Math.PI*2); cx.fill();
+    cx.strokeStyle="#333"; cx.lineWidth=1;
+    cx.beginPath(); cx.arc(-2.5,-3,1.8,0,Math.PI*2); cx.stroke();
+    cx.beginPath(); cx.arc(2.5,-3,1.8,0,Math.PI*2); cx.stroke();
+    cx.restore();
+    cx.font="bold 10px Arial"; cx.textAlign="center"; cx.fillStyle=TEAMCOL[g.team];
+    cx.fillText("GRANNY", g.x, g.y-22);
+    if(g.purse){ const p=g.purse; cx.save(); cx.translate(p.x,p.y); cx.rotate(p.rot);
+      cx.fillStyle="#8a4b2f"; cx.beginPath(); cx.arc(0,0,8,0,Math.PI*2); cx.fill();
+      cx.strokeStyle="#5d3018"; cx.lineWidth=2;
+      cx.beginPath(); cx.arc(0,-6,5,Math.PI,2*Math.PI); cx.stroke();
+      cx.restore(); } }
+  // molting feathers
+  for(const f of feathers){
+    if(f.ch>0){ cx.strokeStyle="#8affc1"; cx.lineWidth=3;
+      cx.beginPath(); cx.arc(f.x,f.y,20,-Math.PI/2,-Math.PI/2+Math.PI*2*Math.min(1,f.ch/2)); cx.stroke(); }
+    cx.save(); cx.translate(f.x,f.y); cx.rotate(f.x%3);
+    cx.globalAlpha=Math.min(1,f.life/3); cx.fillStyle=TEAMCOL[f.team];
+    cx.beginPath(); cx.ellipse(0,0,4,10,0,0,Math.PI*2); cx.fill();
+    cx.strokeStyle="rgba(255,255,255,.6)"; cx.lineWidth=1;
+    cx.beginPath(); cx.moveTo(0,-9); cx.lineTo(0,9); cx.stroke();
+    cx.globalAlpha=1; cx.restore(); }
+  // sudden death ring
+  if(suddenDeath){ const R=netMode?netSdR:sdRadius();
+    cx.strokeStyle="rgba(255,60,40,.75)"; cx.lineWidth=7+Math.sin(performance.now()/180)*2;
+    cx.beginPath(); cx.arc(CFG.worldW/2,CFG.worldH/2,R,0,Math.PI*2); cx.stroke(); }
+  drawHunter();
+  for(const u of bullets){ cx.fillStyle="#2b2b2b"; cx.beginPath(); cx.arc(u.x,u.y,4,0,Math.PI*2); cx.fill();
+    cx.strokeStyle="rgba(60,60,60,.4)"; cx.lineWidth=2;
+    cx.beginPath(); cx.moveTo(u.x-u.vx*0.03,u.y-u.vy*0.03); cx.lineTo(u.x,u.y); cx.stroke(); }
+  const sorted=[...birds].filter(b=>!b.dead).sort((a,b)=>radiusFor(a.carried)-radiusFor(b.carried));
+  for(const b of sorted){ const hid=inBush(b);
+    if(hid && b.team!==player.team && !hunterMode) continue;   // enemies in bushes are invisible (hunter-you sees all)
+    if(b.owl){ cx.globalAlpha = nightA<0.4?0.22:0.75; drawBird(b); cx.globalAlpha=1; }
+    else if(hid){ cx.globalAlpha=0.55; drawBird(b); cx.globalAlpha=1; }
+    else drawBird(b); }
+  // golden egg (on the ground, or riding its carrier)
+  if(goldenEgg){ const e=goldenEgg, pulse=1+Math.sin(performance.now()/300)*0.12;
+    cx.fillStyle="rgba(255,215,70,.25)"; cx.beginPath(); cx.arc(e.x,e.y,26*pulse,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#ffd84a"; cx.beginPath(); cx.ellipse(e.x,e.y- (e.holder?radiusFor(e.holder.carried)+14:0),11,15,0,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#fff2b0"; cx.beginPath(); cx.ellipse(e.x-3,e.y-4-(e.holder?radiusFor(e.holder.carried)+14:0),4,6,0.4,0,Math.PI*2); cx.fill(); }
+  // flock buddy (cosmetic preview): flies behind you in formation
+  if(player && !player.dead && flock){
+    const pt=performance.now()/1000, hh=player.heading;
+    const hx=flock.x, hy=flock.y;
+    cx.save(); cx.translate(hx,hy); cx.rotate(hh);
+    const s=6, w=Math.sin(pt*14)*0.5;
+    cx.fillStyle="#5e3a17";
+    cx.beginPath(); cx.ellipse(0,-s*0.9,s*0.8,s*0.4+s*0.25*w,0,0,Math.PI*2); cx.fill();
+    cx.beginPath(); cx.ellipse(0, s*0.9,s*0.8,s*0.4-s*0.25*w,0,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#7c4a1e"; cx.beginPath(); cx.arc(0,0,s,0,Math.PI*2); cx.fill();
+    cx.fillStyle="#f7a11a"; cx.beginPath();
+    cx.moveTo(s*0.9,-s*0.3); cx.lineTo(s*1.5,0); cx.lineTo(s*0.9,s*0.3); cx.closePath(); cx.fill();
+    cx.restore(); }
+  // bushes drawn on top so birds tuck under them
+  for(const bu of bushes){
+    cx.fillStyle="rgba(40,86,34,.82)";
+    for(let i=0;i<6;i++){ const a=i/6*Math.PI*2;
+      cx.beginPath(); cx.arc(bu.x+Math.cos(a)*bu.r*0.42, bu.y+Math.sin(a)*bu.r*0.42, bu.r*0.55,0,Math.PI*2); cx.fill(); }
+    cx.beginPath(); cx.arc(bu.x,bu.y,bu.r*0.6,0,Math.PI*2); cx.fill();
+    cx.fillStyle="rgba(90,150,70,.5)";
+    cx.beginPath(); cx.arc(bu.x-bu.r*0.2,bu.y-bu.r*0.2,bu.r*0.32,0,Math.PI*2); cx.fill(); }
+  // score floaters
+  cx.font="bold 15px Arial"; cx.textAlign="center";
+  for(const f of floaters){ cx.globalAlpha=Math.min(1,f.life/0.9); cx.fillStyle=f.color;
+    cx.fillText(f.txt, f.x, f.y); }
+  cx.globalAlpha=1;
+  cx.restore();
+  // night falls (vision pool around you)
+  if(nightA>0.02 && player){
+    const nt=(owlMode&&playerOwl)?playerOwl:((hunterMode&&playerDog)?playerDog:player);
+    const sxp=VW/2+(nt.x-camX)*zoom, syp=VH/2+(nt.y-camY)*zoom;
+    const g=cx.createRadialGradient(sxp,syp,130*zoom,sxp,syp,540*Math.max(zoom,0.8));
+    g.addColorStop(0,"rgba(8,12,38,0)"); g.addColorStop(1,"rgba(8,12,38,"+(0.72*nightA).toFixed(3)+")");
+    cx.fillStyle=g; cx.fillRect(0,0,VW,VH); }
+  // touch joystick indicator
+  if(ptr.active && ptr.isTouch){
+    cx.strokeStyle="rgba(255,255,255,.3)"; cx.lineWidth=3;
+    cx.beginPath(); cx.arc(ptr.ox,ptr.oy,45,0,Math.PI*2); cx.stroke();
+    if(ptr.hasDir){ cx.fillStyle="rgba(255,255,255,.5)";
+      cx.beginPath(); cx.arc(ptr.ox+ptr.kx*0.5,ptr.oy+ptr.ky*0.5,16,0,Math.PI*2); cx.fill(); } }
+  // minimap
+  const mw=130, mh=mw*CFG.worldH/CFG.worldW, mx=VW-mw-10, my=VH-mh-10;
+  cx.fillStyle="rgba(0,0,0,.35)"; cx.fillRect(mx,my,mw,mh);
+  const sx=mw/CFG.worldW, sy=mh/CFG.worldH;
+  for(const base of bases){ cx.fillStyle=TEAMCOL[base.team]; cx.beginPath(); cx.arc(mx+base.x*sx,my+base.y*sy,4,0,Math.PI*2); cx.fill(); }
+  if(bloomActive){ cx.fillStyle="#ffe45c"; cx.beginPath(); cx.arc(mx+bloomActive.x*sx,my+bloomActive.y*sy,3,0,Math.PI*2); cx.fill(); }
+  if(goldenEgg){ cx.fillStyle="#ffd84a"; cx.beginPath(); cx.arc(mx+goldenEgg.x*sx,my+goldenEgg.y*sy,3.5,0,Math.PI*2); cx.fill(); }
+  for(const b of birds){ if(b.dead) continue;
+    if(inBush(b) && b.team!==player.team) continue;
+    cx.fillStyle=b.isPlayer?"#fff":TEAMCOL[b.team];
+    cx.fillRect(mx+b.x*sx-1.5,my+b.y*sy-1.5, b.isPlayer?4:3, b.isPlayer?4:3); }
+  for(const h of hunters){ if(h.dead) continue; cx.fillStyle="#ff9a2a"; cx.beginPath();
+    cx.arc(mx+h.x*sx, my+h.y*sy, 3.5, 0, Math.PI*2); cx.fill(); }
+}
+
+// ============ START MENU ============
+function startGame(){
+  try{ const nm=document.getElementById("nameInput").value;
+    if(nm && nm.trim()) playerName=nm.trim().slice(0,12); }catch(e){}
+  try{ mapSeed=(document.getElementById("seedInput").value||"").trim(); }catch(e){ mapSeed=""; }
+  started=true; sfx.unlock();
+  reset();   // regenerate the world (seeded if a seed was given)
+  player.name=playerName;
+  player.species={...SPECIES[selSpecies], c:playerColor};
+  try{ document.getElementById("menu").style.display="none"; }catch(e){}
+}
+function rebuildSpecies(){
+  try{
+    const lvl=levelOf(meta.xp), row=document.getElementById("speciesRow");
+    if(selSpecies>0 && speciesReq(selSpecies)>lvl) selSpecies=0;
+    row.innerHTML=SPECIES.map((s,i)=>{ const locked=speciesReq(i)>lvl;
+      return '<div class="spchip'+(i===selSpecies?' sel':'')+(locked?' lock':'')+'" data-i="'+i+'" style="background:'+s.c+'55">'
+        +(locked?('🔒 '+s.n+' Lv'+speciesReq(i)):s.n)+'</div>'; }).join("");
+    document.getElementById("lvlLine").textContent="Level "+lvl+" • "+Math.round(meta.xp)+" XP";
+    row.querySelectorAll(".spchip").forEach(el=>{
+      el.addEventListener("pointerdown", e=>{ e.preventDefault();
+        const i=parseInt(el.dataset.i); if(speciesReq(i)>levelOf(meta.xp)) return;
+        selSpecies=i; try{ localStorage.setItem("ff_sp",String(i)); }catch(err){}
+        row.querySelectorAll(".spchip").forEach(s=>s.classList.remove("sel"));
+        el.classList.add("sel"); }); });
+  }catch(e){}
+}
+rebuildSpecies();
+globalThis.__startGame=startGame;
+try{
+  // no browns/ambers — hawks & owls must stay recognizable at a glance
+  const swCols=["#9aa2ad","#f4d03f","#5dade2","#e74c3c","#9b59b6","#2ecc71","#ff8ac2","#ffffff"];
+  const cdiv=document.getElementById("colors");
+  cdiv.innerHTML=swCols.map((c,i)=>'<div class="swatch'+(i===0?' sel':'')+'" data-c="'+c+'" style="background:'+c+'"></div>').join("");
+  cdiv.querySelectorAll(".swatch").forEach(el=>{
+    el.addEventListener("pointerdown", e=>{ e.preventDefault();
+      cdiv.querySelectorAll(".swatch").forEach(s=>s.classList.remove("sel"));
+      el.classList.add("sel"); playerColor=el.dataset.c; }); });
+  document.getElementById("startBtn").addEventListener("pointerdown", e=>{ e.preventDefault(); startGame(); });
+  const mb=document.getElementById("muteBtn");
+  mb.addEventListener("pointerdown", e=>{ e.preventDefault(); e.stopPropagation();
+    sfx.on=!sfx.on; mb.textContent=sfx.on?"🔊":"🔇"; });
+  document.querySelectorAll(".embtn").forEach(el=>{
+    el.addEventListener("pointerdown", e=>{ e.preventDefault(); e.stopPropagation();
+      setEmote(player, el.textContent);
+      if(netMode&&netRoom) netRoom.send("emote", el.textContent); }); });
+}catch(e){ /* headless test environment */ }
+
+
+// ============ ACCOUNTS (Supabase) ============
+const SUPA_URL="https://wtrcqxohrgegqueslufz.supabase.co";
+const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0cmNxeG9ocmdlZ3F1ZXNsdWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3MTI1OTYsImV4cCI6MjA5OTI4ODU5Nn0.tQuzb915sOlhsM75jBlhXzgA4vvPtpeA6fPp-K4JB8Q";
+let supa=null, authUser=null, authProfile=null;
+async function authRefresh(){
+  try{
+    const { data:{ session } } = await supa.auth.getSession();
+    authUser = session ? session.user : null;
+    const st=document.getElementById("authState"), out=document.getElementById("outBtn"),
+          em=document.getElementById("emailInput"), lk=document.getElementById("linkBtn"),
+          gg=document.getElementById("googleBtn");
+    if(authUser){
+      const { data } = await supa.from("profiles").select("*").eq("id",authUser.id).single();
+      authProfile=data||null;
+      if(authProfile){
+        if(authProfile.name && authProfile.name!=="You"){ playerName=authProfile.name;
+          try{ document.getElementById("nameInput").value=playerName; }catch(e){} }
+        if(authProfile.color) playerColor=authProfile.color;
+        if(authProfile.xp>meta.xp){ meta.xp=authProfile.xp; saveMeta(); rebuildSpecies(); } }
+      st.textContent="✓ "+authUser.email+(authProfile&&authProfile.is_admin?" 👑 ADMIN":"");
+      em.style.display="none"; lk.style.display="none"; gg.style.display="none"; out.style.display="";
+    } else {
+      st.textContent=""; em.style.display=""; lk.style.display=""; gg.style.display=""; out.style.display="none";
+      authProfile=null; }
+  }catch(e){ console.error(e); }
+}
+async function authSaveProfile(){
+  if(!supa||!authUser) return;
+  try{ await supa.from("profiles").upsert({ id:authUser.id, email:authUser.email,
+    name:playerName, color:playerColor, species:SPECIES[selSpecies].n,
+    xp:Math.max(meta.xp||0, (authProfile&&authProfile.xp)||0), updated_at:new Date().toISOString() }); }catch(e){}
+}
+try{
+  supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+  supa.auth.onAuthStateChange(()=>authRefresh());
+  authRefresh();
+  document.getElementById("linkBtn").addEventListener("pointerdown", async e=>{
+    e.preventDefault();
+    const em=(document.getElementById("emailInput").value||"").trim();
+    if(!em){ showBanner("Type your email first"); return; }
+    const { error } = await supa.auth.signInWithOtp({ email:em, options:{ emailRedirectTo: location.origin } });
+    showBanner(error? "Login error: "+error.message : "Check your email and tap the login link!");
+  });
+  document.getElementById("googleBtn").addEventListener("pointerdown", async e=>{
+    e.preventDefault();
+    const { error } = await supa.auth.signInWithOAuth({ provider:"google", options:{ redirectTo: location.origin } });
+    if(error) showBanner("Google login not configured yet: "+error.message);
+  });
+  document.getElementById("outBtn").addEventListener("pointerdown", async e=>{
+    e.preventDefault(); await supa.auth.signOut(); authRefresh();
+  });
+}catch(e){ /* headless / lib blocked */ }
+
+// ============ ONLINE MODE (Phase 3) ============
+const NET_URL="wss://freefowl-server-production.up.railway.app";
+let netMode=false, netRoom=null, netBirds=new Map(), netPellets=new Map(), netSendT=0;
+let netDir={x:1,y:0,active:false};
+const SPCOLOR={Pigeon:"#9aa2ad",Canary:"#f4d03f",Bluebird:"#5dade2",Cardinal:"#e74c3c",
+  Yellowtail:"#f5b041",Toucan:"#2c3e50",Crow:"#4d4d59",Eagle:"#a04000",Hawk:"#7c4a1e",Owl:"#7a68a6"};
+function netBird(info){
+  return { id:info.id, team:info.team, name:info.name, hawk:!!info.hawk, owl:!!info.owl, buddy:!!info.admin,
+    species:{n:info.species, c:info.color||SPCOLOR[info.species]||"#9aa2ad"},
+    x:0,y:0, nx:0,ny:0, heading:0, nheading:0, carried:0, dead:false,
+    dashT:0, streak:0, boostT:0, emote:"", emoteT:0, flap:rand(0,10),
+    isPlayer:false, bounty:false, deposited:0,
+    vx:0, vy:0, hp:1, maxHp:1 };
+}
+async function startOnline(){
+  try{
+    try{ const nm=document.getElementById("nameInput").value; if(nm&&nm.trim()) playerName=nm.trim().slice(0,12); }catch(e){}
+    showBanner("Connecting to the flock...");
+    const client=new Colyseus.Client(NET_URL);
+    let tok=null; try{ const { data:{ session } }=await supa.auth.getSession(); tok=session?session.access_token:null; }catch(e){}
+    authSaveProfile();
+    netRoom=await client.joinOrCreate("match",
+      { name:playerName, color:playerColor, species:SPECIES[selSpecies].n, token:tok });
+    netRoom.onMessage("init",(m)=>{
+      const w=m.world;
+      CFG.worldW=w.cfg.w; CFG.worldH=w.cfg.h; CFG.baseRadius=w.cfg.baseR; CFG.victoryTarget=w.cfg.target;
+      bases=w.bases;
+      obstacles=w.obstacles.map(o=>({x:o[0],y:o[1],r:o[2],tree:!!o[3]}));
+      bushes=w.bushes.map(b=>({x:b[0],y:b[1],r:b[2]}));
+      netPellets=new Map(); pellets=[];
+      for(const p of w.pellets){ const pl={id:p[0],x:p[1],y:p[2],v:p[3],worm:!!p[4],bloom:false};
+        netPellets.set(pl.id,pl); pellets.push(pl); }
+      netBirds=new Map(); birds=[];
+      for(const info of w.birds){ const b=netBird(info); netBirds.set(b.id,b); birds.push(b); }
+      player=netBirds.get(m.you)||birds[0]; player.isPlayer=true;
+      if(playerColor) player.species={...player.species, c:playerColor};
+      teams=[0,1,2,3].map(()=>({bank:0,total:0,gen:0,mag:0,rally:false,genT:0,grannysBought:0}));
+      hunters=[]; grannys=[]; feathers=[]; orbs=[]; floaters=[]; goldenEgg=null;
+      suddenDeath=false; nightA=0; hunterMode=false; playerDog=null;
+      camX=player.x=bases[player.team].x; camY=player.y=bases[player.team].y;
+      netMode=true; started=true; gameOver=false;
+      try{ document.getElementById("menu").style.display="none"; }catch(e){}
+      showBanner("ONLINE — you are "+player.name+" on "+TEAMNAMES[player.team]);
+      sfx.unlock();
+    });
+    netRoom.onMessage("s",(s)=>{
+      timeLeft=s.t; lobbyT=s.lobby;
+      nightA=s.night||0;
+      suddenDeath=s.sd>0; netSdR=s.sd||0;
+      bloomActive=s.bloom?{x:s.bloom[0],y:s.bloom[1],r:s.bloom[2],life:9}:null;
+      goldenEgg=s.egg?{x:s.egg[0],y:s.egg[1],holder:s.egg[2]?netBirds.get(s.egg[2]):null}:null;
+      for(let i=0;i<4;i++){ const t=s.teams[i];
+        teams[i].bank=t[0]; teams[i].total=t[1]; teams[i].gen=t[2]; teams[i].mag=t[3]; teams[i].rally=!!t[4]; }
+      // sync our clock to the server's (EMA of offset, jitter-resistant)
+      const now=performance.now(), off=now-s.ts;
+      if(netTimeOff===null||Math.abs(off-netTimeOff)>400) netTimeOff=off;
+      else netTimeOff+=(off-netTimeOff)*0.05;
+      for(const row of s.birds){ const b=netBirds.get(row[0]); if(!b) continue;
+        if(!b.buf) b.buf=[];
+        b.buf.push({t:s.ts, x:row[1], y:row[2], h:row[5]});
+        if(b.buf.length>14) b.buf.shift();
+        b.carried=row[3];
+        const wasDead=b.dead; b.dead=!!row[4];
+        if(wasDead&&!b.dead){ b.buf=[{t:s.ts,x:row[1],y:row[2],h:row[5]}]; b.x=row[1]; b.y=row[2];
+          if(b===player){ netPX=row[1]; netPY=row[2]; } }
+        b.dashT=row[6]?0.2:0; b.streak=row[7]?3:0;
+        b.deposited=row[8]||0; b.bounty=!!row[9]; }
+      hunters=s.hunters.map(h=>({x:h[0],y:h[1],heading:h[2],dead:!!h[3],
+        state:h[4]?"aim":"wander", target:h[4]?{x:h[4],y:h[5]}:null }));
+      grannys=s.grannys.map(g=>({x:g[0],y:g[1],team:g[2],
+        purse:g[3]?{x:g[3],y:g[4],rot:g[5]}:null }));
+      bullets=s.bullets.map(u=>({x:u[0],y:u[1],vx:u[2],vy:u[3]}));
+      feathers=s.feathers.map(f=>({x:f[0],y:f[1],team:f[2],life:f[3],ch:f[4]}));
+      orbs=s.orbs.map(o=>({x:o[0],y:o[1],v:5,vx:0,vy:0,life:5}));
+    });
+    netRoom.onMessage("ev",(ev)=>{
+      if(ev.t==="feed") feed(ev.html);
+      else if(ev.t==="banner") showBanner(ev.msg);
+      else if(ev.t==="kill"){
+        if(ev.html) feed(ev.html);
+        if(ev.loot>0) addFloat(ev.x, ev.y-20, "+"+ev.loot, "#fff");
+        if(player && ev.kid===player.id){ sfx.kill();
+          const v=netBirds.get(ev.vid);
+          showBanner((ev.cause==="⚡"?"DASH STRIKE! ":"Absorbed ")+(v?v.name:"a bird")+"! +"+ev.loot); }
+        else if(player && ev.vid===player.id){ sfx.death();
+          showBanner(ev.cause==="🔫"?"You got shot! You dropped everything!"
+            :ev.cause==="👜"?"BONKED by a granny's purse!"
+            :ev.cause==="🌑"?"The dark closed in on you!"
+            :"You got taken! Respawning...");} }
+      else if(ev.t==="shot"){ if(player && Math.hypot(ev.x-player.x,ev.y-player.y)<1100) sfx.shot(); }
+      else if(ev.t==="aim"){ if(player && ev.id===player.id){ showBanner("A HUNTER HAS YOU IN HIS SIGHTS — MOVE!"); sfx.aim(); } }
+      else if(ev.t==="bonk"){ if(player && ev.id===player.id) sfx.bonk(); }
+      else if(ev.t==="worm"){ if(player && ev.id===player.id){ showBanner("Worm! +50 seeds & 10s speed boost!"); sfx.worm(); } }
+      else if(ev.t==="egg"){ if(player && ev.id===player.id) sfx.egg(); }
+      else if(ev.t==="avenge"){ if(player && ev.id===player.id){ showBanner("Avenged a fallen teammate! +30 seeds"); sfx.deposit(); } }
+      else if(ev.t==="revive"){ if(player && ev.id===player.id){ showBanner("Teammate revived!"); sfx.egg(); } }
+      else if(ev.t==="hko"){ if(player && ev.id===player.id){ showBanner("HUNTER DOWN! Grab the bounty!"); sfx.kill(); } }
+      else if(ev.t==="pellet+"){ const p=ev.p, pl={id:p.id,x:p.x,y:p.y,v:p.v,worm:!!p.worm,bloom:false};
+        netPellets.set(pl.id,pl); pellets.push(pl); }
+      else if(ev.t==="pellet-"){ const pl=netPellets.get(ev.id);
+        if(pl){ netPellets.delete(ev.id); const i=pellets.indexOf(pl); if(i>=0) pellets.splice(i,1); } }
+      else if(ev.t==="bird"){ const b=netBirds.get(ev.id);
+        if(b){ if(ev.admin!==undefined) b.buddy=!!ev.admin; }
+        if(b&&b!==player){ b.name=ev.name;
+          if(ev.species) b.species={n:ev.species, c:ev.color||SPCOLOR[ev.species]||"#9aa2ad"}; } }
+      else if(ev.t==="gameover"){ gameOver=true;
+        try{ if(authUser&&player){
+          const mxp=Math.round(player.deposited*0.5 + (ev.winner===player.team?200:50));
+          meta.xp=(meta.xp||0)+mxp; saveMeta(); authSaveProfile();
+          document.getElementById("ovXp").textContent="+"+mxp+" XP"; } }catch(e){}
+        try{ const ov=document.getElementById("overlay");
+          document.getElementById("ovTitle").textContent=TEAMNAMES[ev.winner]+" WINS!";
+          document.getElementById("ovTitle").style.color=TEAMCOL[ev.winner];
+          document.getElementById("ovText").textContent=ev.totals.map((v,i)=>TEAMNAMES[i]+" "+v).join(" \u2022 ");
+          document.getElementById("ovAwards").innerHTML=(ev.awards||[]).join("<br>");
+          document.getElementById("ovXp").textContent="";
+          ov.style.display="flex"; }catch(e){} }
+    });
+    netRoom.onMessage("emote",(m)=>{ const b=netBirds.get(m.id); if(b&&b!==player) setEmote(b,m.e); });
+    netRoom.onLeave(()=>{ if(netMode){ showBanner("Disconnected from server"); } });
+  }catch(e){ showBanner("Could not reach the server \u2014 try again"); console.error(e); }
+}
+let netSdR=0, netLastCarried=0, netDepAcc=0, netDepT=0, netTimeOff=null, netPX=null, netPY=null, netMyDash=0;
+function netFrame(dt){
+  if(!player) return;
+  for(const f of floaters){ f.life-=dt; f.y-=42*dt; }
+  floaters=floaters.filter(f=>f.life>0);
+  // own-deposit feedback: carried dropping while at our nest = banking
+  const drop=netLastCarried-player.carried;
+  if(drop>0 && bases[player.team] && dist2(player,bases[player.team])<CFG.baseRadius*CFG.baseRadius){
+    netDepAcc+=drop; }
+  netLastCarried=player.carried;
+  netDepT+=dt;
+  if(netDepT>0.7){ if(netDepAcc>2){
+      addFloat(player.x, player.y-radiusFor(player.carried)-16, "+"+Math.round(netDepAcc)+" BANKED", "#ffd84a");
+      sfx.deposit(); }
+    netDepAcc=0; netDepT=0; }
+  // interpolate every bird on the SERVER clock, rendered 120ms in the past —
+  // network jitter disappears into the buffer instead of into the motion
+  const rt=(netTimeOff!==null)?(performance.now()-netTimeOff-120):null;
+  for(const b of netBirds.values()){
+    const buf=b.buf;
+    if(rt!==null&&buf&&buf.length){
+      while(buf.length>2&&buf[1].t<rt-400) buf.shift();
+      let s0=buf[0], s1=buf[buf.length-1];
+      for(let i=0;i<buf.length-1;i++)
+        if(buf[i].t<=rt&&rt<=buf[i+1].t){ s0=buf[i]; s1=buf[i+1]; break; }
+      let a;
+      if(rt<=buf[0].t){ s0=s1=buf[0]; a=0; }
+      else if(rt>=buf[buf.length-1].t){ // extrapolate briefly, then hold
+        if(buf.length>=2){ s0=buf[buf.length-2]; s1=buf[buf.length-1];
+          a=Math.min((rt-s0.t)/Math.max(1,s1.t-s0.t), 1+100/Math.max(1,s1.t-s0.t)); }
+        else a=0; }
+      else a=(rt-s0.t)/Math.max(1,s1.t-s0.t);
+      b.x=s0.x+(s1.x-s0.x)*a; b.y=s0.y+(s1.y-s0.y)*a;
+      let dh=s1.h-s0.h;
+      while(dh>Math.PI) dh-=Math.PI*2; while(dh<-Math.PI) dh+=Math.PI*2;
+      b.heading=s0.h+dh*Math.max(0,Math.min(1,a)); }
+    b.flap+=dt*6; b.emoteT=Math.max(0,(b.emoteT||0)-dt);
+  }
+  // own bird: client-side prediction — moves the INSTANT you swipe,
+  // then reconciles gently toward the server's truth
+  if(player&&!player.dead){
+    if(netPX===null){ netPX=player.x; netPY=player.y; }
+    let sp=speedFor(radiusFor(player.carried));
+    if(netMyDash>0){ netMyDash-=dt; sp*=2.6; }
+    if(teams[player.team]&&teams[player.team].rally) sp*=1.10;
+    if(player.streak>=3) sp*=1.08;
+    if(goldenEgg&&goldenEgg.holder===player) sp*=0.7;
+    let mdx=0,mdy=0,act=false;
+    if(ptr.active){
+      if(ptr.isTouch){ if(ptr.hasDir){ mdx=ptr.dirX; mdy=ptr.dirY; act=true; } }
+      else { const w=toWorld(ptr.x,ptr.y); const dx=w.x-netPX, dy=w.y-netPY;
+        const l=Math.hypot(dx,dy); if(l>10){ mdx=dx/l; mdy=dy/l; act=true; } } }
+    if(act){ netPX+=mdx*sp*dt; netPY+=mdy*sp*dt;
+      player.heading=Math.atan2(mdy,mdx); }
+    netPX=Math.max(15,Math.min(CFG.worldW-15,netPX));
+    netPY=Math.max(15,Math.min(CFG.worldH-15,netPY));
+    const rr=radiusFor(player.carried);
+    for(const ob of obstacles){ const dx=netPX-ob.x, dy=netPY-ob.y, d=Math.hypot(dx,dy), min=ob.r+rr*0.6;
+      if(d<min&&d>0){ netPX=ob.x+dx/d*min; netPY=ob.y+dy/d*min; } }
+    // reconcile toward the server's interpolated position
+    const k=Math.min(1, dt*(act?2.5:6));
+    netPX+=(player.x-netPX)*k; netPY+=(player.y-netPY)*k;
+    player.x=netPX; player.y=netPY;
+  } else { netPX=null; }
+  // camera
+  zoom+=(1-zoom)*Math.min(1,dt*3);
+  camX+=(player.x-camX)*Math.min(1,dt*5); camY+=(player.y-camY)*Math.min(1,dt*5);
+  const hw=VW/(2*zoom), hh=VH/(2*zoom);
+  camX=Math.max(Math.min(hw,CFG.worldW/2),Math.min(CFG.worldW-hw,camX));
+  camY=Math.max(Math.min(hh,CFG.worldH/2),Math.min(CFG.worldH-hh,camY));
+  // send input at ~15Hz
+  netSendT-=dt;
+  if(netSendT<=0 && netRoom){ netSendT=0.066;
+    let dx=0,dy=0,active=false;
+    if(ptr.active){
+      if(ptr.isTouch){ if(ptr.hasDir){ dx=ptr.dirX; dy=ptr.dirY; active=true; } }
+      else { const w=toWorld(ptr.x,ptr.y); dx=w.x-player.x; dy=w.y-player.y;
+        const l=Math.hypot(dx,dy); if(l>10){ dx/=l; dy/=l; active=true; } } }
+    if(active){ netDir.x=dx; netDir.y=dy; }
+    netRoom.send("i",{dx:netDir.x,dy:netDir.y,active});
+  }
+}
+try{
+  document.getElementById("onlineBtn").addEventListener("pointerdown",e=>{ e.preventDefault(); startOnline(); });
+}catch(e){}
+// ============ LOOP ============
+let last=performance.now();
+function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(netMode) netFrame(dt); else update(dt);
+  hud(dt); render(); requestAnimationFrame(loop); }
+reset(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>

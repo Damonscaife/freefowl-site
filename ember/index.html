@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>The Last Ember — Night 1 (dev)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none;
+      -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; background:#0a0c10; overflow:hidden; font-family:Georgia,serif; color:#eee6d4; }
+  #cv { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .ui { position:fixed; z-index:10; }
+  #hud { top:0; left:0; right:0; padding:calc(8px + env(safe-area-inset-top)) 12px 0; display:none; }
+  .bar { height:10px; border-radius:5px; background:rgba(255,255,255,.12); overflow:hidden; margin-bottom:5px; }
+  .bar > div { height:100%; border-radius:5px; transition:width .25s; }
+  #hpف { background:#d8543e; } #hp .f { background:#d8543e; } #xp .f { background:#e8b23a; }
+  #hp { width:min(46vw,240px); } #xp { width:min(60vw,320px); }
+  #stats { font-size:13px; color:#cfc4a8; text-shadow:0 1px 3px #000; display:flex; gap:14px; }
+  #cds { position:fixed; right:10px; bottom:calc(14px + env(safe-area-inset-bottom)); display:none; gap:10px; z-index:10; }
+  .cd { width:54px; height:54px; border-radius:12px; border:1px solid rgba(238,230,212,.35);
+        background:#141820 center/70% no-repeat; position:relative; opacity:.95; }
+  .cd .mask { position:absolute; inset:0; background:rgba(6,8,12,.75); border-radius:12px;
+        transform-origin:bottom; }
+  .cd small { position:absolute; bottom:-16px; width:100%; text-align:center; font-size:9px;
+        letter-spacing:1px; color:#8d8672; }
+  #msg { left:0; right:0; bottom:calc(90px + env(safe-area-inset-bottom)); text-align:center;
+        font-size:15px; color:#eee6d4; text-shadow:0 2px 6px #000; pointer-events:none; }
+  #dlg { left:50%; transform:translateX(-50%); bottom:calc(20px + env(safe-area-inset-bottom));
+        width:min(560px,94vw); background:rgba(12,15,20,.94); border:1px solid rgba(232,178,58,.4);
+        padding:14px 16px; display:none; }
+  #dlg b { color:#e8b23a; font-size:13px; letter-spacing:2px; display:block; margin-bottom:6px; }
+  #dlg p { font-size:15px; line-height:1.55; }
+  #dlg span { display:block; margin-top:8px; color:#8d8672; font-size:11px; letter-spacing:2px; }
+  #ovl { inset:0; background:rgba(6,8,12,.82); display:none; align-items:center; justify-content:center;
+        flex-direction:column; text-align:center; padding:20px; z-index:20; }
+  #ovl h2 { font-weight:normal; letter-spacing:4px; font-size:clamp(20px,5vw,30px); margin-bottom:8px; }
+  #ovl p { color:#cfc4a8; margin-bottom:18px; font-size:15px; line-height:1.6; max-width:480px; }
+  .cards { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  .card { width:150px; background:#141820; border:1px solid rgba(232,178,58,.45); padding:14px 12px;
+        cursor:pointer; }
+  .card:active, .card:hover { background:#1d2330; }
+  .card b { color:#e8b23a; font-size:14px; display:block; margin-bottom:6px; font-weight:normal; }
+  .card small { color:#a99f8a; font-size:12px; line-height:1.4; display:block; }
+  .btn { background:rgba(232,178,58,.15); border:1px solid #e8b23a; color:#eee6d4; font-family:inherit;
+        font-size:15px; letter-spacing:3px; padding:12px 34px; cursor:pointer; margin-top:8px; }
+  #tip { top:calc(50px + env(safe-area-inset-top)); left:0; right:0; text-align:center;
+        font-size:12px; letter-spacing:1px; color:#8d8672; text-shadow:0 1px 3px #000; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="ui" id="hud">
+  <div class="bar" id="hp"><div class="f" style="width:100%"></div></div>
+  <div class="bar" id="xp"><div class="f" style="width:0%"></div></div>
+  <div id="stats"><span id="stGold">🜚 0</span><span id="stLv">LV 1</span><span id="stWave"></span></div>
+</div>
+<div class="ui" id="tip"></div>
+<div class="ui" id="cds">
+  <div class="cd" id="cdJet"><div class="mask"></div><small>2×TAP</small></div>
+  <div class="cd" id="cdSp"><div class="mask"></div><small>HOLD</small></div>
+</div>
+<div class="ui" id="msg"></div>
+<div class="ui" id="dlg"><b id="dlgWho"></b><p id="dlgTxt"></p><span>TAP TO CONTINUE</span></div>
+<div class="ui" id="ovl"><h2 id="ovlH"></h2><p id="ovlP"></p><div class="cards" id="ovlCards"></div></div>
+<script>
+'use strict';
+/* ============================================================
+   THE LAST EMBER — Night 1 dev slice
+   Fire Wizard defends the village. Days: walk & talk. Nights: hordes.
+   Controls: drag=move · tap=dodge · double-tap=flame jet · hold=fire spell
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W=0, H=0, GROUND=0;
+function resize(){ W=innerWidth; H=innerHeight; cv.width=W*devicePixelRatio; cv.height=H*devicePixelRatio;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  ctx.imageSmoothingEnabled = false; GROUND = H*.82; }
+addEventListener('resize', resize); resize();
+
+/* ---------------- assets ---------------- */
+const IMG = {}; let MAN = null, loaded = 0, toLoad = 0;
+function loadAll(cb){
+  fetch('assets/manifest.json').then(r=>r.json()).then(man => { MAN = man;
+    const files = new Set(['fx_fireball.png','fx_firearrow.png','fx_firespell.png','fx_explosion.png',
+      'icon_ball.png','icon_spell.png','icon_arrow.png',
+      'bg_sky.png','bg_far.png','bg_field.png','bg_fore.png']);
+    Object.values(man).forEach(ch => Object.values(ch).forEach(([f]) => files.add(f)));
+    toLoad = files.size;
+    files.forEach(f => { const im = new Image();
+      im.onload = im.onerror = () => { if (++loaded >= toLoad) cb(); };
+      im.src = 'assets/' + f; IMG[f] = im; });
+  }).catch(()=>{ document.body.innerHTML = '<p style="padding:40px">asset load failed</p>'; });
+}
+function anim(setKey, name, fps, loop){ const rec = (MAN[setKey]||{})[name];
+  if (!rec) return null;
+  return { img: IMG[rec[0]], fw: rec[1], fh: rec[2], n: rec[3], fps: fps||10, loop: loop!==false, t: 0 }; }
+function fxAnim(file, fw, fh, n, fps, loop){ return { img: IMG[file], fw, fh, n, fps, loop: !!loop, t: 0 }; }
+function drawAnim(a, x, y, scale, flip, dt){ if (!a || !a.img || !a.img.width) return true;
+  a.t += dt*a.fps; let f = Math.floor(a.t);
+  let done = false;
+  if (f >= a.n){ if (a.loop) f %= a.n; else { f = a.n-1; done = true; } }
+  const w = a.fw*scale, h = a.fh*scale;
+  ctx.save(); ctx.translate(x, y);
+  if (flip) ctx.scale(-1,1);
+  ctx.drawImage(a.img, f*a.fw, 0, a.fw, a.fh, -w/2, -h, w, h);
+  ctx.restore(); return done; }
+
+/* ---------------- game state ---------------- */
+const WORLD = 3200, VILLAGE = { x0: 1250, x1: 2150 };
+let MODE = 'load'; // load|title|day|night|dead|dawn|cards
+let cam = 0, tPrev = 0;
+const P = { x: 1700, dir: 1, hp: 100, hpMax: 100, spd: 240, state:'idle', st:0,
+  lv:1, xp:0, xpNext:20, gold:0, dmg:14, atkCd:.95, atkT:0, range:640,
+  jetCd:3.2, jetT:0, spCd:9, spT:0, charging:false, chargeT:0,
+  dodgeT:0, iT:0, pierce:false, jetWide:1, anims:{} };
+let foes = [], shots = [], fxs = [], pops = [];
+let wave = 0, waveMax = 3, spawnQ = [], nightT = 0;
+let talked = {}, dayDone = false;
+
+/* villagers (day) */
+const CAST = [
+  { key:'woman', name:'SERA', x: 1560, lines:[
+      'You’re the wizard who fell asleep in our hayloft. I charged you rent — one rescue, apparently.',
+      'The bones come when the sun goes. Father says a brute drives them — horns like roof beams.',
+      'Stay behind the torchline tonight, spark-thrower. I just rethatched that roof.'] },
+  { key:'elder', name:'ELDER HARMON', x: 1820, lines:[
+      'A fire mage. The Ember answers, even now. My grandmother swore the village hearth never truly dies.',
+      'They came three nights running. We lost the miller’s fence and most of my dignity.',
+      'Hold the street when dark falls. The knights I wrote to are… enthusiastic, but slow.'] },
+  { key:'boy', name:'TAM', x: 1420, lines:[
+      'Can you REALLY throw fire? Like — fwoosh? Do the fwoosh.',
+      'I’m not scared of skeletons. I’m scared of the dog-ones. And regular dogs. And Sera when I track mud.',
+      'When I grow up I’m going to be a wizard OR a fence. Both get to stop monsters.'] },
+];
+
+/* ---------------- boot ---------------- */
+loadAll(() => { MODE = 'title';
+  $('ovl').style.display = 'flex';
+  $('ovlH').textContent = 'THE LAST EMBER';
+  $('ovlP').textContent = 'Night 1 — dev slice. Drag to walk. Tap to dodge. Double-tap: flame jet. Hold & release: fire spell.';
+  const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'ARRIVE AT DUSK';
+  b.onclick = () => { $('ovl').style.display='none'; startDay(); };
+  $('ovlCards').innerHTML = ''; $('ovlCards').appendChild(b);
+});
+function startDay(){ MODE = 'day'; $('hud').style.display='block'; $('cds').style.display='none';
+  $('stWave').textContent = 'DUSK — the village';
+  $('tip').textContent = 'walk the street · tap a villager to talk';
+  P.x = 1700; P.hp = P.hpMax; foes = []; shots = []; fxs = [];
+}
+function nightBtnCheck(){ if (dayDone || MODE!=='day') return;
+  if (talked.woman && talked.elder){ dayDone = true;
+    $('ovl').style.display='flex'; $('ovlH').textContent = 'THE SUN IS GOING';
+    $('ovlP').textContent = 'Sera bars her shutters. Harmon lights the torchline. Somewhere east, bone feet find the road.';
+    const b = document.createElement('button'); b.className='btn'; b.textContent = 'STAND THE NIGHT';
+    b.onclick = () => { $('ovl').style.display='none'; startNight(); };
+    $('ovlCards').innerHTML=''; $('ovlCards').appendChild(b); } }
+
+/* ---------------- night ---------------- */
+function startNight(){ MODE = 'night'; nightT = 0; wave = 0;
+  $('cds').style.display='flex';
+  $('tip').textContent = '';
+  $('cdJet').style.backgroundImage = 'url(assets/icon_arrow.png)';
+  $('cdSp').style.backgroundImage = 'url(assets/icon_spell.png)';
+  nextWave();
+}
+const FOE_DEFS = {
+  sk_war:  { hp:30, spd:78,  dmg:8,  reach:78,  xp:6, gold:3, scale:1.6, atk:'attack_1', afps:9 },
+  sk_spear:{ hp:24, spd:95,  dmg:7,  reach:96,  xp:5, gold:3, scale:1.6, atk:'attack_1', afps:10 },
+  sk_arch: { hp:18, spd:85,  dmg:6,  reach:520, xp:6, gold:4, scale:1.6, atk:'attack_1', afps:8, ranged:true },
+  wolf:    { hp:120, spd:135, dmg:16, reach:92, xp:30, gold:20, scale:1.8, atk:'attack_1', afps:11, elite:true },
+};
+function nextWave(){ wave++;
+  if (wave > waveMax){ dawn(); return; }
+  $('stWave').textContent = 'NIGHT 1 — WAVE ' + wave + '/' + waveMax;
+  banner(wave === waveMax ? 'Something big pads up the road.' : 'Wave ' + wave);
+  const packs = {
+    1: ['sk_war','sk_war','sk_war','sk_spear','sk_war','sk_spear'],
+    2: ['sk_war','sk_arch','sk_spear','sk_war','sk_arch','sk_war','sk_spear','sk_war'],
+    3: ['sk_war','sk_war','sk_arch','sk_arch','sk_spear','sk_war','wolf'],
+  }[wave];
+  spawnQ = packs.map((k,i) => ({ k, t: i*1.1 + Math.random()*.6, side: i%2 ? 1 : -1 }));
+}
+function spawnFoe(k, side){ const d = FOE_DEFS[k];
+  const x = side<0 ? Math.max(40, cam-120) : Math.min(WORLD-40, cam+W+120);
+  foes.push({ k, ...d, hp0:d.hp, x, dir: side<0?1:-1, state:'walk', st:0, hitT:0,
+    anims:{}, atkT: 0 });
+}
+function banner(t){ $('msg').textContent = t; setTimeout(()=>{ if($('msg').textContent===t) $('msg').textContent=''; }, 2600); }
+function dawn(){ MODE = 'dawn';
+  $('ovl').style.display='flex'; $('ovlH').textContent = 'DAWN';
+  $('ovlP').textContent = 'The street holds. Tam is already re-enacting your fire spell for anyone who will watch. ' +
+    'Sera leaves a plate of bread on the hayloft ladder — “rent credit,” she says, not looking at you. ' +
+    '\nGold earned: ' + P.gold + ' · Level ' + P.lv + '\n\n— end of dev slice. Nights 2-15, heroes, shops and the Minotaur are coming. —';
+  const b = document.createElement('button'); b.className='btn'; b.textContent='REPLAY NIGHT';
+  b.onclick = () => { $('ovl').style.display='none'; startNight(); };
+  $('ovlCards').innerHTML=''; $('ovlCards').appendChild(b);
+}
+function die(){ MODE = 'dead';
+  $('ovl').style.display='flex'; $('ovlH').textContent = 'THE EMBER FADES';
+  $('ovlP').textContent = 'Darkness takes the street. But an ember only needs one breath...';
+  const b = document.createElement('button'); b.className='btn'; b.textContent='RISE AGAIN';
+  b.onclick = () => { $('ovl').style.display='none'; P.hp = P.hpMax; startNight(); };
+  $('ovlCards').innerHTML=''; $('ovlCards').appendChild(b);
+}
+
+/* ---------------- leveling ---------------- */
+const CARDS = [
+  { t:'Hotter Flame', d:'+30% fireball damage', f:()=>P.dmg*=1.3 },
+  { t:'Quick Hands', d:'+20% cast speed', f:()=>P.atkCd*=.8 },
+  { t:'Wide Jet', d:'Flame jet 50% wider', f:()=>P.jetWide*=1.5 },
+  { t:'Ember Heart', d:'+25 max HP and heal', f:()=>{ P.hpMax+=25; P.hp=P.hpMax; } },
+  { t:'Piercing Fire', d:'Fireballs pass through', f:()=>P.pierce=true },
+  { t:'Swift Boots', d:'+15% move speed', f:()=>P.spd*=1.15 },
+];
+function gainXp(n){ P.xp += n;
+  if (P.xp >= P.xpNext){ P.xp -= P.xpNext; P.xpNext = Math.round(P.xpNext*1.5); P.lv++;
+    levelCards(); } }
+function levelCards(){ MODE = 'cards';
+  $('ovl').style.display='flex'; $('ovlH').textContent = 'LEVEL ' + P.lv;
+  $('ovlP').textContent = 'The Ember grows. Choose:';
+  const box = $('ovlCards'); box.innerHTML = '';
+  const opts = CARDS.filter(c => !(c.t==='Piercing Fire' && P.pierce))
+    .sort(()=>Math.random()-.5).slice(0,3);
+  opts.forEach(c => { const el = document.createElement('div'); el.className='card';
+    el.innerHTML = '<b>'+c.t+'</b><small>'+c.d+'</small>';
+    el.onclick = () => { c.f(); $('ovl').style.display='none'; MODE='night'; };
+    box.appendChild(el); });
+}
+
+/* ---------------- input: drag move · tap dodge · 2xtap jet · hold spell ------- */
+let ptr = null, lastTap = 0, moveDir = 0;
+addEventListener('pointerdown', e => { if (MODE!=='day' && MODE!=='night') return;
+  if (e.target.closest('.card,.btn,#dlg')) return;
+  ptr = { x0:e.clientX, y0:e.clientY, x:e.clientX, t0:performance.now(), moved:false };
+  P.chargeT = 0; });
+addEventListener('pointermove', e => { if (!ptr) return; ptr.x = e.clientX;
+  if (Math.abs(e.clientX-ptr.x0) > 18) ptr.moved = true; });
+addEventListener('pointerup', e => { if (!ptr) return;
+  const dt = performance.now() - ptr.t0, dx = Math.abs(e.clientX - ptr.x0);
+  const wasCharge = P.charging;
+  P.charging = false; moveDir = 0;
+  if (wasCharge){ castSpell(); ptr = null; return; }
+  if (!ptr.moved && dt < 260){
+    const now = performance.now();
+    if (now - lastTap < 320){ lastTap = 0; castJet(); }
+    else { lastTap = now; dodge(e.clientX); }
+  }
+  ptr = null; });
+function keydown(e){ if (e.key==='a'||e.key==='ArrowLeft') moveDir=-1;
+  if (e.key==='d'||e.key==='ArrowRight') moveDir=1;
+  if (e.key===' ') dodge(P.dir>0? W:0);
+  if (e.key==='w') castJet();
+  if (e.key==='s') { P.charging = true; } }
+function keyup(e){ if (['a','d','ArrowLeft','ArrowRight'].includes(e.key)) moveDir=0;
+  if (e.key==='s' && P.charging){ P.charging=false; castSpell(); } }
+addEventListener('keydown', keydown); addEventListener('keyup', keyup);
+
+function dodge(sx){ if (P.dodgeT>0 || MODE!=='night' && MODE!=='day') return;
+  const dir = sx > W/2 ? 1 : -1;
+  P.dodgeT = .38; P.iT = .5; P.dir = dir; }
+function castJet(){ if (P.jetT>0 || MODE!=='night') return; P.jetT = P.jetCd;
+  P.state='jet'; P.st=0; P.anims.jet = anim('wiz','flame_jet',16,false);
+  const reach = 300*P.jetWide;
+  foes.forEach(f => { const dx = f.x-P.x;
+    if (Math.sign(dx)===P.dir && Math.abs(dx)<reach) hitFoe(f, P.dmg*1.6, 60); }); }
+function castSpell(){ if (P.spT>0 || MODE!=='night') return;
+  let tx = null, best = 1e9;
+  foes.forEach(f => { const d = Math.abs(f.x-P.x); if (d<best){ best=d; tx=f.x; } });
+  if (tx===null) tx = P.x + P.dir*220;
+  P.spT = P.spCd;
+  fxs.push({ a: fxAnim('fx_firespell.png',231,130,8,12,false), x:tx, y:GROUND, scale:2.6, spell:true });
+  foes.forEach(f => { if (Math.abs(f.x-tx)<260) hitFoe(f, P.dmg*3.2, 120); }); }
+
+/* ---------------- combat helpers ---------------- */
+function hitFoe(f, dmg, kb){ f.hp -= dmg; f.hitT = .15;
+  f.x += (kb||0) * (f.x>P.x?1:-1) * .5;
+  pops.push({ x:f.x, y:GROUND-90, t:.8, v: Math.round(dmg) });
+  if (f.hp<=0 && !f.deadDone){ f.state='dead'; f.deadDone=true; f.st=0;
+    f.anims.dead = anim(f.k,'dead',10,false);
+    P.gold += f.gold; gainXp(f.xp);
+    fxs.push({ a: fxAnim('fx_explosion.png',96,96,10,18,false), x:f.x, y:GROUND-30, scale:1.4 });
+  } }
+
+/* ---------------- update ---------------- */
+function update(dt){
+  // cooldowns
+  P.atkT = Math.max(0,P.atkT-dt); P.jetT = Math.max(0,P.jetT-dt);
+  P.spT = Math.max(0,P.spT-dt); P.dodgeT = Math.max(0,P.dodgeT-dt); P.iT = Math.max(0,P.iT-dt);
+  // movement from drag
+  if (ptr && ptr.moved){ const d = ptr.x - ptr.x0;
+    moveDir = Math.abs(d)>18 ? Math.sign(d) : 0; }
+  if (ptr && !ptr.moved && performance.now()-ptr.t0 > 460 && MODE==='night') P.charging = true;
+  const dashMult = P.dodgeT>0 ? 3.2 : 1;
+  if (P.dodgeT>0){ P.x += P.dir*P.spd*dashMult*dt; }
+  else if (P.charging){ /* rooted while charging */ }
+  else if (moveDir){ P.dir = moveDir; P.x += moveDir*P.spd*dt; }
+  P.x = Math.max(60, Math.min(WORLD-60, P.x));
+  cam = Math.max(0, Math.min(WORLD-W, P.x - W/2));
+  // day interactions
+  if (MODE==='day'){ CAST.forEach(c => { if (Math.abs(P.x-c.x)<80 && !c.near){ c.near=true; }
+      else if (Math.abs(P.x-c.x)>=80) c.near=false; }); nightBtnCheck(); return; }
+  if (MODE!=='night') return;
+  nightT += dt;
+  // spawns
+  spawnQ = spawnQ.filter(s => { if (nightT >= s.t + (wave-1)*0){ spawnFoe(s.k, s.side); return false; } return true; });
+  // auto-attack
+  if (P.atkT<=0 && !P.charging && P.dodgeT<=0){
+    let tgt=null, best=P.range;
+    foes.forEach(f => { if (f.state!=='dead'){ const d=Math.abs(f.x-P.x); if (d<best){ best=d; tgt=f; } } });
+    if (tgt){ P.atkT = P.atkCd; P.dir = tgt.x>P.x?1:-1;
+      P.state='cast'; P.st=0; P.anims.cast = anim('wiz','attack_1',14,false);
+      shots.push({ x:P.x+P.dir*40, dir:P.dir, spd:620, dmg:P.dmg, pierce:P.pierce,
+        a: fxAnim('fx_fireball.png',72,72,8,16,true) }); } }
+  // shots
+  shots = shots.filter(s => { s.x += s.dir*s.spd*dt;
+    let hit = false;
+    foes.forEach(f => { if (!hit && f.state!=='dead' && Math.abs(f.x-s.x)<40){
+      hitFoe(f, s.dmg, 20); hit = true; } });
+    if (hit && !s.pierce){ fxs.push({ a: fxAnim('fx_explosion.png',96,96,10,20,false), x:s.x, y:GROUND-60, scale:1 }); return false; }
+    return s.x > cam-100 && s.x < cam+W+100; });
+  // foes
+  let alive = 0;
+  foes.forEach(f => { if (f.state==='dead') return; alive++;
+    f.atkT = Math.max(0,(f.atkT||0)-dt); f.hitT = Math.max(0,f.hitT-dt);
+    const dx = P.x - f.x, dist = Math.abs(dx); f.dir = dx>0?1:-1;
+    if (dist > f.reach){ f.state='walk'; f.x += f.dir*f.spd*dt; }
+    else if (f.atkT<=0){ f.state='atk'; f.st=0; f.atkT = 1.4;
+      f.anims.atk = anim(f.k, f.atk, f.afps, false);
+      if (f.ranged){ shots.push({ x:f.x+f.dir*30, dir:f.dir, spd:430, dmg:-f.dmg, foe:true,
+          a: fxAnim('fx_firearrow.png',135,72,8,14,true) }); }
+      else setTimeout(()=>{ if (MODE==='night' && f.state!=='dead' && Math.abs(P.x-f.x)<f.reach+30 && P.iT<=0){
+          P.hp -= f.dmg; if (P.hp<=0) die(); } }, 320); } });
+  // enemy shots hurt player
+  shots = shots.filter(s => { if (!s.foe) return true;
+    if (Math.abs(s.x-P.x)<34 && P.iT<=0){ P.hp -= (-s.dmg); if (P.hp<=0) die(); return false; }
+    return s.x>cam-100 && s.x<cam+W+100; });
+  if (!alive && !spawnQ.length && MODE==='night') nextWave();
+  // fx cleanup in draw; popups
+  pops = pops.filter(p => (p.t -= dt) > 0);
+}
+
+/* ---------------- draw ---------------- */
+function layer(img, mult, yOff, scale){ const im = IMG[img]; if (!im || !im.width) return;
+  const h = H*(scale||1), w = im.width*(h/im.height);
+  let x = -((cam*mult) % w);
+  for (; x < W; x += w) ctx.drawImage(im, x, H-h+(yOff||0), w, h);
+}
+function draw(dt){
+  ctx.clearRect(0,0,W,H);
+  const night = (MODE==='night' || MODE==='dead' || MODE==='cards');
+  layer('bg_sky.png', .02, 0, 1);
+  if (night){ ctx.fillStyle = 'rgba(8,10,26,.62)'; ctx.fillRect(0,0,W,H); }
+  layer('bg_far.png', .25, 0, 1);
+  layer('bg_field.png', .55, 0, 1);
+  // village huts (code-drawn silhouettes with warm windows)
+  for (let i=0;i<5;i++){ const hx = VILLAGE.x0 + i*210 - cam;
+    if (hx<-200||hx>W+200) continue;
+    ctx.fillStyle = night ? '#0c0f16' : '#1d2029';
+    ctx.fillRect(hx, GROUND-120, 150, 120);
+    ctx.beginPath(); ctx.moveTo(hx-14, GROUND-120); ctx.lineTo(hx+75, GROUND-176); ctx.lineTo(hx+164, GROUND-120); ctx.fill();
+    ctx.fillStyle = 'rgba(255,190,90,'+(night?.85:.35)+')';
+    ctx.fillRect(hx+28, GROUND-84, 20, 26); ctx.fillRect(hx+96, GROUND-84, 20, 26); }
+  // torchline at night
+  if (night) for (let i=0;i<7;i++){ const tx = VILLAGE.x0-120 + i*260 - cam;
+    if (tx<-60||tx>W+60) continue;
+    ctx.strokeStyle='#2a2018'; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.moveTo(tx,GROUND); ctx.lineTo(tx,GROUND-70); ctx.stroke();
+    const fl = .8+Math.sin(performance.now()/90+i)*.2;
+    const g = ctx.createRadialGradient(tx,GROUND-80,2,tx,GROUND-80,40*fl);
+    g.addColorStop(0,'rgba(255,190,90,.9)'); g.addColorStop(1,'rgba(255,120,30,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(tx,GROUND-80,40,0,7); ctx.fill(); }
+  // ground
+  ctx.fillStyle = night ? '#0b0d13' : '#181b22';
+  ctx.fillRect(0, GROUND, W, H-GROUND);
+  layer('bg_fore.png', 1.15, 40, .4);
+
+  // villagers (day only)
+  if (MODE==='day') CAST.forEach(c => { const vx = c.x - cam;
+    if (vx<-100||vx>W+100) return;
+    if (!c.anim) c.anim = anim(c.key, 'idle', 6, true);
+    drawAnim(c.anim, vx, GROUND, 1.6, P.x > c.x, dt);
+    if (Math.abs(P.x-c.x)<90){ ctx.fillStyle='#e8b23a'; ctx.font='16px Georgia'; ctx.textAlign='center';
+      ctx.fillText(talked[c.key]?'·':'!', vx, GROUND-150); } });
+
+  // foes
+  foes.forEach(f => { const fx = f.x - cam; if (fx<-160||fx>W+160) return;
+    let a;
+    if (f.state==='dead'){ a = f.anims.dead; }
+    else if (f.state==='atk'){ a = f.anims.atk;
+      if (a && a.t >= a.n-0.1) f.state='walk'; }
+    else { f.anims.walk = f.anims.walk || anim(f.k,'walk',9,true); a = f.anims.walk; }
+    if (f.hitT>0){ ctx.filter = 'brightness(1.9)'; }
+    drawAnim(a, fx, GROUND, f.scale, f.dir<0, dt);
+    ctx.filter = 'none';
+    if (f.state!=='dead'){ ctx.fillStyle='rgba(0,0,0,.5)';
+      ctx.fillRect(fx-24, GROUND-f.fh, 48, 5);
+      ctx.fillStyle = f.elite ? '#c76bde' : '#d8543e';
+      ctx.fillRect(fx-24, GROUND-f.fh, 48*Math.max(0,f.hp/f.hp0), 5); } });
+  foes = foes.filter(f => !(f.state==='dead' && f.anims.dead && f.anims.dead.t > f.anims.dead.n + 2));
+
+  // player
+  { const px = P.x - cam; let a;
+    if (P.hp<=0){ a = P.anims.deadA = P.anims.deadA || anim('wiz','dead',9,false); }
+    else if (P.dodgeT>0){ a = P.anims.runA = P.anims.runA || anim('wiz','run',16,true); ctx.globalAlpha=.6; }
+    else if (P.charging){ a = P.anims.chargeA = P.anims.chargeA || anim('wiz','charge',10,true); }
+    else if (P.state==='jet' && P.anims.jet){ a = P.anims.jet;
+      if (a.t >= a.n-.1) P.state='idle'; }
+    else if (P.state==='cast' && P.anims.cast){ a = P.anims.cast;
+      if (a.t >= a.n-.1) P.state='idle'; }
+    else if (moveDir){ a = P.anims.walkA = P.anims.walkA || anim('wiz','run',12,true); }
+    else { a = P.anims.idleA = P.anims.idleA || anim('wiz','idle',8,true); }
+    drawAnim(a, px, GROUND, 1.7, P.dir<0, dt);
+    ctx.globalAlpha = 1; }
+
+  // shots & fx
+  shots.forEach(s => drawAnim(s.a, s.x-cam, GROUND-52, s.foe?.9:1.1, s.dir<0, dt));
+  fxs = fxs.filter(f => !drawAnim(f.a, f.x-cam, f.spell?f.y:f.y+40, f.scale, false, dt));
+  // damage pops
+  ctx.font = '13px Georgia'; ctx.textAlign='center';
+  pops.forEach(p => { ctx.fillStyle = 'rgba(255,220,150,'+p.t+')';
+    ctx.fillText(p.v, p.x-cam, p.y - (0.8-p.t)*40); });
+
+  // hud values
+  $('hp').firstElementChild.style.width = Math.max(0,P.hp/P.hpMax*100)+'%';
+  $('xp').firstElementChild.style.width = (P.xp/P.xpNext*100)+'%';
+  $('stGold').textContent = '🜚 ' + P.gold; $('stLv').textContent = 'LV ' + P.lv;
+  $('cdJet').firstElementChild.style.transform = 'scaleY(' + (P.jetT/P.jetCd) + ')';
+  $('cdSp').firstElementChild.style.transform = 'scaleY(' + (P.spT/P.spCd) + ')';
+}
+
+/* ---------------- dialogue ---------------- */
+let dlgQ = [], dlgWho = '';
+addEventListener('pointerup', e => {
+  if (MODE!=='day') return;
+  if ($('dlg').style.display==='block'){ advDlg(); return; }
+  // tap near a villager?
+  const wx = e.clientX + cam;
+  CAST.forEach(c => { if (Math.abs(wx-c.x)<80 && Math.abs(P.x-c.x)<110){
+    dlgQ = c.lines.slice(); dlgWho = c.name; talked[c.key]=true; advDlg(); } });
+});
+function advDlg(){ if (!dlgQ.length){ $('dlg').style.display='none'; nightBtnCheck(); return; }
+  $('dlg').style.display='block'; $('dlgWho').textContent = dlgWho;
+  $('dlgTxt').textContent = dlgQ.shift(); }
+
+/* ---------------- main loop ---------------- */
+function loop(t){ const dt = Math.min(.05, (t-tPrev)/1000 || .016); tPrev = t;
+  if (MODE==='day'||MODE==='night') update(dt);
+  if (MODE!=='load') draw(dt);
+  requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+/* test hooks */
+globalThis.__le = { P, get foes(){return foes;}, get MODE(){return MODE;}, set MODE(m){MODE=m;},
+  startDay, startNight, nextWave, spawnFoe, hitFoe, gainXp, FOE_DEFS, update,
+  get talked(){return talked;}, CAST };
+</script>
+</body>
+</html>

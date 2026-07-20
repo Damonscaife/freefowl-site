@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeFowl Arcade — free browser games</title>
+<meta name="description" content="Free multiplayer browser games. No downloads, no installs — tap and play.">
+
+<link rel="canonical" href="https://www.freefowl.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.freefowl.com/">
+<meta property="og:title" content="Free Fowl">
+<meta property="og:description" content="Free browser games. No install, no account, nothing to buy.">
+<meta property="og:image" content="https://www.freefowl.com/og.png?v=1">
+<meta property="og:image:secure_url" content="https://www.freefowl.com/og.png?v=1">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="670">
+<meta property="og:image:alt" content="Four teams of birds racing for the golden seed in the middle of the field.">
+<meta property="og:site_name" content="Free Fowl">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Free Fowl">
+<meta name="twitter:description" content="Free browser games. No install, no account, nothing to buy.">
+<meta name="twitter:image" content="https://www.freefowl.com/og.png?v=1">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    min-height:100vh; background:#101816; color:#f2f7f0;
+    font-family:'Arial Rounded MT Bold', Arial, sans-serif;
+    background-image:
+      radial-gradient(1000px 500px at 80% -10%, rgba(46,204,113,.14), transparent),
+      radial-gradient(800px 400px at 10% 110%, rgba(74,163,255,.12), transparent);
+    display:flex; flex-direction:column; align-items:center; padding:34px 18px 60px;
+  }
+  header { text-align:center; margin-bottom:34px; }
+  h1 { font-size:clamp(34px,7vw,58px); letter-spacing:2px; color:#ffe98a;
+       text-shadow:0 4px 18px rgba(0,0,0,.55); }
+  h1 .accent { color:#7ce8a8; }
+  .tag { margin-top:8px; color:#9fb8a8; font-size:clamp(13px,2.6vw,16px); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,340px));
+          gap:22px; width:100%; max-width:760px; justify-content:center; }
+  .card {
+    background:#18241f; border:1px solid rgba(255,255,255,.07); border-radius:18px;
+    overflow:hidden; text-decoration:none; color:inherit; display:block;
+    transition:transform .15s ease, box-shadow .15s ease;
+    box-shadow:0 6px 24px rgba(0,0,0,.35);
+  }
+  .card:active, .card:hover { transform:translateY(-4px); box-shadow:0 14px 34px rgba(0,0,0,.5); }
+  .art { height:170px; display:flex; align-items:center; justify-content:center; position:relative; }
+  .art.fowl { background:linear-gradient(160deg,#87b558,#5d8f3c); }
+  .art.ronin { background:linear-gradient(160deg,#2b2233,#151019); }
+  .art.migr { background:linear-gradient(180deg,#141c2a 0%,#3a3f52 55%,#8a6a55 100%); }
+  .card.migr-card .btn { background:#8a6a45; }
+  .badge { position:absolute; top:12px; left:12px; font-size:11px; font-weight:bold;
+           letter-spacing:1px; padding:4px 10px; border-radius:999px; }
+  .live { background:#2ecc71; color:#0c2616; }
+  .soon { background:#ffe98a; color:#3d2f05; }
+  .body { padding:16px 18px 20px; }
+  .name { font-size:22px; margin-bottom:6px; }
+  .desc { color:#a9c0b2; font-size:13.5px; line-height:1.55; margin-bottom:14px; min-height:42px; }
+  .btn { display:inline-block; background:#4aa3ff; color:#fff; font-weight:bold;
+         padding:10px 26px; border-radius:12px; font-size:15px; }
+  .card.ronin-card .btn { background:#b03a4a; }
+  footer { margin-top:44px; color:#5f7a6b; font-size:12px; text-align:center; line-height:1.8; }
+  footer a { color:#7ce8a8; text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FREE<span class="accent">FOWL</span> ARCADE</h1>
+  <div class="tag">Free browser games. No downloads — tap and play.</div>
+</header>
+
+<div class="grid">
+
+  <a class="card" href="/freefowl/">
+    <div class="art fowl">
+      <span class="badge live">● LIVE · MULTIPLAYER</span>
+      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="60" cy="80" rx="34" ry="7" fill="rgba(0,0,0,.18)"/>
+        <ellipse cx="38" cy="42" rx="16" ry="7" fill="#7d8590"/>
+        <ellipse cx="38" cy="58" rx="16" ry="7" fill="#7d8590"/>
+        <polygon points="30,50 12,40 12,60" fill="#7d8590"/>
+        <circle cx="55" cy="50" r="24" fill="#9aa2ad"/>
+        <circle cx="55" cy="50" r="24" fill="none" stroke="#4aa3ff" stroke-width="4"/>
+        <circle cx="60" cy="50" r="13" fill="#c3c9d1"/>
+        <polygon points="77,44 92,50 77,56" fill="#f7a11a"/>
+        <circle cx="66" cy="42" r="5.5" fill="#fff"/>
+        <circle cx="68" cy="42" r="2.6" fill="#222"/>
+        <circle cx="98" cy="24" r="7" fill="#f0d290"/>
+        <circle cx="106" cy="38" r="5" fill="#f0d290"/>
+      </svg>
+    </div>
+    <div class="body">
+      <div class="name">🐦 Free Fowl</div>
+      <div class="desc">4-team bird battle. Gather seeds, dodge hawks and hunters,
+        and bank your haul before someone eats you. Play solo vs bots or online with friends.</div>
+      <span class="btn">PLAY</span>
+    </div>
+  </a>
+
+  <a class="card ronin-card" href="/ronin/">
+    <div class="art ronin">
+      <span class="badge soon">★ NEW</span>
+      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="60" cy="30" r="26" fill="#c94b4b" opacity="0.85"/>
+        <ellipse cx="60" cy="82" rx="30" ry="5" fill="rgba(0,0,0,.35)"/>
+        <path d="M46 78 Q44 56 52 44 Q60 34 58 24" fill="none" stroke="#efe6d8" stroke-width="5" stroke-linecap="round"/>
+        <path d="M58 24 L64 14" stroke="#8a6f4d" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="45" cy="66" r="10" fill="#1e1824"/>
+        <path d="M38 74 Q45 80 52 74 L50 84 Q45 88 40 84 Z" fill="#1e1824"/>
+      </svg>
+    </div>
+    <div class="body">
+      <div class="name">⚔️ Ronin</div>
+      <div class="desc">The Cursed March. One ronin, one blade, and everything the
+        underworld can throw at you. Side-scrolling action — fresh off the forge.</div>
+      <span class="btn">PLAY</span>
+    </div>
+  </a>
+
+  <a class="card migr-card" href="/migration/">
+    <div class="art migr">
+      <span class="badge soon">★ NEW · STORY</span>
+      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="92" cy="20" r="11" fill="#e8d9a8" opacity=".8"/>
+        <path d="M0 90 L120 90 L120 74 Q90 66 60 72 Q30 78 0 70 Z" fill="#0c0f15"/>
+        <g stroke="#0e0c0a" stroke-width="2.6" stroke-linecap="round" fill="none">
+          <path d="M52 34 Q58 40 64 34"/>
+          <path d="M38 44 Q43 49 48 44"/><path d="M66 44 Q71 49 76 44"/>
+          <path d="M26 54 Q30 58 34 54"/><path d="M80 54 Q84 58 88 54"/>
+        </g>
+      </svg>
+    </div>
+    <div class="body">
+      <div class="name">🪶 The Long Migration</div>
+      <div class="desc">A Free Fowl story. The hunters burned the homeland — now you lead
+        twelve birds and one egg south. Act I: The Burning.</div>
+      <span class="btn">PLAY</span>
+    </div>
+  </a>
+
+</div>
+
+<footer>
+  freefowl.com · more games hatching<br>
+</footer>
+</body>
+</html>
