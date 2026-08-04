@@ -50,7 +50,11 @@
   .art.fowl { background:linear-gradient(160deg,#87b558,#5d8f3c); }
   .art.ronin { background:linear-gradient(160deg,#2b2233,#151019); }
   .art.migr { background:linear-gradient(180deg,#141c2a 0%,#3a3f52 55%,#8a6a55 100%); }
+  .art.coop { background:radial-gradient(circle at 50% 62%,#3a3222 0%,#14110c 55%,#07070a 100%); }
+  .card.coop-card .btn { background:#6b6f4a; }
   .card.migr-card .btn { background:#8a6a45; }
+  .art.dread { background:radial-gradient(circle at 32% 52%,#5a3a16 0%,#1d1410 42%,#08070a 100%); }
+  .card.dread-card .btn { background:#7a4b9c; }
   .badge { position:absolute; top:12px; left:12px; font-size:11px; font-weight:bold;
            letter-spacing:1px; padding:4px 10px; border-radius:999px; }
   .live { background:#2ecc71; color:#0c2616; }
@@ -136,6 +140,66 @@
       <div class="name">🪶 The Long Migration</div>
       <div class="desc">A Free Fowl story. The hunters burned the homeland — now you lead
         twelve birds and one egg south. Act I: The Burning.</div>
+      <span class="btn">PLAY</span>
+    </div>
+  </a>
+
+  <a class="card coop-card" href="/coop/">
+    <div class="art coop">
+      <span class="badge soon">★ NEW · SINGLE PLAYER</span>
+      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffe9b0" stop-opacity=".85"/>
+            <stop offset="100%" stop-color="#ffe9b0" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <polygon points="34,26 18,84 74,84" fill="url(#beam)"/>
+        <rect x="27" y="18" width="16" height="10" rx="2" fill="#8d8778"
+              transform="rotate(-14 35 23)"/>
+        <g stroke="#5f5647" stroke-width="2" opacity=".85">
+          <path d="M84 30 L84 82 M94 30 L94 82 M104 30 L104 82 M114 30 L114 82"/>
+          <path d="M82 42 L118 42 M82 58 L118 58 M82 74 L118 74"/>
+        </g>
+        <ellipse cx="46" cy="84" rx="30" ry="4" fill="rgba(255,233,176,.28)"/>
+      </svg>
+    </div>
+    <div class="body">
+      <div class="name">🔦 The Coop</div>
+      <div class="desc">Night shift, abandoned poultry plant. Six nights, six eggs — find
+        the nest and get it out to the van. Your flashlight is a hand, the walls move when
+        you are not looking, and something in here was fed for a very long time.</div>
+      <span class="btn">PLAY</span>
+    </div>
+  </a>
+
+  <a class="card dread-card" href="/dreadwarden/">
+    <div class="art dread">
+      <span class="badge soon">★ NEW · PLAY THE DUNGEON</span>
+      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="torchglow" cx="50%" cy="50%">
+            <stop offset="0%" stop-color="#ffce7a" stop-opacity=".9"/>
+            <stop offset="100%" stop-color="#ffce7a" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="34" cy="50" rx="36" ry="32" fill="url(#torchglow)"/>
+        <rect x="31" y="44" width="5" height="30" rx="2" fill="#6b4a2c"/>
+        <path d="M33.5 26 Q27 38 33.5 45 Q40 38 33.5 26Z" fill="#ffb347"/>
+        <path d="M33.5 32 Q30 39 33.5 44 Q37 39 33.5 32Z" fill="#fff2c4"/>
+        <ellipse cx="34" cy="80" rx="26" ry="4" fill="rgba(255,206,122,.22)"/>
+        <g fill="#bff06a">
+          <circle cx="83" cy="32" r="3"/><circle cx="93" cy="32" r="3"/>
+          <circle cx="101" cy="57" r="2.4"/><circle cx="109" cy="57" r="2.4"/>
+          <circle cx="76" cy="72" r="2.2"/><circle cx="83" cy="72" r="2.2"/>
+        </g>
+      </svg>
+    </div>
+    <div class="body">
+      <div class="name">🕯️ Dreadwarden</div>
+      <div class="desc">You are not the party — you are what is waiting for it. Deal your
+        monsters into the dark, hold your nerve while four heroes burn torches toward the
+        stairs, and spring the ambush at the worst possible moment.</div>
       <span class="btn">PLAY</span>
     </div>
   </a>
