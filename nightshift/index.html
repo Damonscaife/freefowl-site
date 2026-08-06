@@ -4,6 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NIGHT SHIFT — active ragdoll horde prototype</title>
+<link rel="canonical" href="https://www.freefowl.com/nightshift/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Free Fowl">
+<meta property="og:url" content="https://www.freefowl.com/nightshift/">
+<meta property="og:title" content="NIGHT SHIFT">
+<meta property="og:description" content="A horde that moves like water. You have a torch, a floorplan, and no way to clear the floor.">
+<meta property="og:image" content="https://www.freefowl.com/nightshift/og.jpg?v=20260806">
+<meta property="og:image:secure_url" content="https://www.freefowl.com/nightshift/og.jpg?v=20260806">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="An office floor at night, a torch beam cutting into a crowd of hundreds.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NIGHT SHIFT">
+<meta name="twitter:description" content="A horde that moves like water. You have a torch, a floorplan, and no way to clear the floor.">
+<meta name="twitter:image" content="https://www.freefowl.com/nightshift/og.jpg?v=20260806">
+<meta name="twitter:image:alt" content="An office floor at night, a torch beam cutting into a crowd of hundreds.">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; background:#0a0d12;
@@ -13967,17 +13984,21 @@ try{
       out.push(...NSLook.rows());
     }
 
-    /* NS EDIT 39 — the camera rig lives in the menu as well as on V, because
-       V is a toggle you have to already know about and mouse sensitivity is
-       not something anybody should have to find in a console. */
+    /* NS EDIT 39 — the camera rig used to live in the menu as well as on V.
+       HIDDEN 6 Aug 2026: over-the-shoulder is beta and is no longer advertised
+       anywhere in the UI. V still works for anyone who knows it. To restore,
+       delete the OTS_MENU_HIDDEN guard below and the two rows come back. */
+    const OTS_MENU_HIDDEN = true;
     head('CAMERA');
-    out.push({ t: 'pick', label: 'rig  ( V )',
-      val: () => NS('getCamMode') ? 'over the shoulder' : 'top down',
-      move: () => { const g = window.__NS; if (g && g.setCamMode) g.setCamMode(g.getCamMode() ? 0 : 1); } });
-    out.push({ t: 'pick', label: 'mouse sensitivity',
-      dim: () => !NS('getCamMode'),
-      val: () => { const g = window.__NS; return g ? (g.MOUSE_SENS * 1000).toFixed(1) : '—'; },
-      move: d => { const g = window.__NS; if (g) g.MOUSE_SENS = g.MOUSE_SENS + d * 0.0002; } });
+    if (!OTS_MENU_HIDDEN) {
+      out.push({ t: 'pick', label: 'rig  ( V )',
+        val: () => NS('getCamMode') ? 'over the shoulder' : 'top down',
+        move: () => { const g = window.__NS; if (g && g.setCamMode) g.setCamMode(g.getCamMode() ? 0 : 1); } });
+      out.push({ t: 'pick', label: 'mouse sensitivity',
+        dim: () => !NS('getCamMode'),
+        val: () => { const g = window.__NS; return g ? (g.MOUSE_SENS * 1000).toFixed(1) : '—'; },
+        move: d => { const g = window.__NS; if (g) g.MOUSE_SENS = g.MOUSE_SENS + d * 0.0002; } });
+    }
     out.push({ t: 'pick', label: 'top-down zoom',
       dim: () => !!NS('getCamMode'),
       val: () => { const g = window.__NS; return g ? g.getZoom().toFixed(0) + ' m' : '—'; },

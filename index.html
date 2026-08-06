@@ -37,8 +37,10 @@
        text-shadow:0 4px 18px rgba(0,0,0,.55); }
   h1 .accent { color:#7ce8a8; }
   .tag { margin-top:8px; color:#9fb8a8; font-size:clamp(13px,2.6vw,16px); }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,340px));
-          gap:22px; width:100%; max-width:760px; justify-content:center; }
+  /* 3 across on a desktop, 2 on a tablet, 1 on a phone — auto-fit does the
+     stepping; max-width is what stops a 4th column ever appearing. */
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+          gap:22px; width:100%; max-width:1140px; justify-content:center; }
   .card {
     background:#18241f; border:1px solid rgba(255,255,255,.07); border-radius:18px;
     overflow:hidden; text-decoration:none; color:inherit; display:block;
@@ -46,7 +48,9 @@
     box-shadow:0 6px 24px rgba(0,0,0,.35);
   }
   .card:active, .card:hover { transform:translateY(-4px); box-shadow:0 14px 34px rgba(0,0,0,.5); }
-  .art { height:170px; display:flex; align-items:center; justify-content:center; position:relative; }
+  .art { position:relative; aspect-ratio:1200/630; overflow:hidden; }
+  .art img { display:block; width:100%; height:100%; object-fit:cover; }
+  @supports not (aspect-ratio:1/1) { .art { height:170px; } }
   .art.fowl { background:linear-gradient(160deg,#87b558,#5d8f3c); }
   .art.ronin { background:linear-gradient(160deg,#2b2233,#151019); }
   .art.migr { background:linear-gradient(180deg,#141c2a 0%,#3a3f52 55%,#8a6a55 100%); }
@@ -59,6 +63,10 @@
   .card.nshift-card .btn { background:#b03a3a; }
   .badge { position:absolute; top:12px; left:12px; font-size:11px; font-weight:bold;
            letter-spacing:1px; padding:4px 10px; border-radius:999px; }
+  /* the key art carries its own title, so the badge moves to whichever
+     corner that game's title does not use. */
+  .badge.bl { top:auto; bottom:12px; }
+  .badge.br { top:auto; bottom:12px; left:auto; right:12px; }
   .live { background:#2ecc71; color:#0c2616; }
   .soon { background:#ffe98a; color:#3d2f05; }
   .body { padding:16px 18px 20px; }
@@ -82,20 +90,7 @@
   <a class="card" href="/freefowl/">
     <div class="art fowl">
       <span class="badge live">● LIVE · MULTIPLAYER</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="60" cy="80" rx="34" ry="7" fill="rgba(0,0,0,.18)"/>
-        <ellipse cx="38" cy="42" rx="16" ry="7" fill="#7d8590"/>
-        <ellipse cx="38" cy="58" rx="16" ry="7" fill="#7d8590"/>
-        <polygon points="30,50 12,40 12,60" fill="#7d8590"/>
-        <circle cx="55" cy="50" r="24" fill="#9aa2ad"/>
-        <circle cx="55" cy="50" r="24" fill="none" stroke="#4aa3ff" stroke-width="4"/>
-        <circle cx="60" cy="50" r="13" fill="#c3c9d1"/>
-        <polygon points="77,44 92,50 77,56" fill="#f7a11a"/>
-        <circle cx="66" cy="42" r="5.5" fill="#fff"/>
-        <circle cx="68" cy="42" r="2.6" fill="#222"/>
-        <circle cx="98" cy="24" r="7" fill="#f0d290"/>
-        <circle cx="106" cy="38" r="5" fill="#f0d290"/>
-      </svg>
+      <img src="/og.png?v=20260806" alt="Four teams of birds racing for the golden seed." width="1200" height="630" decoding="async" loading="eager" fetchpriority="high">
     </div>
     <div class="body">
       <div class="name">🐦 Free Fowl</div>
@@ -107,15 +102,8 @@
 
   <a class="card ronin-card" href="/ronin/">
     <div class="art ronin">
-      <span class="badge soon">★ NEW</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="60" cy="30" r="26" fill="#c94b4b" opacity="0.85"/>
-        <ellipse cx="60" cy="82" rx="30" ry="5" fill="rgba(0,0,0,.35)"/>
-        <path d="M46 78 Q44 56 52 44 Q60 34 58 24" fill="none" stroke="#efe6d8" stroke-width="5" stroke-linecap="round"/>
-        <path d="M58 24 L64 14" stroke="#8a6f4d" stroke-width="6" stroke-linecap="round"/>
-        <circle cx="45" cy="66" r="10" fill="#1e1824"/>
-        <path d="M38 74 Q45 80 52 74 L50 84 Q45 88 40 84 Z" fill="#1e1824"/>
-      </svg>
+      <span class="badge soon br">★ NEW</span>
+      <img src="/ronin/og.jpg?v=20260806" alt="A lone ronin surrounded by skeleton warriors in a red cathedral." width="1200" height="630" decoding="async" loading="lazy">
     </div>
     <div class="body">
       <div class="name">⚔️ Ronin</div>
@@ -127,16 +115,8 @@
 
   <a class="card migr-card" href="/migration/">
     <div class="art migr">
-      <span class="badge soon">★ NEW · STORY</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="92" cy="20" r="11" fill="#e8d9a8" opacity=".8"/>
-        <path d="M0 90 L120 90 L120 74 Q90 66 60 72 Q30 78 0 70 Z" fill="#0c0f15"/>
-        <g stroke="#0e0c0a" stroke-width="2.6" stroke-linecap="round" fill="none">
-          <path d="M52 34 Q58 40 64 34"/>
-          <path d="M38 44 Q43 49 48 44"/><path d="M66 44 Q71 49 76 44"/>
-          <path d="M26 54 Q30 58 34 54"/><path d="M80 54 Q84 58 88 54"/>
-        </g>
-      </svg>
+      <span class="badge soon bl">★ NEW · STORY</span>
+      <img src="/migration/og.jpg?v=20260806" alt="Twelve birds flying from a burning homeland into a dusk sky." width="1200" height="630" decoding="async" loading="lazy">
     </div>
     <div class="body">
       <div class="name">🪶 The Long Migration</div>
@@ -149,22 +129,7 @@
   <a class="card coop-card" href="/coop/">
     <div class="art coop">
       <span class="badge soon">★ NEW · SINGLE PLAYER</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#ffe9b0" stop-opacity=".85"/>
-            <stop offset="100%" stop-color="#ffe9b0" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
-        <polygon points="34,26 18,84 74,84" fill="url(#beam)"/>
-        <rect x="27" y="18" width="16" height="10" rx="2" fill="#8d8778"
-              transform="rotate(-14 35 23)"/>
-        <g stroke="#5f5647" stroke-width="2" opacity=".85">
-          <path d="M84 30 L84 82 M94 30 L94 82 M104 30 L104 82 M114 30 L114 82"/>
-          <path d="M82 42 L118 42 M82 58 L118 58 M82 74 L118 74"/>
-        </g>
-        <ellipse cx="46" cy="84" rx="30" ry="4" fill="rgba(255,233,176,.28)"/>
-      </svg>
+      <img src="/coop/og.jpg?v=20260806" alt="A flashlight beam on rusted empty cages in an abandoned poultry plant." width="1200" height="630" decoding="async" loading="lazy">
     </div>
     <div class="body">
       <div class="name">🔦 The Coop</div>
@@ -178,24 +143,7 @@
   <a class="card dread-card" href="/dreadwarden/">
     <div class="art dread">
       <span class="badge soon">★ NEW · PLAY THE DUNGEON</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <radialGradient id="torchglow" cx="50%" cy="50%">
-            <stop offset="0%" stop-color="#ffce7a" stop-opacity=".9"/>
-            <stop offset="100%" stop-color="#ffce7a" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-        <ellipse cx="34" cy="50" rx="36" ry="32" fill="url(#torchglow)"/>
-        <rect x="31" y="44" width="5" height="30" rx="2" fill="#6b4a2c"/>
-        <path d="M33.5 26 Q27 38 33.5 45 Q40 38 33.5 26Z" fill="#ffb347"/>
-        <path d="M33.5 32 Q30 39 33.5 44 Q37 39 33.5 32Z" fill="#fff2c4"/>
-        <ellipse cx="34" cy="80" rx="26" ry="4" fill="rgba(255,206,122,.22)"/>
-        <g fill="#bff06a">
-          <circle cx="83" cy="32" r="3"/><circle cx="93" cy="32" r="3"/>
-          <circle cx="101" cy="57" r="2.4"/><circle cx="109" cy="57" r="2.4"/>
-          <circle cx="76" cy="72" r="2.2"/><circle cx="83" cy="72" r="2.2"/>
-        </g>
-      </svg>
+      <img src="/dreadwarden/og.jpg?v=20260806" alt="Four tiny adventurers in torchlight, surrounded by monsters waiting in the dark." width="1200" height="630" decoding="async" loading="lazy">
     </div>
     <div class="body">
       <div class="name">🕯️ Dreadwarden</div>
@@ -209,35 +157,14 @@
 
   <a class="card nshift-card" href="/nightshift/">
     <div class="art nshift">
-      <span class="badge soon">★ NEW · SINGLE PLAYER</span>
-      <svg viewBox="0 0 120 90" width="150" height="112" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <radialGradient id="torch" cx="50%" cy="50%">
-            <stop offset="0%" stop-color="#ffd9a0" stop-opacity=".82"/>
-            <stop offset="100%" stop-color="#ffd9a0" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-        <g stroke="#2a2028" stroke-width="2" fill="none" opacity=".9">
-          <path d="M8 24 L52 24 M68 24 L112 24 M8 66 L44 66 M76 66 L112 66"/>
-          <path d="M52 8 L52 24 M68 8 L68 24 M44 66 L44 84 M76 66 L76 84"/>
-        </g>
-        <polygon points="60,46 22,16 22,76" fill="url(#torch)"/>
-        <ellipse cx="60" cy="78" rx="9" ry="2.6" fill="rgba(0,0,0,.45)"/>
-        <circle cx="60" cy="38" r="5.4" fill="#cfd6dd"/>
-        <rect x="55.4" y="43" width="9.2" height="14" rx="3.4" fill="#3d4a5c"/>
-        <g fill="#7f9a5e">
-          <circle cx="30" cy="34" r="4.6"/><rect x="26" y="39" width="8" height="12" rx="3"/>
-          <circle cx="38" cy="58" r="4.6"/><rect x="34" y="63" width="8" height="12" rx="3"/>
-          <circle cx="18" cy="50" r="4.2"/><rect x="14.5" y="54.5" width="7" height="11" rx="2.8"/>
-        </g>
-        <circle cx="96" cy="14" r="2.4" fill="#ff6b52"/>
-      </svg>
+      <span class="badge soon br">★ NEW · SINGLE PLAYER</span>
+      <img src="/nightshift/og.jpg?v=20260806" alt="An office floor at night, a torch beam cutting into a crowd of hundreds." width="1200" height="630" decoding="async" loading="lazy">
     </div>
     <div class="body">
       <div class="name">🧟 Night Shift</div>
       <div class="desc">Eleven floors, one torch, and a building that stopped being an
-        office at 2 AM. Top-down horde survival — or press V and drop into
-        over-the-shoulder. Arena, rescue, spy and protect-the-king modes.</div>
+        office at 2 AM. Top-down horde survival. Arena, rescue, spy and
+        protect-the-king modes.</div>
       <span class="btn">PLAY</span>
     </div>
   </a>
