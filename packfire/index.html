@@ -1597,7 +1597,7 @@
         background: linear-gradient(90deg, #ff9c4a, #ffd06a);
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-CLv_kaPy.js"></script>
+    <script type="module" crossorigin src="./assets/index-Cn4-BY_T.js"></script>
   </head>
   <body>
     <div id="game"></div>
@@ -2118,6 +2118,7 @@
         .avatar-side {
           flex: 1;
         }
+        #guest-warn,
         #logout-confirm,
         #delete-confirm,
         #reset-confirm {
@@ -2130,11 +2131,13 @@
           z-index: 95;
           pointer-events: auto;
         }
+        #guest-warn.hidden,
         #logout-confirm.hidden,
         #delete-confirm.hidden,
         #reset-confirm.hidden {
           display: none;
         }
+        .guest-box,
         .logout-box,
         .delete-box,
         .reset-box {
@@ -2145,6 +2148,18 @@
           border-radius: 10px;
           text-align: center;
         }
+        .guest-box .lb-title,
+        .guest-box {
+          width: 340px;
+        }
+        .guest-box .lb-sub {
+          line-height: 1.5;
+          text-align: left;
+        }
+        .guest-box button.primary {
+          border-color: #7ce8a8;
+          color: #cfffe4;
+        }
         .logout-box .lb-title,
         .delete-box .lb-title,
         .reset-box .lb-title {
@@ -2152,6 +2167,7 @@
           font-weight: bold;
           margin-bottom: 8px;
         }
+        .guest-box .lb-sub,
         .logout-box .lb-sub,
         .delete-box .lb-sub,
         .reset-box .lb-sub {
@@ -2159,12 +2175,14 @@
           font-size: 12px;
           margin-bottom: 14px;
         }
+        .guest-box .lb-actions,
         .logout-box .lb-actions,
         .delete-box .lb-actions,
         .reset-box .lb-actions {
           display: flex;
           gap: 8px;
         }
+        .guest-box button,
         .logout-box button,
         .delete-box button,
         .reset-box button {
@@ -2187,6 +2205,7 @@
           border-color: #ffb066;
           color: #ffd9a8;
         }
+        .guest-box button:hover,
         .logout-box button:hover,
         .delete-box button:hover,
         .reset-box button:hover {
@@ -2301,6 +2320,20 @@
           <div class="create-actions">
             <button id="create-back" type="button">← Back</button>
             <button id="create-go" class="primary" type="button">Create Hero</button>
+          </div>
+        </div>
+      </div>
+      <div id="guest-warn" class="hidden">
+        <div class="guest-box">
+          <div class="lb-title">Playing without an account</div>
+          <div class="lb-sub">
+            This hero is stored in this browser only. Clearing your browser data,
+            or playing on another device, will lose it — and you won't see other
+            players online. A free account keeps your hero and syncs it anywhere.
+          </div>
+          <div class="lb-actions">
+            <button id="guest-play" type="button">Play as guest</button>
+            <button id="guest-account" class="primary" type="button">Create account</button>
           </div>
         </div>
       </div>
