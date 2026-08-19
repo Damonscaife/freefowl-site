@@ -1,0 +1,2344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Packfire — 3D MMO Prototype</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0e0c0a;
+        overflow: hidden;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        color: #f0ead6;
+        text-shadow: 0 1px 2px #000;
+      }
+      #quest-tracker {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+      }
+      #quest-title {
+        font-size: 15px;
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      #quest-body {
+        font-size: 13px;
+        margin-top: 4px;
+      }
+      #player-panel {
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        width: 230px;
+      }
+      #status-line {
+        font-size: 13px;
+        color: #d9b36c;
+        margin-bottom: 4px;
+      }
+      #rested-buff {
+        display: inline-block;
+        font-size: 12px;
+        color: #b9f0b0;
+        background: #1d3a1acc;
+        border: 1px solid #4f8a46;
+        border-radius: 10px;
+        padding: 2px 8px;
+        margin-bottom: 4px;
+      }
+      #rested-buff.hidden {
+        display: none;
+      }
+      #shield-chip {
+        display: inline-block;
+        font-size: 12px;
+        color: #9ad6ff;
+        background: #123a5acc;
+        border: 1px solid #4f8fd8;
+        border-radius: 10px;
+        padding: 2px 8px;
+        margin-bottom: 4px;
+      }
+      #shield-chip.hidden {
+        display: none;
+      }
+      .bar {
+        position: relative;
+        height: 18px;
+        background: #120c06cc;
+        border: 1px solid #000;
+        margin-top: 2px;
+        overflow: hidden;
+      }
+      .bar .fill {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+      }
+      .bar .label {
+        position: absolute;
+        inset: 0;
+        font-size: 12px;
+        line-height: 18px;
+        padding-left: 5px;
+      }
+      #hp-fill {
+        background: linear-gradient(#8fe06a, #5cb84a);
+      }
+      #xp-bar {
+        height: 8px;
+      }
+      #xp-fill {
+        background: linear-gradient(#9fd8ff, #5aa8d8);
+      }
+      #mana-fill {
+        background: linear-gradient(#8fd3ff, #4a8fd8);
+      }
+      #ability-bar {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+      }
+      .slot {
+        position: relative;
+        width: 56px;
+        height: 56px;
+        background: #221e18;
+        border: 2px solid #4c463c;
+        text-align: center;
+        overflow: hidden;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .slot:hover {
+        border-color: #ffe06a;
+      }
+      .slot:active {
+        border-color: #ffe06a;
+        background: #3a3018;
+      }
+      .slot.locked {
+        opacity: 0.6;
+      }
+      .slot .key {
+        position: absolute;
+        top: 4px;
+        width: 100%;
+        font-size: 16px;
+        color: #ffe06a;
+      }
+      .slot .name {
+        position: absolute;
+        bottom: 4px;
+        width: 100%;
+        font-size: 10px;
+      }
+      .slot .cd {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 0;
+        background: #000a;
+      }
+      .slot .lock {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        color: #e8734a;
+        background: #161310cc;
+      }
+      #interact {
+        position: absolute;
+        bottom: 96px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 14px;
+        color: #cfe3d8;
+      }
+      #chat-ui {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+        pointer-events: none;
+      }
+      #chat-box {
+        pointer-events: auto;
+        width: 320px;
+        max-width: 44vw;
+        background: #14100cf2;
+        border: 1px solid #ffe06a;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #chat-box.hidden {
+        display: none;
+      }
+      #chat-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 10px;
+        background: #241a10;
+        border-bottom: 1px solid #4a3a24;
+        font-size: 13px;
+        font-weight: bold;
+        color: #ffe06a;
+        cursor: default;
+      }
+      #chat-min {
+        background: none;
+        border: none;
+        color: #c0a878;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+      }
+      #chat-min:hover {
+        color: #fff;
+      }
+      #chat-log {
+        height: 150px;
+        overflow-y: auto;
+        padding: 6px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .chat-line {
+        font-size: 12.5px;
+        color: #f0ead6;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .chat-line .who {
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      .chat-line.party .who {
+        color: #8fd3ff;
+      }
+      .chat-line.say .who {
+        color: #b8e6a0;
+      }
+      #chat-channel.ch-party {
+        color: #8fd3ff;
+      }
+      #chat-channel.ch-say {
+        color: #b8e6a0;
+      }
+      #chat-channel.ch-announce {
+        color: #ffd75e;
+      }
+      #chat-channel.ch-feedback {
+        color: #c9b8ff;
+      }
+      .chat-line.system {
+        color: #9a8f7a;
+        font-style: italic;
+      }
+      .chat-line.feedback {
+        color: #d9ccff;
+      }
+      .chat-line.feedback .who {
+        color: #b08fff;
+      }
+      .chat-line.admin {
+        color: #ffe6b8;
+      }
+      .chat-line.admin .who {
+        color: #ffd75e;
+      }
+      .chat-line.announce {
+        color: #ffd75e;
+        font-weight: bold;
+        text-align: center;
+      }
+      #chat-input-row {
+        display: flex;
+        border-top: 1px solid #4a3a24;
+        background: #0e0a06;
+      }
+      #chat-channel-select {
+        border: none;
+        border-right: 1px solid #4a3a24;
+        background: #241a10;
+        color: #ffe06a;
+        font: 12px monospace;
+        padding: 0 6px;
+        outline: none;
+        cursor: pointer;
+      }
+      #chat-channel-select option {
+        background: #14100c;
+        color: #f0ead6;
+      }
+      #chat-input {
+        border: none;
+        background: transparent;
+        color: #f0ead6;
+        font: 13px monospace;
+        padding: 8px 10px;
+        outline: none;
+        flex: 1;
+        min-width: 0;
+      }
+      #chat-icon {
+        pointer-events: auto;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: #14100cf2;
+        border: 1px solid #ffe06a;
+        color: #ffe06a;
+        font-size: 20px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #chat-icon.hidden {
+        display: none;
+      }
+      #settings-btn {
+        position: absolute;
+        top: 16px;
+        right: 270px;
+        padding: 8px 10px;
+        font-size: 16px;
+        font-family: inherit;
+        background: #1a1612f2;
+        border: 1px solid #4c463c;
+        border-radius: 8px;
+        color: #f0ead6;
+        cursor: pointer;
+      }
+      #settings-btn:hover {
+        border-color: #ffe06a;
+      }
+      #map-panel {
+        width: 430px;
+      }
+      #world-map {
+        display: block;
+        width: 394px;
+        height: 394px;
+        margin: 10px auto 0;
+        background: #14100c;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+      }
+      #codex-panel {
+        width: 430px;
+        max-height: 78vh;
+        overflow-y: auto;
+      }
+      #codex-tabs {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0 4px;
+      }
+      .codex-tab {
+        flex: 1;
+        padding: 6px;
+        background: #241f18;
+        color: #c8b89e;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .codex-tab.active {
+        background: #3a2f1e;
+        color: #ffe06a;
+        border-color: #ffe06a;
+      }
+      .codex-entry {
+        padding: 8px 0;
+        border-bottom: 1px solid #2c2620;
+      }
+      .codex-entry:last-child {
+        border-bottom: none;
+      }
+      .codex-name {
+        color: #ffe9c9;
+        font-weight: bold;
+      }
+      .codex-text {
+        color: #b8ac94;
+        font-size: 13px;
+        margin-top: 2px;
+      }
+      .codex-count {
+        color: #9a8f7a;
+        font-size: 12px;
+      }
+      .settings-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        gap: 10px;
+      }
+      .settings-row input[type='range'] {
+        flex: 1;
+      }
+      .settings-row select {
+        background: #241f18;
+        color: #f0ead6;
+        border: 1px solid #4c463c;
+        border-radius: 4px;
+        font-family: inherit;
+        padding: 2px 6px;
+      }
+      .forge-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 0;
+        border-bottom: 1px solid #241f18;
+      }
+      .forge-row:last-child {
+        border-bottom: none;
+      }
+      .forge-btns {
+        display: flex;
+        gap: 6px;
+      }
+      .forge-btns button {
+        padding: 3px 8px;
+        background: #241f18;
+        color: #cfe3d8;
+        border: 1px solid #4c463c;
+        border-radius: 5px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12px;
+      }
+      .forge-btns button:hover {
+        border-color: #8fd3ff;
+      }
+      .talent-row {
+        display: flex;
+        gap: 8px;
+        margin: 6px 0;
+      }
+      .talent-node {
+        flex: 1;
+        padding: 7px;
+        background: #241f18;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        text-align: left;
+        font-family: inherit;
+        color: #c8b89e;
+        cursor: pointer;
+      }
+      .talent-node:hover:not(:disabled) {
+        border-color: #ffe06a;
+      }
+      .talent-node.picked {
+        border-color: #ffe06a;
+        background: #3a2f1e;
+        color: #ffe9c9;
+      }
+      .talent-node:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #chat-icon:hover {
+        background: #241a10;
+      }
+      #ability-tooltip {
+        position: fixed;
+        transform: translateX(-50%);
+        pointer-events: none;
+        z-index: 40;
+        max-width: 260px;
+        padding: 8px 10px;
+        background: #14100cf2;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        text-align: center;
+      }
+      #ability-tooltip.hidden {
+        display: none;
+      }
+      .tt-name {
+        font-size: 13px;
+        font-weight: bold;
+        color: #ffe06a;
+        margin-bottom: 3px;
+      }
+      .tt-desc {
+        font-size: 11px;
+        color: #cfe3d8;
+        line-height: 1.35;
+      }
+      #minimap {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 192px;
+        height: 192px;
+        background: rgba(14, 12, 10, 0.55);
+        border: 1px solid rgba(240, 234, 214, 0.25);
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      }
+      #daily-btn {
+        position: absolute;
+        top: 16px;
+        right: 220px;
+        padding: 8px 12px;
+        font-size: 14px;
+        font-family: inherit;
+        color: #f0ead6;
+        background: #221e18;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        cursor: pointer;
+        pointer-events: auto;
+      }
+      #daily-btn.claimable {
+        border-color: #ffe06a;
+        animation: pulse 1.2s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(255, 224, 106, 0.5);
+        }
+        50% {
+          box-shadow: 0 0 0 6px rgba(255, 224, 106, 0);
+        }
+      }
+      .panel {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 360px;
+        padding: 18px;
+        background: #1a1612f2;
+        border: 1px solid #4c463c;
+        border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+        pointer-events: auto;
+        z-index: 20;
+      }
+      .panel.hidden {
+        display: none;
+      }
+      /* character + inventory panels sit bottom-right so the character stays in view */
+      .panel.bottom-right {
+        top: auto;
+        left: auto;
+        right: 16px;
+        bottom: 16px;
+        transform: none;
+        max-height: 78vh;
+        overflow-y: auto;
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 16px;
+        font-weight: bold;
+        color: #ffe06a;
+        margin-bottom: 12px;
+      }
+      .panel-close {
+        background: none;
+        border: none;
+        color: #f0ead6;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      #daily-panel {
+        width: 420px;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        margin-bottom: 4px;
+      }
+      .stat-row .k {
+        color: #9a8f7a;
+      }
+      .section-label {
+        margin: 12px 0 6px;
+        font-size: 13px;
+        color: #9a8f7a;
+      }
+      .weapon-card {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+      }
+      .weapon-card .wi {
+        font-size: 24px;
+      }
+      .weapon-card .wn {
+        color: #ffe06a;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .weapon-card .wd {
+        color: #9a8f7a;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .weapon-list {
+        display: flex;
+        gap: 6px;
+      }
+      .weapon-chip {
+        flex: 1;
+        text-align: center;
+        padding: 8px 2px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        font-size: 10px;
+        color: #9a8f7a;
+      }
+      .weapon-chip .ic {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 3px;
+      }
+      .weapon-chip.equipped {
+        border-color: #ffe06a;
+        color: #ffe06a;
+        background: #4a3c14;
+      }
+      .item-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+      .item-row .ii {
+        font-size: 18px;
+      }
+      .item-row .in {
+        color: #ffe06a;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .item-row .id {
+        color: #9a8f7a;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .empty-note {
+        font-size: 12px;
+        color: #9a8f7a;
+        padding: 6px 0;
+      }
+      .equip-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 4px;
+      }
+      .equip-slot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 8px 4px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: inherit;
+        color: #9a8f7a;
+      }
+      .equip-slot.wide {
+        grid-column: span 2;
+      }
+      .equip-slot.filled {
+        border-color: #ffe06a;
+        color: #ffe06a;
+        background: #2a2414;
+      }
+      .equip-slot .es-icon {
+        font-size: 18px;
+      }
+      .equip-slot .es-name {
+        font-size: 10px;
+        text-align: center;
+        line-height: 1.2;
+      }
+      .equip-slot .es-sub {
+        font-size: 9px;
+        color: #9a8f7a;
+      }
+      .equip-slot.affixed {
+        cursor: default;
+      }
+      .equip-forge {
+        display: flex;
+        gap: 4px;
+        margin-top: 3px;
+        width: 100%;
+        justify-content: center;
+      }
+      .equip-forge .forge-btn {
+        padding: 2px 6px;
+        background: #241f18;
+        color: #ffd27f;
+        border: 1px solid #6a5a3a;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 9px;
+        white-space: nowrap;
+      }
+      .equip-forge .forge-btn:hover {
+        border-color: #ffe06a;
+      }
+      .equip-forge .forge-btn:disabled {
+        color: #6a6252;
+        border-color: #3a342c;
+        cursor: default;
+      }
+      .equip-forge .forge-max {
+        font-size: 9px;
+        color: #9a8f7a;
+      }
+      .equip-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+      .equip-row .ii {
+        font-size: 18px;
+      }
+      .equip-row .vinfo {
+        flex: 1;
+      }
+      .equip-row .in {
+        color: #ffe06a;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .equip-row .id {
+        color: #9a8f7a;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .equip-btn {
+        padding: 5px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .equip-btn:hover {
+        background: #ffe9a8;
+      }
+      .vendor-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+      .vendor-row .ii {
+        font-size: 18px;
+      }
+      .vendor-row .vinfo {
+        flex: 1;
+      }
+      .vendor-row .in {
+        color: #ffe06a;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .vendor-row .id {
+        color: #9a8f7a;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .sell-btn {
+        padding: 5px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .sell-btn:hover {
+        background: #ffe9a8;
+      }
+      .buy-btn,
+      .use-btn {
+        padding: 5px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .buy-btn:hover:not(:disabled),
+      .use-btn:hover {
+        background: #ffe9a8;
+      }
+      .buy-btn:disabled {
+        background: #3a342c;
+        color: #6a6252;
+        cursor: default;
+      }
+      .inn-return {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px dashed #4a4030;
+      }
+      .inn-return-btn {
+        width: 100%;
+        padding: 9px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        font-weight: bold;
+        color: #14100c;
+        background: #8fd3ff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .inn-return-btn:hover {
+        background: #b4e2ff;
+      }
+      .inn-return-status {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #a89a76;
+      }
+      .inn-return-btn.respec {
+        margin-top: 8px;
+        background: #ffd27f;
+      }
+      .inn-return-btn.respec:hover {
+        background: #ffe3ad;
+      }
+      .inn-return-btn.respec:disabled {
+        background: #4a4234;
+        color: #8a806a;
+        cursor: default;
+      }
+      .daily-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 16px;
+        font-weight: bold;
+        color: #ffe06a;
+        margin-bottom: 12px;
+      }
+      #daily-close {
+        background: none;
+        border: none;
+        color: #f0ead6;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      #streak-row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .streak-day {
+        flex: 1;
+        text-align: center;
+        padding: 8px 2px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        font-size: 11px;
+      }
+      .streak-day .d {
+        display: block;
+        color: #9a8f7a;
+        margin-bottom: 4px;
+      }
+      .streak-day .r {
+        display: block;
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      .streak-day.claimed {
+        border-color: #7ac74f;
+        background: #1d2a14;
+      }
+      .streak-day.claimed .d::after {
+        content: ' ✓';
+        color: #7ac74f;
+      }
+      .streak-day.claimable {
+        border-color: #ffe06a;
+        background: #4a3c14;
+        animation: pulse 1.2s infinite;
+      }
+      #daily-quests {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .daily-quest {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+      }
+      .daily-quest .qt {
+        font-size: 13px;
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      .daily-quest .qp {
+        font-size: 12px;
+        color: #cfe3d8;
+        margin-top: 2px;
+      }
+      .claim-btn {
+        padding: 6px 14px;
+        font-size: 13px;
+        font-family: inherit;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .claim-btn:disabled {
+        background: #3a342c;
+        color: #6a6252;
+        cursor: default;
+      }
+      #daily-streak-row {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 14px;
+      }
+      .daily-note {
+        margin-top: 10px;
+        font-size: 11px;
+        color: #9a8f7a;
+      }
+      .daily-ad {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+        padding: 10px 12px;
+        background: #10161c;
+        border: 1px solid #2a3a48;
+        border-radius: 6px;
+      }
+      #ad-watch-btn {
+        padding: 6px 14px;
+        font-size: 13px;
+        font-family: inherit;
+        color: #10161c;
+        background: #8fd3ff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      #ad-watch-btn:disabled {
+        background: #3a342c;
+        color: #6a6252;
+        cursor: default;
+      }
+      #ad-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 5, 4, 0.82);
+        z-index: 50;
+        pointer-events: auto;
+      }
+      #class-panel {
+        width: 420px;
+        max-height: 85vh;
+        overflow-y: auto;
+      }
+      .class-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        background: #14100c;
+        border: 2px solid #3a342c;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        font-family: inherit;
+        color: #f0ead6;
+        text-align: left;
+        width: 100%;
+        font-size: 13px;
+      }
+      .class-card:hover {
+        border-color: #ffe06a;
+        background: #2a2414;
+      }
+      .class-card.active {
+        border-color: #ffe06a;
+        background: #3a3018;
+        box-shadow: 0 0 10px rgba(255, 224, 106, 0.3);
+      }
+      .class-icon {
+        font-size: 28px;
+        flex-shrink: 0;
+      }
+      .class-info {
+        flex: 1;
+      }
+      .class-name {
+        color: #ffe06a;
+        font-weight: bold;
+        font-size: 14px;
+      }
+      .class-desc {
+        color: #9a8f7a;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      .class-stats {
+        font-size: 10px;
+        color: #7a7260;
+        margin-top: 3px;
+      }
+      .pause-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 5, 4, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 45;
+        pointer-events: auto;
+      }
+      .pause-overlay.hidden {
+        display: none;
+      }
+      .panel-divider {
+        height: 1px;
+        background: #3a342c;
+        margin: 12px 0;
+      }
+      .weather-head {
+        color: #9fd3ff;
+        font-size: 13px;
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      #weather-list,
+      #zone-travel-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .weather-btn {
+        background: #14100c;
+        border: 2px solid #3a342c;
+        color: #f0ead6;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .weather-btn:hover {
+        border-color: #9fd3ff;
+        background: #14202a;
+      }
+      .weather-btn.active {
+        border-color: #9fd3ff;
+        background: #1a2c3a;
+        box-shadow: 0 0 8px rgba(159, 211, 255, 0.3);
+      }
+      .debug-head {
+        color: #e8b36c;
+        font-size: 13px;
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      .debug-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+      }
+      .debug-row .k {
+        color: #9a8f7a;
+        font-size: 13px;
+      }
+      .admin-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        color: #ffe06a;
+        font-size: 13px;
+      }
+      .admin-badge {
+        color: #ffd75e;
+        font-size: 12px;
+        margin-left: 6px;
+      }
+      .admin-badge.hidden {
+        display: none;
+      }
+      .stepper {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .stepper button {
+        background: #14100c;
+        border: 2px solid #3a342c;
+        color: #f0ead6;
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .stepper button:hover {
+        border-color: #ffe06a;
+        background: #2a2414;
+      }
+      .stepper .val {
+        min-width: 44px;
+        text-align: center;
+        font-size: 13px;
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      #social-panel {
+        width: 400px;
+        max-height: 85vh;
+        overflow-y: auto;
+      }
+      .social-hero {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .social-hero input {
+        flex: 1;
+        padding: 7px 10px;
+        font: 13px monospace;
+        color: #f0ead6;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+        outline: none;
+      }
+      .social-hero input:focus {
+        border-color: #ffe06a;
+      }
+      .social-hero button {
+        padding: 7px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        font-weight: bold;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .social-hero button:hover {
+        background: #ffe9a8;
+      }
+      .social-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .friend-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #14100c;
+        border: 1px solid #3a342c;
+        border-radius: 6px;
+      }
+      .friend-row .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .friend-row .dot.online {
+        background: #7ac74f;
+        box-shadow: 0 0 6px #7ac74f;
+      }
+      .friend-row .dot.offline {
+        background: #5a524a;
+      }
+      .friend-row .fname {
+        flex: 1;
+        font-size: 13px;
+        color: #f0ead6;
+      }
+      .friend-row .fstatus {
+        font-size: 10px;
+        color: #9a8f7a;
+      }
+      .friend-row button {
+        padding: 4px 10px;
+        font-size: 11px;
+        font-family: inherit;
+        color: #14100c;
+        background: #8fd3ff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .friend-row button.inv {
+        background: #ffe06a;
+      }
+      .friend-row button.rm {
+        background: none;
+        color: #ff8a7a;
+        font-weight: normal;
+        padding: 4px 6px;
+      }
+      .party-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .party-actions button {
+        padding: 7px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        font-weight: bold;
+        color: #14100c;
+        background: #ffe06a;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .party-actions button:hover {
+        background: #ffe9a8;
+      }
+      .party-actions button.leave {
+        background: #3a342c;
+        color: #f0ead6;
+      }
+      #ad-overlay.hidden {
+        display: none;
+      }
+      .ad-box {
+        width: 360px;
+        padding: 22px;
+        text-align: center;
+        background: #141a22;
+        border: 1px solid #3a4a5c;
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+      }
+      .ad-title {
+        font-size: 15px;
+        font-weight: bold;
+        color: #8fd3ff;
+        margin-bottom: 10px;
+      }
+      .ad-scene {
+        font-size: 12px;
+        color: #9a8f7a;
+        padding: 26px 0;
+        margin-bottom: 12px;
+        background: #0c1118;
+        border-radius: 6px;
+        letter-spacing: 2px;
+        animation: adflicker 0.4s steps(2) infinite;
+      }
+      @keyframes adflicker {
+        50% {
+          color: #6a8aa8;
+        }
+      }
+      #ad-countdown {
+        font-size: 42px;
+        font-weight: bold;
+        color: #f0ead6;
+        margin: 6px 0 10px;
+      }
+      .ad-bar {
+        height: 10px;
+        background: #0c1118;
+        border-radius: 5px;
+        overflow: hidden;
+        margin-bottom: 14px;
+      }
+      #ad-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #5aa8d8, #8fd3ff);
+        border-radius: 5px;
+      }
+      #ad-skip-btn {
+        padding: 8px 18px;
+        font-size: 13px;
+        font-family: inherit;
+        color: #f0ead6;
+        background: #221e18;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      #toasts {
+        position: absolute;
+        right: 16px;
+        bottom: 68px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .toast {
+        font-size: 14px;
+        padding: 6px 12px;
+        background: #14100ccc;
+        border-radius: 4px;
+      }
+      #cast-bar {
+        position: absolute;
+        bottom: 84px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 220px;
+        text-align: center;
+        pointer-events: none;
+      }
+      #cast-bar.hidden {
+        display: none;
+      }
+      #cast-name {
+        font-size: 12px;
+        color: #8fd3ff;
+        margin-bottom: 3px;
+        text-shadow: 0 1px 2px #000;
+      }
+      .cast-track {
+        height: 8px;
+        background: #120c06cc;
+        border: 1px solid #000;
+        overflow: hidden;
+      }
+      #cast-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #8fd3ff, #d8b4ff);
+      }
+      #minion-panel {
+        position: absolute;
+        left: 16px;
+        bottom: 180px;
+        width: 230px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        background: #1a1612cc;
+        border: 1px solid #4c463c;
+        border-radius: 8px;
+        pointer-events: auto;
+      }
+      #minion-panel.hidden {
+        display: none;
+      }
+      #minion-portrait {
+        font-size: 26px;
+        cursor: pointer;
+        user-select: none;
+      }
+      #minion-name {
+        font-size: 13px;
+        color: #cfe3d8;
+        flex: 1;
+      }
+      #minion-menu {
+        position: absolute;
+        left: 0;
+        top: 100%;
+        margin-top: 4px;
+        background: #221e18;
+        border: 1px solid #4c463c;
+        border-radius: 6px;
+        padding: 4px;
+        z-index: 30;
+      }
+      #minion-menu.hidden {
+        display: none;
+      }
+      #minion-banish {
+        padding: 6px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        color: #f0ead6;
+        background: none;
+        border: none;
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+      }
+      #minion-banish:hover {
+        background: #3a3018;
+        color: #ffe06a;
+      }
+      #boss-bar {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 380px;
+        text-align: center;
+        pointer-events: none;
+      }
+      #boss-bar.hidden {
+        display: none;
+      }
+      #boss-name {
+        font-size: 14px;
+        font-weight: bold;
+        color: #ff8a6a;
+        text-shadow: 0 1px 2px #000;
+        margin-bottom: 4px;
+      }
+      .boss-track {
+        height: 14px;
+        background: #1a0c0acc;
+        border-color: #8a3a2a;
+      }
+      #boss-fill {
+        background: linear-gradient(#ff6a4a, #c62828);
+      }
+      #world-boss-timer {
+        position: absolute;
+        top: 92px;
+        left: 16px;
+        width: 190px;
+        padding: 8px 12px;
+        background: #14100cf2;
+        border: 1px solid #8a4a2a;
+        border-radius: 8px;
+        pointer-events: none;
+      }
+      #world-boss-timer.hidden {
+        display: none;
+      }
+      .wb-name {
+        font-size: 13px;
+        font-weight: bold;
+        color: #ff8a6a;
+        margin-bottom: 2px;
+      }
+      .wb-count {
+        font-size: 12px;
+        color: #f0ead6;
+        margin-bottom: 4px;
+      }
+      .wb-count span {
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      .wb-history {
+        font-size: 11px;
+        color: #9a8f7a;
+        margin-bottom: 4px;
+      }
+      .wb-track {
+        height: 6px;
+        background: #1a0c0acc;
+        border: 1px solid #4a2a1a;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      #wb-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #ff6a4a, #ff9c4a);
+      }
+      #elite-timers {
+        position: absolute;
+        top: 168px;
+        left: 16px;
+        width: 190px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        pointer-events: none;
+      }
+      #elite-timers.hidden {
+        display: none;
+      }
+      .elite-row {
+        padding: 6px 10px;
+        background: #14100cf2;
+        border: 1px solid #6a5a3a;
+        border-radius: 8px;
+      }
+      .elite-name {
+        font-size: 12px;
+        font-weight: bold;
+        color: #ffb06a;
+        margin-bottom: 2px;
+      }
+      .elite-count {
+        font-size: 11px;
+        color: #f0ead6;
+        margin-bottom: 3px;
+      }
+      .elite-count span {
+        color: #ffe06a;
+        font-weight: bold;
+      }
+      .elite-track {
+        height: 4px;
+        background: #1a0c0acc;
+        border: 1px solid #4a3a2a;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .elite-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #ff9c4a, #ffd06a);
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-C03FbFYE.js"></script>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="hud">
+      <div id="quest-tracker">
+        <div id="quest-title"></div>
+        <div id="quest-body"></div>
+      </div>
+      <div id="player-panel">
+        <div id="status-line"></div>
+        <div class="bar" id="hp-bar">
+          <div class="fill" id="hp-fill"></div>
+          <div class="label" id="hp-text"></div>
+        </div>
+        <div class="bar" id="mana-bar" style="display: none">
+          <div class="fill" id="mana-fill"></div>
+          <div class="label" id="mana-text"></div>
+        </div>
+        <div class="bar" id="xp-bar"><div class="fill" id="xp-fill"></div></div>
+        <div id="shield-chip" class="hidden">🛡 <span id="shield-text"></span></div>
+        <div id="rested-buff" class="hidden">💤 Rested +15% XP — <span id="rested-time"></span></div>
+      </div>
+      <div id="ability-bar"></div>
+      <div id="ability-tooltip" class="hidden"></div>
+      <div id="interact"></div>
+      <div id="boss-bar" class="hidden">
+        <div id="boss-name"></div>
+        <div class="bar boss-track"><div class="fill" id="boss-fill"></div></div>
+      </div>
+      <div id="world-boss-timer" class="hidden">
+        <div class="wb-name" id="wb-name">🐊 The Bog Tyrant</div>
+        <div class="wb-count">returns in <span id="wb-time">5:00</span></div>
+        <div class="wb-history" id="wb-history"></div>
+        <div class="wb-track"><div id="wb-fill"></div></div>
+      </div>
+      <div id="elite-timers" class="hidden"></div>
+      <div id="chat-ui">
+        <div id="chat-box" class="hidden">
+          <div id="chat-head"><span id="chat-channel" class="ch-zone">💬 Zone Chat</span> <button id="chat-min" type="button" title="Minimize">−</button></div>
+          <div id="chat-log"></div>
+          <div id="chat-input-row">
+            <select id="chat-channel-select" title="Chat channel">
+              <option value="zone">💬 Zone</option>
+              <option value="say">🗣 Local</option>
+              <option value="party">👥 Party</option>
+            </select>
+            <input
+              id="chat-input"
+              type="text"
+              maxlength="140"
+              placeholder="Say something… /1 zone · /s local (Enter sends)"
+              autocomplete="off"
+            />
+          </div>
+        </div>
+        <button id="chat-icon" type="button" title="Open chat">💬</button>
+      </div>
+      <div id="cast-bar" class="hidden">
+        <div id="cast-name"></div>
+        <div class="cast-track"><div id="cast-fill"></div></div>
+      </div>
+      <div id="minion-panel" class="hidden">
+        <div id="minion-portrait">🪤</div>
+        <div id="minion-name">Minion</div>
+        <div id="minion-menu" class="hidden">
+          <button id="minion-banish" type="button">Banish</button>
+        </div>
+      </div>
+      <div id="toasts"></div>
+      <canvas id="minimap" width="192" height="192"></canvas>
+      <button id="settings-btn" type="button" title="Settings">⚙️</button>
+      <button id="daily-btn" type="button">🎁 Daily</button>
+      <div id="vendor-panel" class="panel hidden">
+        <div class="panel-head">
+          <span>🪙 Marlo the Trader</span>
+          <button class="panel-close" id="vendor-close" type="button">✕</button>
+        </div>
+        <div id="vendor-body"></div>
+      </div>
+      <div id="char-panel" class="panel bottom-right hidden">
+        <div class="panel-head">
+          <span>Character</span>
+          <button class="panel-close" id="char-close" type="button">✕</button>
+        </div>
+        <div id="char-body"></div>
+      </div>
+      <div id="inv-panel" class="panel bottom-right hidden">
+        <div class="panel-head">
+          <span>Inventory</span>
+          <button class="panel-close" id="inv-close" type="button">✕</button>
+        </div>
+        <div id="inv-body"></div>
+        <div class="inn-return">
+          <button class="inn-return-btn" id="inv-inn-btn" type="button">🛏️ Return to last inn (10s)</button>
+          <div class="inn-return-status" id="inv-inn-status"></div>
+          <button class="inn-return-btn respec" id="inv-respec-btn" type="button">🔄 Respec talents</button>
+          <div class="inn-return-status" id="inv-respec-status"></div>
+        </div>
+      </div>
+      <div id="daily-panel" class="panel hidden">
+        <div class="daily-head">
+          <span>Daily Rewards</span>
+          <button id="daily-close" type="button">✕</button>
+        </div>
+        <div id="streak-row"></div>
+        <div id="daily-streak-row">
+          <button id="daily-streak-btn" class="claim-btn" type="button" disabled>Claim Day 1</button>
+        </div>
+        <div id="daily-quests"></div>
+        <div class="daily-ad">
+          <div>
+            <div class="qt">📺 Double Today's Gold</div>
+            <div class="qp" id="ad-bonus-text">Earn +0 gold coins</div>
+          </div>
+          <button id="ad-watch-btn" type="button" disabled>Watch</button>
+        </div>
+        <div class="daily-note">Claim once per day. Miss a day and the streak resets to Day 1.</div>
+      </div>
+      <div id="map-panel" class="panel hidden">
+        <div class="panel-head">
+          <span>🗺️ World Map — M to close</span>
+          <button class="panel-close" id="map-close" type="button">✕</button>
+        </div>
+        <canvas id="world-map" width="394" height="394"></canvas>
+      </div>
+      <div id="codex-panel" class="panel hidden">
+        <div class="panel-head">
+          <span>📖 Codex — K to close</span>
+          <button class="panel-close" id="codex-close" type="button">✕</button>
+        </div>
+        <div id="codex-tabs">
+          <button id="codex-tab-lore" class="codex-tab active" type="button">📜 Lore</button>
+          <button id="codex-tab-bestiary" class="codex-tab" type="button">👹 Bestiary</button>
+        </div>
+        <div id="codex-body"></div>
+      </div>
+      <div id="settings-panel" class="panel hidden">
+        <div class="panel-head">
+          <span>⚙️ Settings</span>
+          <button class="panel-close" id="settings-close" type="button">✕</button>
+        </div>
+        <div class="settings-row"><span class="k">Master volume</span><input id="setting-master" type="range" min="0" max="1" step="0.05" value="0.85" /></div>
+        <div class="settings-row"><span class="k">SFX volume</span><input id="setting-sfx" type="range" min="0" max="1" step="0.05" value="0.8" /></div>
+        <div class="settings-row"><span class="k">Camera zoom</span><input id="setting-zoom" type="range" min="6" max="30" step="1" value="24" /></div>
+        <div class="settings-row"><span class="k">Field of view</span><input id="setting-fov" type="range" min="35" max="70" step="1" value="45" /></div>
+        <div class="settings-row"><span class="k">Quality</span>
+          <select id="setting-quality">
+            <option value="low">Low</option>
+            <option value="med">Medium</option>
+            <option value="high" selected>High</option>
+          </select>
+        </div>
+        <div class="daily-note">Volume, camera, and quality — saved on this device.</div>
+      </div>
+      <div id="social-overlay" class="pause-overlay hidden">
+        <div id="social-panel" class="panel">
+          <div class="daily-head">
+            <span>👥 Heroes &amp; Party — O to close</span>
+            <button id="social-close" type="button">✕</button>
+          </div>
+          <div class="section-label">
+            — Hero name (friends find you by this) — <span id="admin-badge" class="admin-badge hidden">👑 Admin</span>
+          </div>
+          <div class="social-hero">
+            <input id="hero-name-input" type="text" maxlength="20" placeholder="Name your hero…" autocomplete="off" />
+            <button id="hero-name-save" type="button">Save</button>
+          </div>
+          <div class="section-label">— Friends —</div>
+          <div id="friends-list" class="social-list"></div>
+          <div class="social-hero">
+            <input id="friend-add-input" type="text" maxlength="20" placeholder="Friend's hero name…" autocomplete="off" />
+            <button id="friend-add-btn" type="button">Add Friend</button>
+          </div>
+          <div class="section-label">— Party (5 max) —</div>
+          <div id="party-list" class="social-list"></div>
+          <div class="party-actions">
+            <button id="party-form-btn" type="button">Form Party</button>
+            <button id="party-leave-btn" class="leave" type="button">Leave Party</button>
+          </div>
+          <div class="daily-note">Friends &amp; parties go live with Supabase login. Until then, invites work locally so you can test the summoning stone (deep in the Reedy Marsh).</div>
+        </div>
+      </div>
+      <div id="pause-overlay" class="pause-overlay hidden">
+        <div id="class-panel" class="panel">
+          <div class="daily-head">
+            <span>⏸️ Paused — Choose Class</span>
+            <button id="pause-close" type="button">✕</button>
+          </div>
+          <div class="weather-head">🧭 Teleport — jump to a zone</div>
+          <div id="zone-travel-list"></div>
+          <div class="panel-divider"></div>
+          <div id="class-list"></div>
+          <div class="panel-divider"></div>
+          <div class="weather-head">🌦️ Weather — testing presets</div>
+          <div id="weather-list"></div>
+          <div class="panel-divider"></div>
+          <div class="debug-head">🔧 Debug — tweak your character</div>
+          <div class="debug-row">
+            <span class="k">Level</span>
+            <div class="stepper">
+              <button id="lvl-minus" type="button">−</button>
+              <span class="val" id="lvl-value">1</span>
+              <button id="lvl-plus" type="button">+</button>
+            </div>
+          </div>
+          <div class="debug-row">
+            <span class="k">Gold</span>
+            <div class="stepper">
+              <button id="gold-minus" type="button">−100</button>
+              <span class="val" id="gold-value">0</span>
+              <button id="gold-plus" type="button">+100</button>
+            </div>
+          </div>
+          <div class="debug-row">
+            <span class="k">Admin</span>
+            <label class="admin-label">
+              <input id="admin-toggle" type="checkbox" />
+              <span id="admin-value">off</span>
+            </label>
+          </div>
+          <div class="debug-row">
+            <span class="k">Session</span>
+            <button id="logout-btn" type="button" style="background:#2a140e;border:1px solid #7a3a2a;color:#ffb0a8;border-radius:6px;padding:4px 10px;font-family:inherit;cursor:pointer;font-size:12px;">Log Out → Title</button>
+          </div>
+          <div class="daily-note">Press P to resume. Switching class resets your stats to the class base.</div>
+        </div>
+      </div>
+      <div id="ad-overlay" class="hidden">
+        <div class="ad-box">
+          <div class="ad-title">Rewarded Ad — 2x Today's Gold</div>
+          <div class="ad-scene">AD NETWORK</div>
+          <div id="ad-countdown">6</div>
+          <div class="ad-bar"><div id="ad-fill"></div></div>
+          <button id="ad-skip-btn" type="button">Skip (no reward)</button>
+        </div>
+      </div>
+      <style>
+        #title-screen,
+        #create-screen {
+          position: fixed;
+          inset: 0;
+          background: radial-gradient(ellipse at 50% 28%, #241a12 0%, #0a0806 72%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 90;
+          pointer-events: auto;
+        }
+        #title-screen.hidden,
+        #create-screen.hidden {
+          display: none;
+        }
+        .title-logo {
+          font-size: 54px;
+          color: #ffe06a;
+          font-weight: bold;
+          letter-spacing: 2px;
+          text-shadow: 0 4px 30px rgba(255, 170, 40, 0.4);
+        }
+        .title-tag {
+          color: #b9a888;
+          margin: 6px 0 30px;
+          font-size: 12px;
+          letter-spacing: 5px;
+          text-transform: uppercase;
+        }
+        .title-note {
+          color: #6a6252;
+          font-size: 11px;
+          margin-top: 18px;
+        }
+        .account-box {
+          margin-top: 16px;
+          width: 250px;
+          background: #1a1612f2;
+          border: 1px solid #4c463c;
+          border-radius: 10px;
+          padding: 12px;
+        }
+        .account-label {
+          color: #ffe06a;
+          font-size: 12px;
+          font-weight: bold;
+          margin-bottom: 8px;
+        }
+        .account-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 8px;
+        }
+        .account-fields input {
+          padding: 6px 8px;
+          background: #14100c;
+          border: 1px solid #4c463c;
+          border-radius: 5px;
+          color: #e8e0d0;
+          font-family: inherit;
+          font-size: 12px;
+        }
+        .account-btns {
+          display: flex;
+          gap: 8px;
+        }
+        .account-btns button,
+        #account-signout {
+          flex: 1;
+          padding: 6px 0;
+          background: #241f18;
+          border: 1px solid #6a5a3a;
+          border-radius: 5px;
+          color: #ffd27f;
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 12px;
+        }
+        .account-btns button:hover,
+        #account-signout:hover {
+          border-color: #ffe06a;
+        }
+        .account-error {
+          margin-top: 8px;
+          min-height: 12px;
+          color: #e8734a;
+          font-size: 11px;
+          line-height: 1.3;
+        }
+        #account-signed-in {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        #account-signed-in .account-label {
+          margin-bottom: 0;
+          flex: 1;
+        }
+        #account-signout {
+          flex: 0 0 auto;
+          padding: 6px 12px;
+        }
+        .hero-slots {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+        }
+        .hero-slot {
+          position: relative;
+          width: 196px;
+          min-height: 158px;
+          background: #1a1612f2;
+          border: 1px solid #4c463c;
+          border-radius: 10px;
+          padding: 14px;
+          cursor: pointer;
+          text-align: left;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          transition: border-color 0.15s;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+        }
+        .hero-slot:hover {
+          border-color: #ffe06a;
+        }
+        .hero-slot .hs-empty {
+          color: #8a7a5a;
+          font-size: 13px;
+          margin: auto;
+        }
+        .hero-slot .hs-name {
+          color: #ffe06a;
+          font-weight: bold;
+          font-size: 16px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hero-slot .hs-meta {
+          color: #9a8f7a;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+        .hero-slot .hs-played {
+          color: #6a6252;
+          font-size: 11px;
+        }
+        .hero-slot .hs-play {
+          margin-top: auto;
+          color: #8fd3ff;
+          font-size: 12px;
+          letter-spacing: 1px;
+        }
+        .hero-slot .hs-del {
+          position: absolute;
+          top: 6px;
+          right: 8px;
+          background: none;
+          border: none;
+          color: #7a4a3a;
+          font-size: 14px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .hero-slot .hs-del:hover {
+          color: #ff6b5c;
+        }
+        .create-panel {
+          width: 430px;
+          padding: 20px;
+          background: #1a1612f2;
+          border: 1px solid #4c463c;
+          border-radius: 12px;
+          box-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+        }
+        .create-panel h2 {
+          color: #ffe06a;
+          font-size: 18px;
+          margin: 0 0 14px;
+          text-align: center;
+        }
+        .create-row {
+          margin-bottom: 12px;
+        }
+        .create-label {
+          color: #9fd3ff;
+          font-size: 12px;
+          font-weight: bold;
+          margin-bottom: 6px;
+        }
+        #create-name {
+          width: 100%;
+          box-sizing: border-box;
+          background: #0f0c0a;
+          border: 1px solid #4c463c;
+          color: #f0ead6;
+          border-radius: 6px;
+          padding: 8px 10px;
+          font-size: 14px;
+          font-family: inherit;
+        }
+        .pick-row {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .pick-btn {
+          background: #14100c;
+          border: 2px solid #3a342c;
+          color: #f0ead6;
+          border-radius: 6px;
+          padding: 6px 10px;
+          font-size: 12px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .pick-btn:hover {
+          border-color: #9fd3ff;
+        }
+        .pick-btn.active {
+          border-color: #ffe06a;
+          background: #2a2012;
+        }
+        .swatch {
+          width: 34px;
+          height: 34px;
+          border-radius: 8px;
+          border: 2px solid #3a342c;
+          cursor: pointer;
+        }
+        .swatch:hover {
+          transform: scale(1.08);
+        }
+        .swatch.active {
+          border-color: #fff;
+          box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+        }
+        .create-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 6px;
+        }
+        .create-actions button {
+          flex: 1;
+          background: #14100c;
+          border: 2px solid #4c463c;
+          color: #f0ead6;
+          border-radius: 8px;
+          padding: 10px;
+          font-size: 14px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .create-actions button.primary {
+          border-color: #ffe06a;
+          background: #3a2a10;
+        }
+        .create-actions button.primary:hover {
+          background: #4a3412;
+        }
+        .create-actions button:hover {
+          border-color: #9fd3ff;
+        }
+        .avatar-wrap {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 12px;
+        }
+        #create-avatar {
+          width: 96px;
+          height: 96px;
+          border-radius: 10px;
+          background: #0f0c0a;
+          border: 1px solid #3a342c;
+        }
+        .avatar-side {
+          flex: 1;
+        }
+        #logout-confirm,
+        #delete-confirm,
+        #reset-confirm {
+          position: fixed;
+          inset: 0;
+          background: rgba(6, 5, 4, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 95;
+          pointer-events: auto;
+        }
+        #logout-confirm.hidden,
+        #delete-confirm.hidden,
+        #reset-confirm.hidden {
+          display: none;
+        }
+        .logout-box,
+        .delete-box,
+        .reset-box {
+          width: 300px;
+          padding: 20px;
+          background: #1a1612f2;
+          border: 1px solid #4c463c;
+          border-radius: 10px;
+          text-align: center;
+        }
+        .logout-box .lb-title,
+        .delete-box .lb-title,
+        .reset-box .lb-title {
+          color: #ffe06a;
+          font-weight: bold;
+          margin-bottom: 8px;
+        }
+        .logout-box .lb-sub,
+        .delete-box .lb-sub,
+        .reset-box .lb-sub {
+          color: #9a8f7a;
+          font-size: 12px;
+          margin-bottom: 14px;
+        }
+        .logout-box .lb-actions,
+        .delete-box .lb-actions,
+        .reset-box .lb-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .logout-box button,
+        .delete-box button,
+        .reset-box button {
+          flex: 1;
+          background: #14100c;
+          border: 2px solid #4c463c;
+          color: #f0ead6;
+          border-radius: 8px;
+          padding: 9px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .logout-box button.danger,
+        .delete-box button.danger,
+        .reset-box button.danger {
+          border-color: #ff6b5c;
+          color: #ffb0a8;
+        }
+        .reset-box button.warn {
+          border-color: #ffb066;
+          color: #ffd9a8;
+        }
+        .logout-box button:hover,
+        .delete-box button:hover,
+        .reset-box button:hover {
+          border-color: #9fd3ff;
+        }
+        .delete-box button.danger:disabled,
+        .reset-box button.warn:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+          border-color: #4c463c;
+          color: #7a6f5e;
+        }
+        .delete-box .del-name,
+        .reset-box .reset-name {
+          color: #ff6b5c;
+          font-weight: bold;
+        }
+        .reset-box .keep-name {
+          color: #8fd3ff;
+          font-weight: bold;
+        }
+        .delete-box input,
+        .reset-box input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 9px;
+          margin-bottom: 14px;
+          background: #14100c;
+          border: 2px solid #4c463c;
+          border-radius: 8px;
+          color: #f0ead6;
+          font-family: inherit;
+          text-align: center;
+          letter-spacing: 3px;
+          font-weight: bold;
+          outline: none;
+        }
+        .delete-box input:focus,
+        .reset-box input:focus {
+          border-color: #ff6b5c;
+        }
+        .delete-box input.ok,
+        .reset-box input.ok {
+          border-color: #ff6b5c;
+          color: #ffb0a8;
+        }
+        .reset-box input.ok {
+          border-color: #ffb066;
+          color: #ffd9a8;
+        }
+        .hero-slot .hs-reset {
+          position: absolute;
+          top: 6px;
+          right: 26px;
+          background: none;
+          border: none;
+          color: #7a6a4a;
+          font-size: 14px;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .hero-slot .hs-reset:hover {
+          color: #ffd9a8;
+        }
+      </style>
+      <div id="title-screen">
+        <div class="title-logo">🔥 Packfire</div>
+        <div class="title-tag">The Long Road South</div>
+        <div id="hero-slots" class="hero-slots"></div>
+        <div id="account-box" class="account-box hidden">
+          <div id="account-signed-out">
+            <div class="account-label">☁️ Cloud save</div>
+            <div class="account-fields">
+              <input id="account-email" type="email" placeholder="email" autocomplete="email" />
+              <input id="account-pass" type="password" placeholder="password" autocomplete="current-password" />
+            </div>
+            <div class="account-btns">
+              <button id="account-signin" type="button">Sign in</button>
+              <button id="account-signup" type="button">Sign up</button>
+            </div>
+            <div id="account-error"></div>
+          </div>
+          <div id="account-signed-in" class="hidden">
+            <div class="account-label">☁️ Signed in as <span id="account-email-show"></span></div>
+            <button id="account-signout" type="button">Sign out</button>
+          </div>
+        </div>
+        <div class="title-note" id="title-note">Up to 3 heroes — saved on this device (cloud sync soon)</div>
+      </div>
+      <div id="create-screen" class="hidden">
+        <div class="create-panel">
+          <h2>⚔️ Forge Your Hero</h2>
+          <div class="avatar-wrap">
+            <canvas id="create-avatar" width="96" height="96"></canvas>
+            <div class="avatar-side">
+              <div class="create-label">Hero name</div>
+              <input id="create-name" type="text" maxlength="20" placeholder="Traveler…" autocomplete="off" />
+            </div>
+          </div>
+          <div class="create-row">
+            <div class="create-label">Class</div>
+            <div id="create-class" class="pick-row"></div>
+          </div>
+          <div class="create-row">
+            <div class="create-label">Hair style</div>
+            <div id="create-hair" class="pick-row"></div>
+          </div>
+          <div class="create-row">
+            <div class="create-label">Clothing color</div>
+            <div id="create-shirt" class="pick-row"></div>
+          </div>
+          <div class="create-actions">
+            <button id="create-back" type="button">← Back</button>
+            <button id="create-go" class="primary" type="button">Create Hero</button>
+          </div>
+        </div>
+      </div>
+      <div id="logout-confirm" class="hidden">
+        <div class="logout-box">
+          <div class="lb-title">Log out?</div>
+          <div class="lb-sub">Progress is saved. Return to the title screen?</div>
+          <div class="lb-actions">
+            <button id="logout-cancel" type="button">Cancel</button>
+            <button id="logout-yes" class="danger" type="button">Log Out</button>
+          </div>
+        </div>
+      </div>
+      <div id="delete-confirm" class="hidden">
+        <div class="delete-box">
+          <div class="lb-title">Are you sure?</div>
+          <div class="lb-sub">Deleting <span class="del-name" id="del-hero-name"></span> is <span class="del-name">permanent</span> — level, gold, and gear will be gone forever.</div>
+          <div class="lb-sub">Type <span class="del-name">DELETE</span> to confirm:</div>
+          <input id="del-type" type="text" autocomplete="off" spellcheck="false" placeholder="DELETE" />
+          <div class="lb-actions">
+            <button id="del-cancel" type="button">Cancel</button>
+            <button id="del-yes" class="danger" type="button" disabled>Delete Forever</button>
+          </div>
+        </div>
+      </div>
+      <div id="reset-confirm" class="hidden">
+        <div class="reset-box">
+          <div class="lb-title">Reset hero?</div>
+          <div class="lb-sub"><span class="reset-name" id="reset-hero-name"></span> will return to <span class="reset-name">level 1</span> — level, gold, and gear wiped.</div>
+          <div class="lb-sub">Your <span class="keep-name">name is kept</span> — it stays reserved on the server, unique to you.</div>
+          <div class="lb-sub">Type <span class="reset-name">RESET</span> to confirm:</div>
+          <input id="reset-type" type="text" autocomplete="off" spellcheck="false" placeholder="RESET" />
+          <div class="lb-actions">
+            <button id="reset-cancel" type="button">Cancel</button>
+            <button id="reset-yes" class="warn" type="button" disabled>Reset to Level 1</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
