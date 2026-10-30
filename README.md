@@ -7,6 +7,7 @@ Play at [freefowl.com](https://www.freefowl.com/).
 ## Games
 
 - [Free Fowl](https://www.freefowl.com/freefowl/) — a 4-team bird battle. Play solo against bots or online with friends.
+- [Flyway](https://www.freefowl.com/flyway/) — idle migration game: fly a bird around the globe and make it faster.
 - [Ronin: The Cursed March](https://www.freefowl.com/ronin/) — side-scrolling action through the underworld.
 - [The Long Migration](https://www.freefowl.com/migration/) — a story-driven Free Fowl adventure.
 - [The Coop](https://www.freefowl.com/coop/) — single-player survival horror in an abandoned poultry plant.

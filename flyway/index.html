@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Flyway — fly your bird around the world</title>
+<meta name="description" content="A free idle migration game. Pick a bird, pick a city, and fly it around the globe. Upgrade its wings, grow a flock, and watch it go from a sparrow's crawl to a blur.">
+<meta name="theme-color" content="#060c1f">
+<link rel="canonical" href="https://www.freefowl.com/flyway/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Flyway — fly your bird around the world">
+<meta property="og:description" content="Pick a bird, pick a city, fly the globe. Free idle migration game on FreeFowl Arcade.">
+<meta property="og:url" content="https://www.freefowl.com/flyway/">
+<meta property="og:image" content="https://www.freefowl.com/flyway/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+/* fonts ship with the game (SIL Open Font License) so it runs offline */
+@font-face { font-family: 'Bricolage Grotesque'; src: url('fonts/bricolage.woff2') format('woff2'); font-weight: 200 800; font-display: swap; }
+:root {
+  --space: #060c1f;
+  --paper: #f5f7fb;
+  --paper-2: #e8edf5;
+  --ink: #14213d;
+  --ink-2: #4c5b78;
+  --red: #cf2e3a;
+  --blue: #2557a7;
+  --gold: #e3a52b;
+  --gold-ink: #6b4708;
+  --display: 'Bricolage Grotesque', 'Arial Rounded MT Bold', system-ui, sans-serif;
+  --text: 'Bricolage Grotesque', system-ui, sans-serif;
+  --drawer-h: 46vh;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--space); color: var(--ink); overflow: hidden;
+  font-family: var(--text); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.num { font-family: var(--display); font-variant-numeric: tabular-nums; }
+
+/* ---------- stage ---------- */
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: 1fr var(--drawer-h); }
+#stage { position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+#stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#side { opacity: 0; pointer-events: none; }
+
+/* ---------- top HUD ---------- */
+.hud { position: absolute; left: 0; right: 0; top: 0; padding: calc(10px + env(safe-area-inset-top)) 14px 0;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+.bar { display: flex; align-items: center; gap: 10px; }
+.purse { display: flex; align-items: baseline; gap: 8px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.45); }
+.purse .amt { font-size: clamp(28px, 7vw, 40px); font-weight: 800; letter-spacing: -.5px; }
+.purse .seed { width: 22px; height: 22px; align-self: center; }
+.purse .rate { font-size: 14px; color: #ffe3a3; }
+.spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: rgba(6,12,31,.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: #fff; border-radius: 999px;
+  padding: 7px 12px; font-size: 14px; border: 1px solid rgba(255,255,255,.14); }
+.chip:hover { background: rgba(6,12,31,.75); }
+
+/* the ticket: the leg the bird is on right now */
+.ticket { position: relative; background: var(--paper); border-radius: 10px; padding: 9px 12px 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: 560px; overflow: hidden; }
+.ticket::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+  background: repeating-linear-gradient(-45deg, var(--red) 0 6px, var(--paper) 6px 10px, var(--blue) 10px 16px, var(--paper) 16px 20px); }
+.leg { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 8px; padding-left: 6px; }
+.leg .city { font-family: var(--display); font-weight: 700; font-size: 17px; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leg .to { text-align: right; }
+.leg small { display: block; font-family: var(--text); font-weight: 400; font-size: 11.5px; color: var(--ink-2); }
+.leg .mid { font-size: 12px; color: var(--ink-2); text-align: center; padding-bottom: 2px; }
+.track { position: relative; height: 6px; background: var(--paper-2); border-radius: 3px; margin: 8px 0 6px 6px; }
+.track i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--blue); border-radius: 3px; }
+.track b { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  background: var(--gold); border: 2px solid var(--ink); }
+.legstats { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-2); padding-left: 6px; }
+.legstats strong { color: var(--ink); font-family: var(--display); font-weight: 700; }
+
+/* ---------- right-hand controls ---------- */
+.zoom { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex;
+  flex-direction: column; gap: 8px; }
+.zoom button { width: 42px; height: 42px; border-radius: 50%; background: rgba(6,12,31,.55); color: #fff;
+  font-size: 22px; line-height: 1; border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px); }
+.flap { position: absolute; right: 14px; bottom: 14px; width: 92px; height: 92px; border-radius: 50%;
+  background: var(--gold); color: var(--ink); font-family: var(--display); font-weight: 800; font-size: 18px;
+  box-shadow: 0 8px 0 #9b6c12, 0 12px 28px rgba(0,0,0,.4); touch-action: none; user-select: none;
+  -webkit-user-select: none; transition: transform .06s, box-shadow .06s; }
+.flap:active, .flap.down { transform: translateY(5px); box-shadow: 0 3px 0 #9b6c12, 0 6px 16px rgba(0,0,0,.4); }
+.flap svg { position: absolute; inset: -7px; width: calc(100% + 14px); height: calc(100% + 14px);
+  transform: rotate(-90deg); pointer-events: none; }
+.flap svg circle { fill: none; stroke-width: 5; }
+.flap .ring-bg { stroke: rgba(255,255,255,.18); }
+.flap .ring { stroke: #fff; stroke-linecap: round; transition: stroke-dashoffset .1s linear; }
+.flap span { display: block; font-size: 11px; font-family: var(--text); font-weight: 700; opacity: .75; }
+.hint { position: absolute; left: 14px; bottom: 22px; color: #fff; font-size: 13px;
+  background: rgba(6,12,31,.6); padding: 7px 14px; border-radius: 999px; pointer-events: none;
+  transition: opacity .6s; white-space: nowrap; }
+.label3d { position: absolute; left: 0; top: 0; color: #fff; font-size: 12px; font-weight: 700;
+  text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
+
+/* ---------- postmark (arrival) ---------- */
+.postmark { position: absolute; left: 50%; top: 42%; width: 172px; height: 172px; margin: -86px 0 0 -86px;
+  pointer-events: none; opacity: 0; color: var(--red); }
+.postmark.show { animation: stamp 2.6s cubic-bezier(.2,.9,.3,1) forwards; }
+@keyframes stamp {
+  0% { opacity: 0; transform: scale(1.8) rotate(-24deg); }
+  10% { opacity: .95; transform: scale(1) rotate(-12deg); }
+  78% { opacity: .95; transform: scale(1) rotate(-12deg); }
+  100% { opacity: 0; transform: scale(.96) rotate(-12deg) translateY(-14px); }
+}
+.postmark .bonus { position: absolute; left: 0; right: 0; top: 100%; text-align: center; margin-top: 8px;
+  font-family: var(--display); font-weight: 800; font-size: 22px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+
+/* ---------- drawer ---------- */
+#drawer { position: relative; background: var(--paper); display: flex; flex-direction: column; min-height: 0;
+  padding-bottom: env(safe-area-inset-bottom); }
+#drawer::before { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px;
+  background: repeating-linear-gradient(-45deg, var(--red) 0 12px, var(--paper) 12px 18px, var(--blue) 18px 30px, var(--paper) 30px 36px); }
+.dhead { display: flex; align-items: center; gap: 10px; padding: 12px 14px 8px; }
+.dhead h2 { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: -.2px; }
+.mode { display: flex; background: var(--paper-2); border-radius: 999px; padding: 3px; margin-left: auto; }
+.mode button { padding: 5px 11px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.mode button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.migrate { margin: 0 14px 8px; padding: 10px 14px; border-radius: 10px; background: var(--ink); color: #fff;
+  display: none; align-items: center; gap: 10px; text-align: left; }
+.migrate.on { display: flex; }
+.migrate strong { font-family: var(--display); font-size: 16px; }
+.migrate small { display: block; opacity: .75; font-size: 12.5px; }
+.ups { list-style: none; overflow-y: auto; padding: 0 8px 12px; -webkit-overflow-scrolling: touch; }
+.up { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px;
+  padding: 10px 6px; border-bottom: 1px solid var(--paper-2); }
+.up:last-child { border-bottom: 0; }
+.up .ic { width: 44px; height: 44px; border-radius: 12px; background: var(--paper-2); display: grid;
+  place-items: center; font-size: 22px; position: relative; }
+.up .lv { position: absolute; right: -4px; bottom: -4px; background: var(--ink); color: #fff; font-size: 10.5px;
+  font-weight: 700; border-radius: 999px; padding: 1px 6px; font-family: var(--display); }
+.up .nm { font-family: var(--display); font-weight: 700; font-size: 16px; }
+.up .fx { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; }
+.up .ms { height: 4px; background: var(--paper-2); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.up .ms i { display: block; height: 100%; background: var(--gold); }
+.buy { min-width: 96px; padding: 9px 10px; border-radius: 10px; background: var(--blue); color: #fff;
+  text-align: center; line-height: 1.15; box-shadow: 0 3px 0 #173a73; }
+.buy:active { transform: translateY(2px); box-shadow: 0 1px 0 #173a73; }
+.buy[disabled] { background: #c9d1de; color: #6c7891; box-shadow: none; cursor: default; }
+.buy b { display: block; font-family: var(--display); font-size: 15px; }
+.buy small { font-size: 11px; opacity: .85; }
+
+/* ---------- sheets (start / modals) ---------- */
+.sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 10;
+  background: rgba(6,12,31,.62); padding: 18px; }
+.sheet.on { display: flex; }
+.card { background: var(--paper); border-radius: 18px; width: 100%; max-width: 520px; max-height: 100%;
+  overflow-y: auto; padding: 22px 20px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.5); position: relative; }
+.card h1 { font-family: var(--display); font-weight: 800; font-size: clamp(40px, 11vw, 64px); line-height: .95;
+  letter-spacing: -1.5px; }
+.card h3 { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -.3px; margin-bottom: 6px; }
+.card p { color: var(--ink-2); line-height: 1.5; font-size: 15px; }
+.card .lede { margin: 8px 0 18px; max-width: 40ch; }
+.field { margin-top: 16px; }
+.field > span { display: block; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.birds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bird { border: 2px solid var(--paper-2); border-radius: 12px; padding: 8px 6px 10px; text-align: center;
+  background: #fff; }
+.bird canvas { width: 100%; height: 58px; display: block; }
+.bird b { display: block; font-family: var(--display); font-size: 14px; margin-top: 2px; }
+.bird small { display: block; font-size: 11.5px; color: var(--ink-2); line-height: 1.3; }
+.bird[aria-pressed="true"] { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,87,167,.18); }
+.bird[disabled] { opacity: .45; cursor: default; }
+select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border-radius: 10px;
+  border: 2px solid var(--paper-2); background: #fff; color: var(--ink); }
+.go { margin-top: 20px; width: 100%; padding: 15px; border-radius: 14px; background: var(--red); color: #fff;
+  font-family: var(--display); font-weight: 800; font-size: 20px; box-shadow: 0 5px 0 #8f1c25; }
+.go:active { transform: translateY(3px); box-shadow: 0 2px 0 #8f1c25; }
+.ghost { margin-top: 10px; width: 100%; padding: 11px; border-radius: 12px; color: var(--ink-2); font-weight: 700; }
+.x { position: absolute; right: 12px; top: 10px; width: 36px; height: 36px; border-radius: 50%; font-size: 22px;
+  color: var(--ink-2); }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 14px 0; }
+.stats div { font-size: 13px; color: var(--ink-2); }
+.stats strong { display: block; font-family: var(--display); font-size: 20px; color: var(--ink); }
+.stamps { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; margin-top: 14px; }
+.stamp { aspect-ratio: 1; border: 2px dashed #c9d1de; border-radius: 6px; display: grid; place-items: center;
+  text-align: center; font-size: 10.5px; color: #9aa6bc; padding: 4px; line-height: 1.15; }
+.stamp.got { border: 2px solid currentColor; font-weight: 700; background: #fff; }
+.back { font-size: 13px; color: var(--ink-2); margin-top: 14px; display: block; text-align: center; }
+.back a { color: var(--blue); }
+
+@media (min-width: 900px) {
+  #app { grid-template-rows: 1fr; grid-template-columns: 1fr 380px; }
+  #drawer { height: 100vh; }
+  #drawer::before { left: -8px; right: auto; top: 0; bottom: 0; width: 8px; height: auto; }
+  .flap { right: 24px; bottom: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .postmark.show { animation-duration: 2.6s; animation-timing-function: steps(1, end); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage" aria-label="Your bird's flight. Pinch or scroll to zoom; tap to flap.">
+    <canvas id="globe"></canvas>
+    <canvas id="side"></canvas>
+    <div id="labels"></div>
+    <div class="hud">
+      <div class="bar">
+        <div class="purse" aria-live="off">
+          <svg class="seed" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="7" ry="9" fill="#e3a52b"/><path d="M12 4c-2 3-2 15 0 18" stroke="#9b6c12" stroke-width="1.6" fill="none"/></svg>
+          <span class="amt num" id="seeds">0</span>
+          <span class="rate num" id="rate">+0/s</span>
+        </div>
+        <span class="spacer"></span>
+        <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
+        <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
+      </div>
+      <div class="ticket">
+        <div class="leg">
+          <div class="city" id="fromCity">—<small>from</small></div>
+          <div class="mid" id="legKm">— km</div>
+          <div class="city to" id="toCity">—<small>to</small></div>
+        </div>
+        <div class="track"><i id="trackFill"></i><b id="trackDot"></b></div>
+        <div class="legstats">
+          <span>Speed <strong class="num" id="speed">0</strong> km/s</span>
+          <span>Arrive in <strong class="num" id="eta">—</strong></span>
+        </div>
+      </div>
+    </div>
+    <div class="zoom">
+      <button id="zin" aria-label="Zoom in to the bird">+</button>
+      <button id="zout" aria-label="Zoom out to the globe">−</button>
+    </div>
+    <button class="flap" id="flap" aria-label="Flap for a speed boost">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="46"/><circle class="ring" id="ring" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289"/></svg>
+      FLAP<span id="boostPct">+0%</span>
+    </button>
+    <div class="hint" id="hint">Pinch or scroll to zoom out</div>
+    <div class="postmark" id="postmark" aria-hidden="true"></div>
+  </div>
+
+  <section id="drawer" aria-label="Upgrades">
+    <div class="dhead">
+      <h2>Upgrades</h2>
+      <div class="mode" role="group" aria-label="How many to buy">
+        <button data-mode="1" aria-pressed="true">×1</button>
+        <button data-mode="10" aria-pressed="false">×10</button>
+        <button data-mode="max" aria-pressed="false">Max</button>
+      </div>
+    </div>
+    <button class="migrate" id="btnMigrate">
+      <span style="font-size:24px">🪶</span>
+      <span><strong id="migrateTitle">Migrate again</strong><small id="migrateSub"></small></span>
+    </button>
+    <ul class="ups" id="ups"></ul>
+  </section>
+</div>
+
+<!-- start / migrate-again -->
+<div class="sheet" id="startSheet" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+  <div class="card">
+    <h1 id="startTitle">Flyway</h1>
+    <p class="lede" id="startLede">Pick a bird and a city. It flies the world on its own; you make it faster.</p>
+    <div class="field"><span>Your bird</span><div class="birds" id="birdPick"></div></div>
+    <label class="field"><span>Leave from</span><select id="cityPick"></select></label>
+    <button class="go" id="btnGo">Take off</button>
+    <button class="ghost" id="btnStartCancel" hidden>Keep flying this route</button>
+    <p class="back"><a href="/">FreeFowl Arcade</a></p>
+  </div>
+</div>
+
+<div class="sheet" id="awaySheet" role="dialog" aria-modal="true" aria-labelledby="awayTitle">
+  <div class="card">
+    <h3 id="awayTitle">While you were away</h3>
+    <p id="awayText"></p>
+    <button class="go" id="btnAway">Collect</button>
+  </div>
+</div>
+
+<div class="sheet" id="lapSheet" role="dialog" aria-modal="true" aria-labelledby="lapTitle">
+  <div class="card">
+    <h3 id="lapTitle">Around the world</h3>
+    <p id="lapText"></p>
+    <button class="go" id="btnLapMigrate">Migrate again</button>
+    <button class="ghost" id="btnLapKeep">Keep flying for now</button>
+  </div>
+</div>
+
+<div class="sheet" id="passSheet" role="dialog" aria-modal="true" aria-labelledby="passTitle">
+  <div class="card">
+    <button class="x" data-close aria-label="Close">×</button>
+    <h3 id="passTitle">Passport</h3>
+    <p id="passText"></p>
+    <div class="stamps" id="stamps"></div>
+  </div>
+</div>
+
+<div class="sheet" id="menuSheet" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+  <div class="card">
+    <button class="x" data-close aria-label="Close">×</button>
+    <h3 id="menuTitle">Your flight</h3>
+    <div class="stats" id="menuStats"></div>
+    <p style="font-size:13.5px">Golden feathers 🪶 come from migrating again after a full lap. Each one adds 5% speed and seeds, forever.</p>
+    <button class="ghost" id="btnReset" style="color:var(--red)">Start over from scratch</button>
+    <p class="back"><a href="/">Back to FreeFowl Arcade</a></p>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="land.js"></script>
+<script src="econ.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
