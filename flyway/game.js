@@ -204,9 +204,9 @@
     return pts;
   }
   let loopLine = null, doneLine = null;
-  // The bird's tail on the globe: one long gold line through everything flown
-  // this lap, ending at the bird. Only the oldest end fades out.
-  const TAIL_MAX = 6000;
+  // The bird's tail on the globe: a gold line along the path just flown,
+  // ending at the centre of the bird's dot and fading out behind it.
+  const TAIL_MAX = 6000, TAIL_LEN = 0.3, TAIL_R = ROUTE_R + 0.004; // same height as the bird's dot
   const tailGeo = new THREE.BufferGeometry();
   tailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TAIL_MAX * 3), 3));
   tailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TAIL_MAX * 4), 4));
@@ -214,13 +214,17 @@
   tailLine.frustumCulled = false; routeGroup.add(tailLine);
   let tailDone = []; // points for the legs already flown this lap (rebuilt at each stop)
   function updateTail(t) {
-    const pts = tailDone.concat(arcPoints(F.legFrom(S), F.legTo(S), ROUTE_R + 0.001, Math.max(0.001, t)));
+    let pts = tailDone.concat(arcPoints(F.legFrom(S), F.legTo(S), TAIL_R, Math.max(0.001, t)));
+    // keep only the last TAIL_LEN (in globe radii) of the path
+    let len = 0, cut = 0;
+    for (let k = pts.length - 1; k > 0; k--) { len += pts[k].distanceTo(pts[k - 1]); if (len > TAIL_LEN) { cut = k; break; } }
+    if (cut) pts = pts.slice(cut);
     const n = Math.min(pts.length, TAIL_MAX), off = pts.length - n;
     const pa = tailGeo.attributes.position, ca = tailGeo.attributes.color;
     for (let k = 0; k < n; k++) {
       const p = pts[off + k], u = n > 1 ? k / (n - 1) : 1;
-      // full strength along most of the line; the first quarter fades to nothing
-      const a = 0.95 * smooth(0, 0.25, u);
+      // strongest at the bird, fading steadily to nothing at the tail's end
+      const a = 0.95 * u * u;
       pa.setXYZ(k, p.x, p.y, p.z); ca.setXYZW(k, 1, 0.83, 0.42, a);
     }
     pa.needsUpdate = true; ca.needsUpdate = true; tailGeo.setDrawRange(0, n);
@@ -240,7 +244,7 @@
     loopLine.computeLineDistances(); loopLine.visible = false; // no dotted route ahead: the next stop's dot is enough
     routeGroup.add(loopLine);
     tailDone = [];
-    for (let k = 0; k < S.ri; k++) tailDone.push(...arcPoints(F.routePt(S, k), F.routePt(S, k + 1), ROUTE_R + 0.001));
+    for (let k = Math.max(0, S.ri - 3); k < S.ri; k++) tailDone.push(...arcPoints(F.routePt(S, k), F.routePt(S, k + 1), TAIL_R));
     doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), new THREE.LineBasicMaterial({ visible: false }));
     routeGroup.add(doneLine);
     const pos = [], col = [];
@@ -2208,7 +2212,6 @@
       const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.LOOP_KM;
       $('fromCity').innerHTML = `${out ? 'Earth' : 'Moon'}<small>trip ${sp.trips + 1}</small>`;
       $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} ☄️ on return`}</small>`;
-      $('wx').textContent = `⛽ Fuel for ${Math.ceil(S.moon.fuel)} more round trip${Math.ceil(S.moon.fuel) === 1 ? '' : 's'} · ${fmt(S.moon.trips, 0)} done`;
       $('legKm').textContent = `${fmt(left, 0)} km left`;
       setTrack(clamp(sp.u, 0, 1));
       $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = out ? 'Moon in' : 'Home in'; $('eta').textContent = fmtTime(left / v);
@@ -2263,8 +2266,8 @@
       expoKey = key;
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
-      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button><p class="expo-note" id="fuelNote"></p>`;
-      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home space rocks.</p><p class="expo-note" id="fuelNote"></p>`;
+      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button>`;
+      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home space rocks.</p>`;
       if (sp && !sp.loop && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
       else if (nb && (!sp || sp.loop || sp.arrived)) action += `<button class="expo-launch" id="btnLaunch">🚀 Fly on to ${nb.name}</button>`;
       if (sp && (sp.arrived || sp.loop)) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
@@ -2301,10 +2304,6 @@
       if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
     }
     const bg = $('btnGear'); if (bg && g) bg.disabled = S.seeds < g.cost;
-    const fn = $('fuelNote'), mx = F.fuelMax(S), fu = S.moon.fuel || 0;
-    if (fn) fn.textContent = sp ? `⛽ Fuel: ${Math.ceil(fu)} of ${mx} round trips left. Refuels only on Earth.`
-      : fu >= mx ? `⛽ Fuel full: ${mx} round trips.` : `⛽ Refueling on Earth: ${Math.floor(fu)} of ${mx} round trips, full in ${fmtTime((mx - fu) * F.REFUEL_SECS)}.`;
-    const bo = $('btnLoop'); if (bo) bo.disabled = fu < 1;
     refreshRocks();
   }
   function refreshRocks() {
@@ -2434,7 +2433,6 @@
         if (e.type === 'space') { spaceArrival(e); continue; }
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
-        if (e.type === 'outOfFuel') { leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); toast(`Out of fuel: back on Earth over ${F.legFrom(S).name}. The shuttle refuels while you fly here.`); save(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);

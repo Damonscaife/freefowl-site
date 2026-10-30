@@ -255,7 +255,7 @@
   function newState(birdId, startIdx) {
     const s = {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0, ri: 0, route: null, lapsFlown: 0,
-      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {}, fuel: 5 }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
+      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {} }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
       seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
@@ -381,7 +381,6 @@
     if (s.lapsTotal == null) s.lapsTotal = (s.laps || 0) + (s.lapsFlown || 0);
     s.runFeathers = s.runFeathers || 0;
     s.moon = s.moon || { rocks: 0, total: 0, trips: 0, lv: {} };
-    if (s.moon.fuel == null) s.moon.fuel = fuelMax(s);
     if (s.space && !s.space.loop && s.space.dest === 0) s.space = { loop: true, dest: 0, u: 0.5, trips: 0, from: 'Earth' };
     if (!s.birds) { // before feathers were spent: keep what the old lap-count unlocks gave
       const old = { tern: 1, albatross: 2, falcon: 4 };
@@ -463,13 +462,11 @@
         s.spaceStage = Math.max(s.spaceStage, 0);
         ev.push({ type: 'moonpass', first });
       }
-      const trips = Math.min(Math.floor(s.space.u), Math.ceil(s.moon.fuel));
+      const trips = Math.floor(s.space.u);
       if (trips > 0) {
         s.space.u -= trips; s.space.trips += trips;
         const r = rocksPerTrip(s) * trips; s.moon.rocks += r; s.moon.total += r; s.moon.trips += trips;
-        s.moon.fuel = Math.max(0, s.moon.fuel - trips);
         ev.push({ type: 'trip', rocks: r, trips });
-        if (s.moon.fuel < 1) { s.space = null; ev.push({ type: 'outOfFuel' }); }
       }
       return ev;
     }
@@ -488,8 +485,6 @@
       }
       return ev;
     }
-    // the shuttle refuels while the bird is back on Earth
-    if (s.moon && s.gear.shuttle) s.moon.fuel = Math.min(fuelMax(s), (s.moon.fuel || 0) + dt / REFUEL_SECS);
     if (!s.orbitUnlocked && baseSpeed(s) >= ORBIT_SPEED) { s.orbitUnlocked = true; ev.push({ type: 'orbit' }); }
     let km = speed(s) * dt;
     let guard = 0;
@@ -606,7 +601,6 @@
     { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} space rocks` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
-    { id: 'tank', name: 'Fuel Tanks', icon: '⛽', base: 6, growth: 1.8, blurb: (L) => `${fuelMaxL(L)} round trips per tank` },
   ];
   const shipLv = (s, id) => (s.moon && s.moon.lv[id]) || 0;
   const shipCost = (u, L) => Math.ceil(u.base * u.growth ** L);
@@ -629,19 +623,15 @@
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1);
   }
   // One moon rock is worth a quarter of a city landing on Earth, so a loop
-  // with a few cargo and wingmate upgrades earns about twice what Earth does. The catch: the shuttle burns a tank of fuel per
-  // round trip and only refuels on Earth, and golden feathers and bird
-  // upgrades are Earth-only.
+  // with a few cargo and wingmate upgrades earns about twice what Earth does.
+  // Golden feathers and bird upgrades are still Earth-only.
   const rockValue = (s) => arrivalBonus(s) * 0.25;
-  const fuelMaxL = (L) => 5 + 3 * L;
-  const fuelMax = (s) => fuelMaxL(shipLv(s, 'tank'));
-  const REFUEL_SECS = 20; // on Earth, one round trip of fuel every 20 seconds
   function tradeRocks(s, n) {
     n = Math.min(Math.floor(n), s.moon.rocks); if (n <= 0) return 0;
     const v = n * rockValue(s); s.moon.rocks -= n; s.seeds += v; s.runSeeds += v; return v;
   }
   function launchLoop(s) {
-    if (!s.gear.shuttle || s.space || s.moon.fuel < 1) return false;
+    if (!s.gear.shuttle || s.space) return false;
     s.space = { loop: true, dest: 0, u: 0, trips: 0, from: 'Earth' }; s.boost = 0; s.rush = 0; s.stun = 0;
     return true;
   }
@@ -736,7 +726,7 @@
 
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
-    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, fuelMax, REFUEL_SECS, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
