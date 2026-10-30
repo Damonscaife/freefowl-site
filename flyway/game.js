@@ -417,6 +417,83 @@
   fscene.add(streaks);
   const streakData = Array.from({ length: STREAKS }, () => ({ x: Math.random() * 80 - 20, y: Math.random() * 16 - 7, z: Math.random() * 14 - 10 }));
 
+  // ---------- weather ----------
+  // Drawn in a box around the bird rather than on the ground, so rain, snow
+  // and wind look the same at 1 km/s or 10,000 km/s.
+  const RAIN = 420, SNOW = 260, GUST = 26;
+  const rainGeo = new THREE.BufferGeometry(); rainGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RAIN * 6), 3));
+  const rainLines = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xcfe0f5, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  const drops = Array.from({ length: RAIN }, () => ({ x: Math.random() * 90 - 45, y: Math.random() * 44 - 18, z: Math.random() * 46 - 34 }));
+  const snowGeo = new THREE.BufferGeometry(); snowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SNOW * 3), 3));
+  const snowPts = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.32, transparent: true, opacity: 0, depthWrite: false }));
+  const flakes = Array.from({ length: SNOW }, () => ({ x: Math.random() * 90 - 45, y: Math.random() * 44 - 18, z: Math.random() * 40 - 30, p: Math.random() * 6 }));
+  const gustGeo = new THREE.BufferGeometry(); gustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(GUST * 6), 3));
+  const gustLines = new THREE.LineSegments(gustGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, fog: false, depthWrite: false, depthTest: false }));
+  gustLines.renderOrder = 4;
+  const gusts = Array.from({ length: GUST }, () => ({ x: Math.random() * 90 - 45, y: Math.random() * 14 - 6, z: Math.random() * 8 - 4, l: 4 + Math.random() * 8 }));
+  const boltGeo = new THREE.BufferGeometry(); boltGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(10 * 3), 3));
+  const bolt = new THREE.Line(boltGeo, new THREE.LineBasicMaterial({ color: 0xf4f7ff, transparent: true, opacity: 0, fog: false }));
+  for (const o of [rainLines, snowPts, gustLines, bolt]) fscene.add(o);
+  const wxK = { rain: 0, snow: 0, storm: 0, wind: 0, dir: 1, flash: 0 };
+  // a lightning strike: a jagged bolt far off and a flash over the whole sky
+  function lightning() {
+    const p = boltGeo.attributes.position, x0 = (Math.random() - 0.3) * 160, z0 = -260 - Math.random() * 120;
+    let x = x0, y = 90;
+    for (let i = 0; i < 10; i++) { p.setXYZ(i, x, y, z0); x += (Math.random() - 0.5) * 18; y -= (90 - GROUND) / 9; }
+    p.needsUpdate = true; wxK.flash = 1;
+  }
+  function updateWeather(dt, v, cur, wx) {
+    const ease = (k, t) => lerp(k, t, 1 - Math.exp(-dt * 1.5));
+    const cold = ['ice', 'boreal', 'tundra'].includes(biome(cur.lat, cur.lon));
+    const wet = wx === 'rain' ? 0.55 : wx === 'storm' ? 1 : 0;
+    wxK.rain = ease(wxK.rain, cold ? 0 : wet); wxK.snow = ease(wxK.snow, cold ? wet : 0);
+    wxK.storm = ease(wxK.storm, wx === 'storm' ? 1 : wx === 'rain' ? 0.35 : 0);
+    wxK.wind = ease(wxK.wind, wx === 'tailwind' || wx === 'headwind' ? 1 : wx === 'storm' ? 0.5 : 0);
+    if (wx === 'tailwind') wxK.dir = 1; else if (wx === 'headwind' || wx === 'storm') wxK.dir = -1;
+    // relative airflow: the faster the bird, the more the rain slants back at it
+    const slant = 8 + Math.log10(1 + v) * 5;
+    const rp = rainGeo.attributes.position, nRain = Math.round(RAIN * wxK.rain);
+    for (let i = 0; i < nRain; i++) {
+      const d = drops[i]; d.y -= 34 * dt; d.x -= slant * dt;
+      if (d.y < -18 || d.x < -45) { d.y = 26; d.x = Math.random() * 90 - 40; }
+      rp.setXYZ(i * 2, d.x, d.y, d.z); rp.setXYZ(i * 2 + 1, d.x + slant * 0.04, d.y + 1.4, d.z);
+    }
+    rp.needsUpdate = true; rainGeo.setDrawRange(0, nRain * 2); rainLines.material.opacity = 0.55 * Math.min(1, wxK.rain * 2);
+    const sp = snowGeo.attributes.position, nSnow = Math.round(SNOW * wxK.snow);
+    for (let i = 0; i < nSnow; i++) {
+      const f = flakes[i]; f.p += dt; f.y -= 4 * dt; f.x -= slant * 0.35 * dt + Math.sin(f.p * 1.7) * 0.03;
+      if (f.y < -18 || f.x < -45) { f.y = 26; f.x = Math.random() * 90 - 40; }
+      sp.setXYZ(i, f.x, f.y, f.z);
+    }
+    sp.needsUpdate = true; snowGeo.setDrawRange(0, nSnow); snowPts.material.opacity = 0.9 * Math.min(1, wxK.snow * 2);
+    // wind: long gust lines. A tailwind pushes them along with the bird, a headwind drives them back at it.
+    const gp = gustGeo.attributes.position, nG = Math.round(GUST * wxK.wind), gsp = wxK.dir > 0 ? 22 : -46;
+    for (let i = 0; i < nG; i++) {
+      const g = gusts[i]; g.x += gsp * dt;
+      if (g.x > 50 || g.x < -50) { g.x = gsp > 0 ? -45 : 45; g.y = Math.random() * 14 - 6; g.z = Math.random() * 8 - 4; }
+      const wob = Math.sin(side.t * 2 + i) * 0.3;
+      gp.setXYZ(i * 2, g.x, g.y + wob, g.z); gp.setXYZ(i * 2 + 1, g.x + g.l, g.y - wob * 0.4, g.z);
+      gustLines.material.color.setStyle(wxK.dir > 0 ? '#e9fff2' : '#fff2df');
+    }
+    gp.needsUpdate = true; gustGeo.setDrawRange(0, nG * 2); gustLines.material.opacity = 0.8 * wxK.wind;
+    // storm light: the sky darkens and closes in; lightning lights it up for a moment
+    if (wxK.flash > 0) wxK.flash = Math.max(0, wxK.flash - dt * 3.5);
+    bolt.material.opacity = wxK.flash > 0.5 ? 1 : 0;
+    const k = wxK.storm * 0.75;
+    if (k > 0.01) {
+      const grey = new THREE.Color(0x4a5060);
+      skyU.top.value.lerp(grey, k); skyU.bottom.value.lerp(new THREE.Color(0x7d8594), k);
+      fscene.fog.color.lerp(new THREE.Color(0x7d8594), k);
+    }
+    if (wxK.flash > 0) { const w = new THREE.Color(0xdfe6ff); skyU.top.value.lerp(w, wxK.flash * 0.7); skyU.bottom.value.lerp(w, wxK.flash * 0.7); }
+    fscene.fog.near = lerp(160, 60, wxK.storm); fscene.fog.far = lerp(640, 300, wxK.storm);
+    hemi.intensity *= lerp(1, 0.7, wxK.storm); hemi.intensity += wxK.flash * 1.2;
+    fsun.intensity *= lerp(1, 0.35, wxK.storm);
+    sunDisc.material.opacity = 1 - wxK.storm * 0.9;
+    cloudTint.setScalar(lerp(1, 0.62, wxK.storm));
+  }
+  const cloudTint = new THREE.Color(1, 1, 1);
+
   // ---------- 2D cutouts in the 3D world ----------
   // Birds (and the hawk, owl and hunter) are painted once into flipbook atlases
   // and shown as camera-facing cutouts, so they always read as a clean side
@@ -869,7 +946,8 @@
     sp.needsUpdate = true; streakGeo.setDrawRange(0, want * 2);
 
     // wing beat: quick when boosting, lazy glide-and-flap when not
-    const target = 1.5 + S.boost * 6 + Math.min(2, Math.log10(1 + v) * 0.35);
+    // a headwind makes the bird work harder
+    const target = 1.5 + S.boost * 6 + Math.min(2, Math.log10(1 + v) * 0.35) + (S.wx && S.wx.type === 'headwind' ? 1.2 : 0);
     side.flapRate = lerp(side.flapRate, target, 1 - Math.exp(-dt * 4));
     side.flap += dt * side.flapRate * Math.PI * 2;
     const glide = S.boost < 0.05 ? smooth(0.2, 0.9, Math.sin(side.t * 0.45)) * 0.8 : 0;
@@ -917,6 +995,8 @@
     water.material.color.setStyle(night > 0.5 ? '#183461' : '#2468a6');
     towerMat.emissive.setStyle(night > 0.4 ? '#b8862e' : '#000000');
     towerMat.emissiveIntensity = night * 0.55;
+    updateWeather(dt, v, cur, (S.wx && S.wx.type) || 'clear');
+    for (const c of world.clouds) c.userData.mat.color.copy(cloudTint);
 
     // camera: raised and off to the near side, framed so the bird sits left of centre
     const f = smooth(SIDE_A, 1, Z);
@@ -1112,6 +1192,7 @@
     $('stampCount').textContent = S.visited.length;
     const rc = $('rushChip');
     $('stunChip').hidden = !(S.stun > 0);
+    refreshWeatherChip();
     rc.hidden = !(S.rush > 0);
     if (S.rush > 0) $('rushLeft').textContent = Math.ceil(S.rush) + 's';
     const mig = $('btnMigrate');
@@ -1243,7 +1324,7 @@
   function catchUp() {
     const away = clamp((Date.now() - (S.lastSave || Date.now())) / 1000, 0, 8 * 3600);
     if (away < 30) return null;
-    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; S.stun = 0; side.bug = null; side.threat = null;
+    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; S.stun = 0; S.wx = { type: 'clear', left: 0 }; side.bug = null; side.threat = null;
     const steps = Math.min(4000, Math.ceil(away)), dt = away / steps;
     let lap = false;
     for (let i = 0; i < steps; i++) for (const e of F.step(S, dt, false)) if (e.lapDone) lap = true;
@@ -1319,7 +1400,7 @@
       }
       return;
     }
-    if (S.arrivals < 3 || side.bug || anySheetOpen()) return;
+    if (S.arrivals < 3 || side.bug || anySheetOpen() || (S.wx && S.wx.type === 'storm')) return;
     side.threatT -= dt;
     if (side.threatT > 0) return;
     side.threatT = F.THREAT.every(S);
@@ -1359,6 +1440,31 @@
     refreshUpgrades();
   }
 
+  // ---------- weather (game side) ----------
+  let lastForecastAt = 0, boltT = 5;
+  function forecast(e) {
+    const w = F.WEATHER[e.wx];
+    // at high speed legs pass in a blink, so only call out the forecast when it will be felt
+    const legSecs = F.legLen(S) / Math.max(F.speed(S), 1e-6), now = performance.now();
+    if (!w || e.wx === 'clear' || legSecs < 4 || now - lastForecastAt < 6000) return;
+    lastForecastAt = now;
+    setTimeout(() => toast(`${w.icon} ${w.name} on the way to ${F.legTo(S).name}: ${w.note}`), 900);
+  }
+  function tickWeather(dt) {
+    if (!S.wx || S.wx.type !== 'storm') return;
+    boltT -= dt;
+    if (boltT > 0) return;
+    boltT = 4 + Math.random() * 5;
+    lightning();
+    // the crack spooks the flock: any flap boost is lost
+    S.boost = 0; side.shake = Math.max(side.shake || 0, 0.18);
+  }
+  function refreshWeatherChip() {
+    const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx], el = $('wx');
+    el.className = 'wx wx-' + wx;
+    el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${w.note}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
+  }
+
   // ======================================================================
   // Main loop
   // ======================================================================
@@ -1378,6 +1484,7 @@
       const events = F.step(S, dt, !isLand(g.lat, g.lon));
       for (const e of events) {
         stamp(e.city, e.bonus, e.first);
+        forecast(e);
         if (e.lapDone && lapShownFor !== S.leg) {
           lapShownFor = S.leg;
           $('lapText').textContent = `${F.birdOf(S).name} made it all the way around, ${fmt(S.totalKm)} km. Migrate again to bank ${F.feathersFor(S.runSeeds)} golden feathers, or keep flying to earn more first.`;
@@ -1385,7 +1492,7 @@
         }
       }
       if (events.length) rebuildRoute();
-      tickBugs(dt); tickThreats(dt);
+      tickBugs(dt); tickThreats(dt); tickWeather(dt);
       // zoom easing (the take-off zoom is slower and more deliberate)
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
@@ -1440,5 +1547,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();

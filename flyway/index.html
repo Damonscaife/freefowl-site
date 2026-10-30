@@ -103,6 +103,11 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
 [hidden] { display: none !important; }
+.wx { margin: 7px 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx.wx-tailwind { color: #2b8a57; }
+.wx.wx-headwind { color: #9a5b12; }
+.wx.wx-rain { color: var(--blue); }
+.wx.wx-storm { color: #5b3d8a; }
 .chip.stun { background: var(--red); color: #fff; border-color: transparent; font-weight: 700; }
 .threat { position: relative; max-width: 560px; display: grid; grid-template-columns: auto 1fr; align-items: center;
   gap: 4px 10px; background: var(--red); color: #fff; border-radius: 10px; padding: 9px 12px 10px;
@@ -251,6 +256,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
           <span>Speed <strong class="num" id="speed">0</strong> km/s</span>
           <span>Arrive in <strong class="num" id="eta">—</strong></span>
         </div>
+        <div class="wx" id="wx" aria-live="polite">☀️ Clear skies</div>
       </div>
       <div class="threat" id="threat" role="alert" hidden>
         <span class="ti" id="threatIcon" aria-hidden="true">🦅</span>

@@ -149,7 +149,7 @@
   function newState(birdId, startIdx) {
     return {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0,
-      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0,
+      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
     };
@@ -158,7 +158,7 @@
   // older saves predate the bug catcher
   function upgradeSave(s) {
     for (const k of ['bugs', 'keen', 'camo']) s.levels[k] = s.levels[k] || 0;
-    s.rush = s.rush || 0; s.stun = 0; s.dodged = s.dodged || 0; s.caught = s.caught || 0; return s;
+    s.rush = s.rush || 0; s.stun = 0; s.wx = s.wx || { type: 'clear', left: 0 }; s.dodged = s.dodged || 0; s.caught = s.caught || 0; return s;
   }
 
   // ---- predators (live play only) ----
@@ -193,12 +193,12 @@
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1);
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxOf(s).speed;
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
     const oc = overOcean && b.ocean ? b.ocean : 1;
-    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * featherMult(s.feathers) * oc * (s.rush > 0 ? RUSH_SEEDS : 1);
+    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * featherMult(s.feathers) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds;
   }
   // Payout for landing in the next city: worth T.arrive seconds of foraging,
   // growing with each city already reached this run.
@@ -217,6 +217,8 @@
     s.boost = Math.max(0, s.boost - dt * (0.18 + s.boost * 0.25));
     if (s.rush > 0) s.rush = Math.max(0, s.rush - dt);
     if (s.stun > 0) s.stun = Math.max(0, s.stun - dt);
+    if (s.wx && s.wx.left > 0) { s.wx.left -= dt; if (s.wx.left <= 0) s.wx = { type: 'clear', left: 0, calm: 8 }; }
+    else if (s.wx && s.wx.calm > 0) s.wx.calm -= dt;
     const earned = seedRate(s, overOcean) * dt;
     s.seeds += earned; s.runSeeds += earned;
     let km = speed(s) * dt;
@@ -234,11 +236,33 @@
         if (first) s.visited.push(to.i);
         s.leg++; s.legKm = 0;
         const lapDone = s.leg % CITIES.length === 0;
-        ev.push({ type: 'arrive', city: to, bonus, first, lapDone });
+        // a new forecast only once the current one (or a calm spell) has run its course
+        if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather();
+        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type });
       }
     }
     return ev;
   }
+
+  // ---- weather ----
+  // Each leg gets a forecast when the bird leaves a city. It lasts until the
+  // next landing or WX_SECS, whichever comes first, so it never flickers at speed.
+  const WX_SECS = 30;
+  const WEATHER = {
+    clear: { name: 'Clear skies', icon: '☀️', speed: 1, seeds: 1, weight: 38 },
+    tailwind: { name: 'Tailwind', icon: '💨', speed: 1.5, seeds: 1, weight: 22, note: '+50% speed' },
+    headwind: { name: 'Headwind', icon: '🌬️', speed: 0.7, seeds: 1.6, weight: 15, note: '−30% speed, +60% seeds' },
+    rain: { name: 'Rain', icon: '🌧️', speed: 1, seeds: 1.3, weight: 15, note: '+30% seeds' },
+    storm: { name: 'Storm', icon: '⛈️', speed: 0.85, seeds: 1.5, weight: 10, note: 'predators grounded, +50% seeds' },
+  };
+  function rollWeather() {
+    const types = Object.keys(WEATHER), total = types.reduce((a, k) => a + WEATHER[k].weight, 0);
+    let r = Math.random() * total;
+    // clear skies also hold for a while, so calm stretches feel deliberate too
+    for (const k of types) { r -= WEATHER[k].weight; if (r <= 0) return k === 'clear' ? { type: k, left: 0, calm: 20 } : { type: k, left: WX_SECS }; }
+    return { type: 'clear', left: 0 };
+  }
+  const wxOf = (s) => WEATHER[(s.wx && s.wx.type) || 'clear'];
 
   // A caught bug starts (or extends) the rush.
   function catchBug(s) { s.rush = Math.max(s.rush, 0) + bugRush(s.levels.bugs || 1); return s.rush; }
@@ -288,6 +312,6 @@
   root.Flyway = {
     T, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, cityAt, legFrom, legTo, legLen,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
-    feathersFor, featherMult, bugEvery, bugRush, catchBug, upgradeSave, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
+    feathersFor, featherMult, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
