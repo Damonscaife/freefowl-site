@@ -597,51 +597,154 @@
     const c = chunkAtX(x); if (!c || c.kind === 'sea') return GROUND;
     return GROUND + (c.kind === 'city' ? 3 : landHeight(c.wx0 + (x - c.grp.position.x) + CW / 2, z));
   }
-  // hero offsets the predators add on top of bobbing and bug dives
+  // ---- the sky battle ----
+  // Phases (game logic sets th.phase): 'warn' while the player acts, then a
+  // 5-second 'battle' whose outcome is already fixed but hidden, then 'done'
+  // while the winner leaves the frame. Everything here is just choreography.
+  const BATTLE = 5;
+  const bt = (th) => th.t - th.warn;                 // seconds into the battle
+  // the fight happens just behind the lead bird, where the camera can frame it
+  const flockCentre = () => hero.position.clone().add(new THREE.Vector3(-1.2, -0.3, -1.2));
+  let carried = null;                                // the follower a predator makes off with
+  function dropCarried() { if (carried) { fscene.remove(carried); carried = null; } }
+
+  // the hero's extra height from predators: climbing from a hunter, jinking in a fight
   function threatOffset() {
     const th = side.threat; if (!th) return 0;
+    const b = bt(th);
     if (th.type === 'hunter') {
-      const up = 5.5 * clamp(th.meter, 0, 1);
-      return th.t < th.warn + 1.2 ? up : up * (1 - smooth(th.warn + 1.2, th.warn + 2.6, th.t));
+      const up = 5.5 * clamp(th.meter, 0, 1), weave = b > 0 && b < BATTLE ? Math.sin(b * 4.2) * 0.9 : 0;
+      return (b < BATTLE + 0.4 ? up : up * (1 - smooth(BATTLE + 0.4, BATTLE + 2, b))) + weave;
     }
-    if (th.resolved && th.ok) return -2.6 * Math.sin(Math.PI * clamp((th.t - th.warn + 0.25) / 1.0, 0, 1)); // the jink
-    return 0;
+    if (b < 0 || b > BATTLE) return 0;
+    return Math.sin(b * 5.3) * 1.3 * (1 - smooth(4.4, BATTLE, b));
   }
-  function updatePredators() {
+  // where follower i flies during the fight (null = its normal slot)
+  function battleSlot(i, f) {
+    const th = side.threat; if (!th) return null;
+    const b = bt(th), home = f.userData.home.clone().add(hero.position.clone().setY(0)).setY(f.userData.home.y + hero.position.y * 0.5);
+    if (b < -0.3) return null;
+    const isVictim = !th.ok && i === flock.length - 1;
+    if (th.type === 'hunter') {
+      if (b > BATTLE) return null;
+      const k = smooth(-0.3, 0.4, b) * (1 - smooth(4.5, BATTLE, b));
+      return home.add(new THREE.Vector3(Math.sin(b * 3.1 + i * 1.7) * 1.6 * k, Math.cos(b * 4.3 + i) * 1.4 * k, 0));
+    }
+    const P = th.pPos || flockCentre();
+    if (b > BATTLE) return isVictim ? null : home;
+    // mob the predator: orbit it at different radii, darting in and out
+    const a = b * (2.6 + (i % 4) * 0.45) + i * 1.9, r = 1.5 + (i % 3) * 0.8 + Math.sin(b * 6 + i) * 0.5;
+    const orbit = P.clone().add(new THREE.Vector3(Math.cos(a) * r, Math.sin(a * 1.6) * 0.9, Math.sin(a) * r * 0.6));
+    let k = smooth(-0.3, 0.6, b);
+    if (!isVictim) k *= 1 - smooth(4.4, BATTLE, b);       // everyone else regroups at the end
+    else if (b > 4.2) orbit.lerp(P.clone().add(new THREE.Vector3(0.2, -1.5, 0)), smooth(4.2, 4.9, b)); // into the talons
+    return home.lerp(orbit, k);
+  }
+  function updatePredators(dt) {
     const th = side.threat;
     hawkMesh.visible = owlMesh.visible = hunterMesh.visible = false; tracer.material.opacity = 0;
-    if (!th) return;
-    const W = world.viewW || 14, t = th.t, strike = th.warn;
+    if (side.shake > 0) side.shake = Math.max(0, side.shake - dt);
+    if (!th) { dropCarried(); return; }
+    const W = world.viewW || 14, t = th.t, b = bt(th);
+    // a burst of feathers every so often while they fight
+    const contact = (period, at) => {
+      const n = Math.floor(b / period);
+      if (b > 0.4 && b < BATTLE && n !== th.lastHit) { th.lastHit = n; featherBurst(at, Math.random() < 0.5 ? '#f4ece0' : '#8a6a48'); side.shake = 0.25; }
+    };
     if (th.type === 'hunter') {
-      // walks into frame on the ground ahead, aims, fires at the strike, then scrolls away
-      // far enough out that the ground there is in frame from the raised camera
-      const hx = lerp(W * 1.1, -W * 0.2, clamp(t / (strike + 2.4), 0, 1)), hz = -60;
+      // walks in, plants himself, fires a volley through the battle, then leaves
+      const walk = lerp(W * 1.1, W * 0.45, smooth(0, th.warn, t));
+      const hx = b < BATTLE + 0.6 ? walk : lerp(W * 0.45, -W * 0.5, clamp((b - BATTLE - 0.6) / 1.6, 0, 1)), hz = -60;
       hunterMesh.visible = true;
       hunterMesh.position.set(hx, groundYAt(hx, hz) + 3.9, hz);
-      setFrame(hunterMesh, t > strike && t < strike + 0.15 ? 1 : 0);
-      if (t > strike && t < strike + 0.35) {
-        const from = hunterMesh.position.clone().add(new THREE.Vector3(-3, 3, 0));
-        const target = hero.position.clone().add(new THREE.Vector3(0.4, th.ok ? -3.5 : 0, 0));
-        tracerGeo.setFromPoints([from, target]); tracer.material.opacity = 1 - (t - strike) / 0.35;
-      }
+      const muzzle = hunterMesh.position.clone().add(new THREE.Vector3(-3, 3, 0));
+      const shots = [0.35, 1.25, 2.1, 2.95, 3.8, 4.75];
+      let firing = false;
+      shots.forEach((st, k) => {
+        const dtS = b - st;
+        if (dtS < 0 || dtS > 0.32) return;
+        firing = dtS < 0.12;
+        const last = k === shots.length - 1;
+        const targets = flock.length ? flock : [hero];
+        const tgt = targets[(k * 3) % targets.length].position.clone();
+        // every shot but the last misses; the last one hits only if the player failed
+        const hitNow = last && !th.ok;
+        const aim = hitNow ? (flock.length ? flock[flock.length - 1].position.clone() : hero.position.clone())
+          : tgt.add(new THREE.Vector3(1.2 + Math.random() * 0.6, (k % 2 ? 1 : -1) * (1.2 + Math.random()), 0));
+        tracerGeo.setFromPoints([muzzle, aim]); tracer.material.opacity = 1 - dtS / 0.32;
+        if (dtS < dt * 1.5) side.shake = 0.12;
+      });
+      setFrame(hunterMesh, firing ? 1 : 0);
       return;
     }
     const m = th.type === 'owl' ? owlMesh : hawkMesh;
     m.visible = true;
-    // circles high and ahead during the warning, stoops onto the bird at the strike
-    const k = smooth(strike - 0.55, strike, t), after = clamp((t - strike) / 1.4, 0, 1);
-    const high = new THREE.Vector3(W * 0.3 + Math.sin(t * 1.3) * 1.2, 2.8 + Math.sin(t * 2.1) * 0.6, -4);
-    const hit = hero.position.clone().add(new THREE.Vector3(0.8, 1.2, 0.4));
-    const exit = new THREE.Vector3(-W * 0.6, th.ok ? -9 : 4, -2);
-    m.position.copy(t < strike ? high.clone().lerp(hit, k) : hit.clone().lerp(exit, after));
-    m.userData.roll = t < strike ? -0.55 * k : (th.ok ? -0.4 : 0.35);
-    setFrame(m, t < strike - 0.55 ? phaseFrame(t * 5, BIRD_FRAMES) : 3);
+    const C = flockCentre();
+    if (b < 0) {
+      // circles high and ahead during the warning, then stoops at the flock
+      const k = smooth(-0.55, 0, b);
+      const high = new THREE.Vector3(W * 0.3 + Math.sin(t * 1.3) * 1.2, 2.8 + Math.sin(t * 2.1) * 0.6, -4);
+      m.position.copy(high.lerp(C.clone().add(new THREE.Vector3(1.5, 1.5, 0)), k));
+      m.userData.roll = -0.55 * k;
+      setFrame(m, b < -0.55 ? phaseFrame(t * 5, BIRD_FRAMES) : 3);
+    } else if (b <= BATTLE) {
+      // the dogfight: a tight figure-eight through the flock, wings working hard
+      const P = C.clone().add(new THREE.Vector3(Math.sin(b * 2.1) * 3.2, 0.6 + Math.sin(b * 4.2) * 1.2, Math.cos(b * 2.1) * 1.4));
+      if (b > 4.2) {
+        const tgt = !th.ok ? (flock.length ? C : hero.position.clone().add(new THREE.Vector3(0, 1.4, 0))) : C.clone().add(new THREE.Vector3(2, 2.5, 0));
+        P.lerp(tgt, smooth(4.2, 4.9, b));
+      }
+      m.position.copy(P); th.pPos = P.clone();
+      m.userData.roll = Math.cos(b * 2.1) * 0.5 + (b > 4.2 && th.ok ? (b - 4.2) * 2 : 0);
+      setFrame(m, phaseFrame(b * 9, BIRD_FRAMES));
+      contact(0.7, P.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, 0.3)));
+    } else {
+      const a = b - BATTLE, P = th.pEnd || (th.pEnd = m.position.clone());
+      if (th.ok) {
+        // beaten: tumbles away down and to the left
+        m.position.copy(P).add(new THREE.Vector3(-a * 7, -a * a * 5, 0));
+        m.userData.roll = a * 9; setFrame(m, 3);
+      } else {
+        // wins: climbs away up and to the right, with a follower in its talons
+        m.position.copy(P).add(new THREE.Vector3(a * 4.5, a * 2.4, -a * 0.6));
+        m.userData.roll = -0.35; setFrame(m, phaseFrame(t * 7, BIRD_FRAMES));
+        if (carried) {
+          carried.position.copy(m.position).add(new THREE.Vector3(0.3, -1.6, 0.2));
+          carried.userData.roll = Math.sin(t * 9) * 0.5; setFrame(carried, phaseFrame(t * 14, BIRD_FRAMES));
+        }
+      }
+    }
   }
-  function featherBurst(at) {
+  // called by game logic the moment the result is announced
+  function showOutcome(th, r) {
+    if (th.ok || !hero) return;
+    if (r.lost === 'follower') {
+      const from = flock.length ? flock[flock.length - 1].position.clone() : hero.position.clone();
+      if (th.type === 'hunter') {
+        featherBurst(from, '#f4ece0');
+        // the hit follower tumbles down out of frame
+        carried = cutout(atlasFor(F.birdOf(S)), 6.4 * 0.62); carried.position.copy(from); fscene.add(carried);
+        carried.userData.fall = { v: 0, spin: 0 };
+      } else {
+        carried = cutout(atlasFor(F.birdOf(S)), 6.4 * 0.62); carried.position.copy(from); fscene.add(carried);
+      }
+    } else {
+      // seeds spill from the bird and fall away
+      featherBurst(hero.position.clone(), '#e3a52b', 9);
+    }
+  }
+  function updateCarried(dt) {
+    if (!carried || !carried.userData.fall) return;
+    const f = carried.userData.fall; f.v += 18 * dt; f.spin += dt * 8;
+    carried.position.y -= f.v * dt; carried.position.x -= world.u * 0.2 * dt; carried.userData.roll = f.spin;
+    if (carried.position.y < GROUND - 5) dropCarried();
+  }
+  function featherBurst(at, color = '#f4ece0', gravity = 2) {
     const sp = sparks.geometry.attributes.position;
     for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x, at.y, at.z); sparkV[i].randomDirection().multiplyScalar(1.5 + Math.random() * 3); }
-    sp.needsUpdate = true; side.burst = 1.1; sparks.material.color.setStyle('#f4ece0'); sparks.material.size = 0.55;
+    sp.needsUpdate = true; side.burst = 1.1; side.burstG = gravity; sparks.material.color.setStyle(color); sparks.material.size = 0.55;
   }
+
 
   // ---------- the bug (Bug Catcher upgrade) ----------
   const SPH = new THREE.SphereGeometry(1, 16, 12);
@@ -691,14 +794,14 @@
     if (side.burst > 0) {
       side.burst -= dt;
       sparks.material.opacity = clamp(side.burst / 0.8, 0, 1);
-      for (let i = 0; i < 30; i++) { const p = new THREE.Vector3().fromBufferAttribute(sp, i).addScaledVector(sparkV[i], dt); sp.setXYZ(i, p.x, p.y, p.z); }
+      for (let i = 0; i < 30; i++) { sparkV[i].y -= (side.burstG || 0) * dt; const p = new THREE.Vector3().fromBufferAttribute(sp, i).addScaledVector(sparkV[i], dt); sp.setXYZ(i, p.x, p.y, p.z); }
       sp.needsUpdate = true;
     } else sparks.material.opacity = 0;
   }
   function burstAtBeak() {
     const sp = sparks.geometry.attributes.position, at = hero.position.clone().add(BEAK_TIP);
     for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x, at.y, at.z); sparkV[i].randomDirection().multiplyScalar(2 + Math.random() * 4); }
-    sp.needsUpdate = true; side.burst = 0.8; sparks.material.color.setStyle('#ffe08a'); sparks.material.size = 0.35;
+    sp.needsUpdate = true; side.burst = 0.8; side.burstG = 0; sparks.material.color.setStyle('#ffe08a'); sparks.material.size = 0.35;
   }
 
   function sizeSide() {
@@ -732,7 +835,8 @@
   function updateFlight(dt) {
     const v = F.speed(S);
     world.u = lerp(world.u, unitsPerSec(v), 1 - Math.exp(-dt * 2));
-    const u = world.u, dx = u * dt;
+    const fighting = side.threat && side.threat.phase === 'battle';
+    const u = world.u, dx = u * dt * (fighting ? 0.35 : 1);
     side.t += dt;
     // ground strips: slide back, recycle behind, add ahead
     for (const c of world.chunks) c.grp.position.x -= dx;
@@ -780,12 +884,14 @@
     const pitch = side.bug ? (side.bug.t < DIVE ? -0.28 * Math.sin(Math.PI * clamp(side.bug.t / DIVE, 0, 1)) : 0.22 * Math.sin(Math.PI * clamp((side.bug.t - DIVE) / CLIMB, 0, 1))) : 0;
     hero.userData.roll = 0.04 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch + wobble * 0.3;
     updateBug(dt);
-    updatePredators();
+    updatePredators(dt); updateCarried(dt);
     // golden streaks while a bug rush is on
     streaks.material.color.setStyle(S.rush > 0 ? '#ffd36b' : '#ffffff');
     flock.forEach((f, i) => {
-      const h = f.userData.home;
-      f.position.set(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4, h.z);
+      const h = f.userData.home, slot = battleSlot(i, f);
+      const want = slot || new THREE.Vector3(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4, h.z);
+      // ease toward the slot so scattering and regrouping read as flight, not teleporting
+      f.position.lerp(want, slot ? 1 - Math.exp(-dt * 9) : 1 - Math.exp(-dt * 3));
       f.userData.roll = 0.04 + Math.sin(side.t * 0.8 + i) * 0.05;
       setFrame(f, phaseFrame(glide > 0.55 ? 0.35 : side.flap * 1.05 + f.userData.phase, BIRD_FRAMES));
     });
@@ -815,14 +921,19 @@
     // camera: raised and off to the near side, framed so the bird sits left of centre
     const f = smooth(SIDE_A, 1, Z);
     const hfov = 2 * Math.atan(Math.tan(fcam.fov * D2R / 2) * fcam.aspect);
-    const wantW = lerp(60, 10, f) * Math.max(1, fcam.aspect * 1.25); world.viewW = wantW;
+    // during a predator fight the camera pulls back and centres on the action
+    const th = side.threat, tb = th ? th.t - th.warn : -9;
+    const fightOn = th && tb > -0.6 && tb < BATTLE + 1.6 ? 1 : 0;
+    side.fightK = lerp(side.fightK || 0, fightOn, 1 - Math.exp(-dt * 2.5));
+    const wantW = lerp(60, 10, f) * Math.max(1, fcam.aspect * 1.25) * (1 + 0.45 * side.fightK); world.viewW = wantW;
     const d = (wantW / 2) / Math.tan(hfov / 2);
     // ~12° above the bird keeps the horizon in the upper third of the frame
     const elevA = lerp(22, 12, f) * D2R, sway = Math.sin(side.t * 0.12) * 0.12;
     fcam.position.set(d * 0.18 + Math.sin(sway) * d * 0.15, Math.sin(elevA) * d, Math.cos(elevA) * d);
     // follow the bird part-way down into a bug dive
     fcam.position.y += hero.position.y * 0.6;
-    fcam.lookAt(wantW * 0.14, 0.4 + hero.position.y * 0.7, 0);
+    if (side.shake > 0) fcam.position.add(new THREE.Vector3((Math.random() - 0.5) * side.shake, (Math.random() - 0.5) * side.shake, 0));
+    fcam.lookAt(wantW * 0.14 - side.fightK * 2.4, 0.4 + hero.position.y * 0.7 + side.fightK * 0.6, 0);
     // cutouts dim a little at night, like everything else
     const lit = lerp(1, 0.6, night);
     for (const m of [hero, ...flock, hawkMesh, owlMesh, hunterMesh]) { faceCamera(m); m.material.color.setScalar(lit); }
@@ -1161,7 +1272,7 @@
       if (side.bug.t >= DIVE + CLIMB) side.bug = null;
       return;
     }
-    if (!L) return;
+    if (!L || side.threat) return;
     side.bugT -= dt;
     if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) * (0.75 + Math.random() * 0.5); }
   }
@@ -1186,16 +1297,26 @@
     const open = isLand(g.lat, g.lon) && fromCity > 6 && toCity > 8;
     return open && Math.random() < 0.55 ? 'hunter' : 'hawk';
   }
+  // The outcome is fixed the moment the warning ends (did the player fill the
+  // meter?), but it is only announced after the 5-second battle.
   function tickThreats(dt) {
     const th = side.threat;
     if (th) {
-      if (anySheetOpen() && !th.resolved) return; // never strike behind a dialog
+      if (anySheetOpen() && th.phase === 'warn') return; // never strike behind a dialog
       th.t += dt;
-      if (!th.resolved && th.type === 'hunter' && flapBtn.classList.contains('down')) th.meter += dt / F.THREAT.climb(S);
-      th.meter = clamp(th.meter, 0, 1.2);
-      if (!th.resolved && th.t >= th.warn) resolveThreat(th);
-      if (th.t >= th.warn + 2.8) { side.threat = null; banner.hidden = true; flapBtn.classList.remove('alarm'); }
-      else if (!th.resolved) meterEl.style.width = Math.min(100, th.meter * 100) + '%';
+      if (th.phase === 'warn') {
+        if (th.type === 'hunter' && flapBtn.classList.contains('down')) th.meter += dt / F.THREAT.climb(S);
+        th.meter = clamp(th.meter, 0, 1.2);
+        meterEl.style.width = Math.min(100, th.meter * 100) + '%';
+        if (th.t >= th.warn) startBattle(th);
+      } else if (th.phase === 'battle') {
+        // a tug-of-war bar for suspense; it gives nothing away
+        const b = th.t - th.warn;
+        meterEl.style.width = (50 + 34 * Math.sin(b * 3.4) * Math.cos(b * 1.3 + 0.6)) + '%';
+        if (b >= BATTLE) finishBattle(th);
+      } else if (th.t >= th.warn + BATTLE + 3) {
+        side.threat = null; banner.hidden = true; banner.classList.remove('ok', 'bad', 'fight');
+      }
       return;
     }
     if (S.arrivals < 3 || side.bug || anySheetOpen()) return;
@@ -1203,28 +1324,38 @@
     if (side.threatT > 0) return;
     side.threatT = F.THREAT.every(S);
     const type = side.forceType || pickThreat(); side.forceType = null;
-    side.threat = { type, t: 0, warn: F.THREAT.warn(S), meter: 0, resolved: false, ok: false };
-    banner.hidden = false; banner.classList.remove('ok', 'bad');
+    side.threat = { type, t: 0, warn: F.THREAT.warn(S), meter: 0, phase: 'warn', resolved: false, ok: false, lastHit: -1 };
+    banner.hidden = false; banner.classList.remove('ok', 'bad', 'fight');
     $('threatIcon').textContent = THREATS[type].icon; $('threatText').textContent = THREATS[type].ask;
     meterEl.style.width = '0%'; flapBtn.classList.add('alarm');
   }
-  function resolveThreat(th) {
-    th.resolved = true; th.ok = th.meter >= 0.999;
+  function startBattle(th) {
+    th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999;
+    flapBtn.classList.remove('alarm'); banner.classList.add('fight');
+    const name = THREATS[th.type].name, flockUp = S.levels.flock > 0;
+    $('threatText').textContent = th.type === 'hunter'
+      ? (flockUp ? 'Under fire! The flock weaves through the shots…' : 'Under fire! Weaving through the shots…')
+      : (flockUp ? `The flock is fighting the ${name}…` : `Your bird is fighting the ${name}…`);
+  }
+  function finishBattle(th) {
+    th.phase = 'done';
     const name = THREATS[th.type].name;
-    flapBtn.classList.remove('alarm');
+    banner.classList.remove('fight');
     if (th.ok) {
       const bonus = F.predatorMiss(S);
-      banner.classList.add('ok');
-      $('threatText').textContent = th.type === 'hunter' ? `Out of range! +${fmt(bonus)} seeds` : `Dodged the ${name}! +${fmt(bonus)} seeds`;
-      meterEl.style.width = '100%';
+      banner.classList.add('ok'); meterEl.style.width = '100%';
+      $('threatText').textContent = th.type === 'hunter'
+        ? `Out of range! The hunter gave up. +${fmt(bonus)} seeds`
+        : `The flock drove off the ${name}! +${fmt(bonus)} seeds`;
+      if (!S.levels.flock && th.type !== 'hunter') $('threatText').textContent = `You fought off the ${name}! +${fmt(bonus)} seeds`;
       return;
     }
     const r = F.predatorHit(S);
-    banner.classList.add('bad');
+    banner.classList.add('bad'); meterEl.style.width = '0%';
     $('threatText').textContent = r.lost === 'follower'
-      ? `The ${name} got one of your flock. Slowed for ${F.THREAT.STUN}s.`
+      ? (th.type === 'hunter' ? `The hunter hit one of your flock. Slowed for ${F.THREAT.STUN}s.` : `The ${name} carried off one of your flock. Slowed for ${F.THREAT.STUN}s.`)
       : `The ${name} knocked loose ${fmt(r.seeds)} seeds. Slowed for ${F.THREAT.STUN}s.`;
-    if (hero) featherBurst(hero.position.clone().add(new THREE.Vector3(r.lost === 'follower' ? -2.6 : 0, 0, 0)));
+    showOutcome(th, r);
     refreshUpgrades();
   }
 
