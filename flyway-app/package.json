@@ -1,0 +1,21 @@
+{
+  "name": "flyway-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "iOS app shell for Flyway (FreeFowl Arcade). The game itself lives in ../flyway.",
+  "type": "module",
+  "scripts": {
+    "web": "node scripts/copy-web.mjs",
+    "sync": "node scripts/copy-web.mjs && npx cap sync ios",
+    "icons": "npx capacitor-assets generate --ios --iconBackgroundColor '#060c1f' --splashBackgroundColor '#060c1f'",
+    "open": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0",
+    "@capacitor/assets": "4.0.0"
+  }
+}

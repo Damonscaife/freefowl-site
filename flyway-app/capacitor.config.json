@@ -1,0 +1,12 @@
+{
+  "appId": "com.freefowl.flyway",
+  "appName": "Flyway",
+  "webDir": "www",
+  "backgroundColor": "#060c1f",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#060c1f",
+    "scrollEnabled": false,
+    "allowsLinkPreview": false
+  }
+}

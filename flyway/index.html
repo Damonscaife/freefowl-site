@@ -103,6 +103,19 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
 [hidden] { display: none !important; }
+.chip.stun { background: var(--red); color: #fff; border-color: transparent; font-weight: 700; }
+.threat { position: relative; max-width: 560px; display: grid; grid-template-columns: auto 1fr; align-items: center;
+  gap: 4px 10px; background: var(--red); color: #fff; border-radius: 10px; padding: 9px 12px 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35); font-weight: 700; font-size: 15px; animation: threatIn .25s ease-out; }
+.threat .ti { font-size: 24px; grid-row: span 2; }
+.threat .tm { height: 6px; background: rgba(255,255,255,.28); border-radius: 3px; overflow: hidden; }
+.threat .tm i { display: block; height: 100%; width: 0; background: #fff; transition: width .08s linear; }
+.threat.ok { background: #2b8a57; }
+.threat.bad { background: #6b1d24; }
+@keyframes threatIn { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+.flap.alarm { animation: alarm .5s ease-in-out infinite alternate; }
+@keyframes alarm { from { box-shadow: 0 8px 0 #9b6c12, 0 0 0 0 rgba(207,46,58,.9); } to { box-shadow: 0 8px 0 #9b6c12, 0 0 0 14px rgba(207,46,58,0); } }
+@media (prefers-reduced-motion: reduce) { .flap.alarm, .threat { animation: none; } .flap.alarm { outline: 4px solid var(--red); } }
 .chip.rush { background: var(--gold); color: var(--ink); border-color: transparent; font-weight: 700; }
 .toast { position: absolute; left: 50%; top: 30%; transform: translate(-50%, 8px); background: var(--paper);
   color: var(--ink); font-weight: 700; font-size: 15px; padding: 10px 16px; border-radius: 12px;
@@ -221,6 +234,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
           <span class="rate num" id="rate">+0/s</span>
         </div>
         <span class="chip rush" id="rushChip" hidden>🪲 Rush <strong class="num" id="rushLeft">0s</strong></span>
+        <span class="chip stun" id="stunChip" hidden>Slowed</span>
         <span class="spacer"></span>
         <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
@@ -236,6 +250,11 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
           <span>Speed <strong class="num" id="speed">0</strong> km/s</span>
           <span>Arrive in <strong class="num" id="eta">—</strong></span>
         </div>
+      </div>
+      <div class="threat" id="threat" role="alert" hidden>
+        <span class="ti" id="threatIcon" aria-hidden="true">🦅</span>
+        <span class="tt" id="threatText"></span>
+        <span class="tm"><i id="threatMeter"></i></span>
       </div>
     </div>
     <div class="zoom">

@@ -249,7 +249,7 @@
   const sideCanvas = $('side');
   const fr = new THREE.WebGLRenderer({ canvas: sideCanvas, antialias: true });
   let SW = 0, SH = 0, DPR = 1;
-  const side = { flap: 0, flapRate: 2, t: 0, cityLeg: -1, bug: null, burst: 0, bugT: 20 };
+  const side = { flap: 0, flapRate: 2, t: 0, cityLeg: -1, bug: null, burst: 0, bugT: 20, threat: null, threatT: 45 };
 
   const SKY = [ // hour, top, bottom
     [0, '#0a1332', '#1c2a55'], [4.5, '#141c46', '#3a3a6e'], [6, '#33407a', '#f09a73'], [7.5, '#4f8fd6', '#cfe7f7'],
@@ -342,7 +342,7 @@
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
     if (kind === 'city') addCity(grp, name, wx0);
-    return { grp, kind };
+    return { grp, kind, wx0 };
   }
   function addCity(grp, name, seed) {
     const n = 90, inst = new THREE.InstancedMesh(towerGeo, towerMat, n), m = new THREE.Matrix4();
@@ -417,66 +417,163 @@
   fscene.add(streaks);
   const streakData = Array.from({ length: STREAKS }, () => ({ x: Math.random() * 80 - 20, y: Math.random() * 16 - 7, z: Math.random() * 14 - 10 }));
 
-  // ---------- the bird ----------
-  function wingGeo(pts) {
-    const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]);
-    for (const q of pts.slice(1)) sh.lineTo(q[0], q[1]);
-    const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); return g; // shape y → +z (out to the side)
+  // ---------- 2D cutouts in the 3D world ----------
+  // Birds (and the hawk, owl and hunter) are painted once into flipbook atlases
+  // and shown as camera-facing cutouts, so they always read as a clean side
+  // profile while the world around them is 3D.
+  const FW = 384, FH = 240;
+  function makeAtlas(draw, frames, cols, rows) {
+    const c = document.createElement('canvas'); c.width = FW * cols; c.height = FH * rows;
+    const g = c.getContext('2d');
+    for (let i = 0; i < frames; i++) {
+      g.save(); g.translate((i % cols) * FW, Math.floor(i / cols) * FH);
+      g.beginPath(); g.rect(0, 0, FW, FH); g.clip();
+      draw(g, i, frames); g.restore();
+    }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+    t.repeat.set(1 / cols, 1 / rows);
+    return { tex: t, frames, cols, rows };
   }
-  const INNER = wingGeo([[0.55, 0], [-0.6, 0], [-0.75, 1.35], [0.3, 1.35]]);
-  const OUTER = wingGeo([[0.3, 0], [-0.75, 0], [-1.55, 1.45], [-0.55, 1.75], [0.05, 1.2]]);
-  const TAIL = (() => {
-    const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(-1.15, 0.6); sh.lineTo(-1.3, 0); sh.lineTo(-1.15, -0.6); sh.closePath();
-    const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); return g;
-  })();
-  const SPH = new THREE.SphereGeometry(1, 16, 12);
-  const CAP = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.42);
-  const BEAK = new THREE.ConeGeometry(0.15, 0.55, 8).rotateZ(-Math.PI / 2);
+  function cutout(atlas, width) {
+    const tex = atlas.tex.clone(); // shares the uploaded image; only the offset differs
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.04, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(width, width * FH / FW), mat);
+    m.userData = { atlas, tex, roll: 0 };
+    return m;
+  }
+  function setFrame(m, i) {
+    const a = m.userData.atlas; i = ((i % a.frames) + a.frames) % a.frames;
+    m.userData.tex.offset.set((i % a.cols) / a.cols, 1 - (Math.floor(i / a.cols) + 1) / a.rows);
+  }
+  const phaseFrame = (ph, n) => Math.floor((((ph / (Math.PI * 2)) % 1) + 1) % 1 * n);
 
-  function buildBird(b) {
-    const M = (c, o) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.75, flatShading: true }, o));
-    const bodyM = M(b.body), wingM = M(b.wing, { side: THREE.DoubleSide }), bellyM = M(b.belly), capM = M(b.cap), beakM = M(b.beak, { roughness: 0.4 });
-    const bird = new THREE.Group(), add = (geo, mat, p, s, parent = bird) => {
-      const m = new THREE.Mesh(geo, mat); m.position.set(...p); if (s) m.scale.set(...s); parent.add(m); return m;
+  // A side-on bird. ph is the wingbeat phase: sin(ph) = 1 is the top of the
+  // upstroke, -1 the bottom of the downstroke. opt adds raptor or owl features.
+  function drawBirdHD(g, ph, b, opt = {}) {
+    const S = FW * 0.19, cx = FW * 0.47, cy = FH * 0.56, a = Math.sin(ph);
+    const shade = (h, k) => { const c = hex(h); return `rgb(${c.map((v) => clamp(Math.round(v * k), 0, 255)).join(',')})`; };
+    const feather = (x, y, ang, len, wid, col, tip) => {
+      g.save(); g.translate(x, y); g.rotate(ang);
+      const gr = g.createLinearGradient(0, 0, len, 0); gr.addColorStop(0, col); gr.addColorStop(1, tip);
+      g.fillStyle = gr; g.beginPath(); g.ellipse(len / 2, 0, len / 2, wid / 2, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 1; g.beginPath(); g.moveTo(2, 0); g.lineTo(len * 0.9, 0); g.stroke();
+      g.restore();
     };
-    add(SPH, bodyM, [0, 0, 0], [1.25, 0.6, 0.6]);
-    add(SPH, bellyM, [0.1, -0.17, 0], [1.05, 0.44, 0.5]);
-    add(SPH, bodyM, [1.12, 0.28, 0], [0.5, 0.47, 0.47]);
-    add(CAP, capM, [1.12, 0.3, 0], [0.51, 0.5, 0.49]);
-    const eyeM = M(0x111111, { roughness: 0.2 }), whiteM = M(0xffffff);
-    for (const s of [1, -1]) { add(SPH, whiteM, [1.4, 0.4, 0.34 * s], [0.1, 0.1, 0.05]); add(SPH, eyeM, [1.45, 0.41, 0.36 * s], [0.06, 0.06, 0.04]); }
-    add(BEAK, beakM, [1.8, 0.22, 0]);
-    add(TAIL, wingM, [-1.05, 0.08, 0]);
-    const wings = [];
-    for (const s of [1, -1]) {
-      const shoulder = new THREE.Group(); shoulder.position.set(0.15, 0.22, 0.42 * s); shoulder.scale.z = s; bird.add(shoulder);
-      add(INNER, wingM, [0, 0, 0], null, shoulder);
-      const elbow = new THREE.Group(); elbow.position.set(0, 0, 1.35); shoulder.add(elbow);
-      add(OUTER, wingM, [0, 0, 0], null, elbow);
-      wings.push({ shoulder, elbow, s });
+    const wing = (k, dark) => {
+      const span = opt.span || 1;
+      const P0 = [cx + 0.05 * S, cy - 0.22 * S];
+      const P1 = [P0[0] - 0.32 * S * span, P0[1] - S * (1.0 * a + 0.12) * k * span];
+      const P2 = [P1[0] - (0.95 - 0.28 * Math.abs(a)) * S * span, P1[1] - S * (0.5 * a + 0.06) * k * span];
+      const arm = Math.atan2(P2[1] - P1[1], P2[0] - P1[0]);
+      // trailing side: away from the leading edge, toward the tail
+      const trail = (ang) => { const c1 = ang + Math.PI / 2, c2 = ang - Math.PI / 2; return Math.cos(c1) < Math.cos(c2) ? c1 : c2; };
+      const wcol = shade(b.wing, dark), tip = shade(b.wing, dark * 0.55);
+      // secondaries along the arm
+      for (let i = 0; i < 7; i++) {
+        const t = i / 6, x = lerp(P0[0], P1[0], t), y = lerp(P0[1], P1[1], t);
+        const ang = trail(Math.atan2(P1[1] - P0[1], P1[0] - P0[0])) * 0.75 + Math.PI * 0.25 * 0;
+        feather(x, y, ang, S * (0.55 - t * 0.08) * span, S * 0.2, wcol, tip);
+      }
+      // primaries fanning out from the wrist toward the tip
+      for (let i = 0; i < 8; i++) {
+        const t = i / 7, x = lerp(P1[0], P2[0], t * 0.55), y = lerp(P1[1], P2[1], t * 0.55);
+        const ang = lerp(trail(arm), arm, 0.25 + t * 0.75);
+        feather(x, y, ang, S * (0.65 + t * 0.35) * span, S * 0.17, wcol, tip);
+      }
+      // coverts: the smooth shoulder of the wing
+      g.fillStyle = shade(b.wing, dark * 1.12);
+      g.beginPath(); g.moveTo(P0[0] + 0.12 * S, P0[1] + 0.05 * S);
+      g.quadraticCurveTo((P0[0] + P1[0]) / 2, Math.min(P0[1], P1[1]) - 0.12 * S * Math.sign(a || 1), P1[0], P1[1]);
+      g.lineTo(lerp(P1[0], P2[0], 0.3), lerp(P1[1], P2[1], 0.3));
+      g.quadraticCurveTo((P0[0] + P1[0]) / 2 - 0.1 * S, (P0[1] + P1[1]) / 2 + 0.22 * S, P0[0] - 0.25 * S, P0[1] + 0.12 * S);
+      g.closePath(); g.fill();
+    };
+    g.lineJoin = 'round';
+    wing(0.72, 0.62);                                   // far wing, behind the body
+    // tail fan
+    for (let i = 0; i < 5; i++) {
+      const ang = Math.PI + (i - 2) * 0.12 + 0.06;
+      feather(cx - 0.7 * S, cy - 0.02 * S, ang, S * (opt.longTail ? 1.0 : 0.72), S * 0.2, shade(b.wing, 0.95 - i * 0.03), shade(b.wing, 0.55));
     }
-    bird.userData.wings = wings;
-    return bird;
-  }
-  function poseBird(bird, ph, glide) {
-    for (const w of bird.userData.wings) {
-      const a = Math.sin(ph) * 0.75 * (1 - glide * 0.85) + 0.12, e = Math.sin(ph - 0.7) * 0.45 * (1 - glide);
-      // positive values lift the wing; the left wing is mirrored, so it takes the other sign
-      w.shoulder.rotation.x = -a * w.s; w.elbow.rotation.x = -e * w.s;
+    // talons
+    if (opt.talons) {
+      g.strokeStyle = '#d9a52b'; g.lineWidth = S * 0.07; g.lineCap = 'round';
+      for (const o of [0, 0.14]) { g.beginPath(); g.moveTo(cx + (0.05 + o) * S, cy + 0.25 * S); g.lineTo(cx + (0.35 + o) * S, cy + 0.55 * S); g.lineTo(cx + (0.5 + o) * S, cy + 0.5 * S); g.stroke(); }
     }
+    // body: back and belly with a soft drop shadow
+    g.save(); g.shadowColor = 'rgba(0,0,0,.28)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
+    g.fillStyle = b.body; g.beginPath(); g.ellipse(cx, cy, 0.86 * S, 0.38 * S, -0.06, 0, Math.PI * 2); g.fill();
+    g.restore();
+    const belly = g.createLinearGradient(0, cy - 0.1 * S, 0, cy + 0.38 * S);
+    belly.addColorStop(0, shade(b.belly, 0.92)); belly.addColorStop(1, b.belly);
+    g.fillStyle = belly; g.beginPath(); g.ellipse(cx + 0.1 * S, cy + 0.12 * S, 0.66 * S, 0.24 * S, -0.04, 0, Math.PI * 2); g.fill();
+    // scalloped breast feathers
+    g.strokeStyle = shade(b.belly, 0.78); g.lineWidth = 1.2;
+    for (let i = 0; i < 9; i++) { const x = cx + (0.45 - i * 0.1) * S, y = cy + (0.06 + (i % 3) * 0.08) * S; g.beginPath(); g.arc(x, y, 0.06 * S, 0.2, Math.PI - 0.2); g.stroke(); }
+    // back shading
+    const back = g.createLinearGradient(0, cy - 0.38 * S, 0, cy);
+    back.addColorStop(0, shade(b.body, 0.8)); back.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = back; g.beginPath(); g.ellipse(cx, cy - 0.05 * S, 0.8 * S, 0.3 * S, -0.06, Math.PI, Math.PI * 2); g.fill();
+    // head
+    const hr = (opt.owl ? 0.44 : 0.32) * S, hx = cx + (opt.owl ? 0.62 : 0.78) * S, hy = cy - 0.3 * S;
+    g.fillStyle = b.body; g.beginPath(); g.arc(hx, hy, hr, 0, Math.PI * 2); g.fill();
+    if (opt.owl) {
+      g.fillStyle = shade(b.belly, 0.95); g.beginPath(); g.ellipse(hx + hr * 0.25, hy + hr * 0.05, hr * 0.62, hr * 0.78, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = b.body; for (const o of [-0.3, 0.15]) { g.beginPath(); g.moveTo(hx + o * hr, hy - hr * 0.8); g.lineTo(hx + (o + 0.12) * hr, hy - hr * 1.35); g.lineTo(hx + (o + 0.35) * hr, hy - hr * 0.85); g.fill(); }
+    } else {
+      g.fillStyle = b.cap; g.beginPath(); g.arc(hx, hy, hr, Math.PI * 1.02, Math.PI * 1.98); g.fill();
+      g.fillStyle = shade(b.belly, 1); g.globalAlpha = 0.55; g.beginPath(); g.ellipse(hx + hr * 0.1, hy + hr * 0.45, hr * 0.55, hr * 0.32, 0, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+    }
+    // eye
+    const er = hr * (opt.owl ? 0.3 : 0.2), ex = hx + hr * (opt.owl ? 0.42 : 0.38), ey = hy - hr * 0.12;
+    g.fillStyle = opt.owl || opt.talons ? '#f2c230' : '#ffffff'; g.beginPath(); g.arc(ex, ey, er, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(ex + er * 0.15, ey, er * 0.62, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + er * 0.35, ey - er * 0.3, er * 0.22, 0, Math.PI * 2); g.fill();
+    // beak (hooked for raptors)
+    const bx = hx + hr * 0.9, by = hy + hr * 0.02;
+    g.fillStyle = b.beak; g.beginPath(); g.moveTo(bx, by - hr * 0.22);
+    if (opt.talons || opt.owl) { g.quadraticCurveTo(bx + hr * 0.75, by - hr * 0.2, bx + hr * 0.6, by + hr * 0.3); g.lineTo(bx, by + hr * 0.12); }
+    else { g.lineTo(bx + hr * 1.0, by + hr * 0.02); g.lineTo(bx, by + hr * 0.2); }
+    g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + hr * 0.6, by + hr * 0.02); g.stroke();
+    wing(1, 1);                                          // near wing, in front
   }
+
+  const HAWK = { body: '#6b4a2e', wing: '#5a3d24', belly: '#efe2cc', beak: '#2a2a2a', cap: '#4e3420' };
+  const OWL = { body: '#7c6a55', wing: '#5f5141', belly: '#e9dcc4', beak: '#3a3328', cap: '#7c6a55' };
+  const birdAtlases = {};
+  const BIRD_FRAMES = 12;
+  function atlasFor(b, opt) {
+    const key = b.id || JSON.stringify(b);
+    return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i, n) => drawBirdHD(g, (i / n) * Math.PI * 2, b, opt), BIRD_FRAMES, 4, 3));
+  }
+  // the hunter: two frames, aiming and firing
+  const hunterAtlas = makeAtlas((g, i) => {
+    const x = FW * 0.42, base = FH * 0.95, h = FH * 0.78;
+    g.fillStyle = '#3d5a2a'; // grass tuft
+    g.beginPath(); g.ellipse(x, base, FW * 0.22, FH * 0.06, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#3b3328'; g.fillRect(x - h * 0.09, base - h * 0.45, h * 0.08, h * 0.45); g.fillRect(x + h * 0.02, base - h * 0.45, h * 0.08, h * 0.45); // legs
+    g.fillStyle = '#e8641f'; g.beginPath(); g.roundRect(x - h * 0.14, base - h * 0.82, h * 0.28, h * 0.42, h * 0.05); g.fill(); // vest
+    g.fillStyle = '#d9a383'; g.beginPath(); g.arc(x + h * 0.02, base - h * 0.9, h * 0.08, 0, Math.PI * 2); g.fill(); // face
+    g.fillStyle = '#e8641f'; g.fillRect(x - h * 0.08, base - h * 1.0, h * 0.2, h * 0.06); g.fillRect(x + h * 0.02, base - h * 0.975, h * 0.14, h * 0.025); // cap
+    // rifle aimed up and to the left, at the sky
+    g.save(); g.translate(x + h * 0.04, base - h * 0.72); g.rotate(-2.35);
+    g.fillStyle = '#2a2420'; g.fillRect(0, -h * 0.025, h * 0.55, h * 0.05); g.fillStyle = '#6b4a2e'; g.fillRect(-h * 0.12, -h * 0.04, h * 0.16, h * 0.08);
+    if (i === 1) { g.fillStyle = '#ffe07a'; g.beginPath(); g.moveTo(h * 0.55, 0); g.lineTo(h * 0.75, -h * 0.07); g.lineTo(h * 0.82, 0); g.lineTo(h * 0.75, h * 0.07); g.fill(); }
+    g.restore();
+  }, 2, 2, 1);
+
   let hero = null, flock = [], heroBirdId = null;
   function setBirds() {
     const b = F.birdOf(S);
     if (heroBirdId !== b.id || !hero) {
       if (hero) fscene.remove(hero);
-      hero = buildBird(b); fscene.add(hero); heroBirdId = b.id;
+      hero = cutout(atlasFor(b), 6.4); hero.renderOrder = 3; fscene.add(hero); heroBirdId = b.id;
       for (const f of flock) fscene.remove(f); flock = [];
     }
     const want = Math.min(S.levels.flock, 8);
     while (flock.length < want) {
-      const f = buildBird(b), i = flock.length, row = Math.floor(i / 2) + 1, sgn = i % 2 ? 1 : -1;
-      f.scale.setScalar(0.62);
+      const f = cutout(atlasFor(b), 6.4 * 0.62), i = flock.length, row = Math.floor(i / 2) + 1, sgn = i % 2 ? 1 : -1;
       // both arms of the V trail away from the camera so the lead bird stays clear
       f.userData.home = new THREE.Vector3(-row * 2.6, -0.4 * row, sgn > 0 ? row * 0.8 - 1.4 : -row * 2.3 - 0.6);
       f.userData.phase = Math.random() * 6;
@@ -484,9 +581,70 @@
     }
     while (flock.length > want) fscene.remove(flock.pop());
   }
+  // Cutouts face the camera; roll tips the nose up or down.
+  function faceCamera(m) { m.quaternion.copy(fcam.quaternion); m.rotateZ(m.userData.roll || 0); }
 
+  // ---------- predators (visuals; rules live in econ.js, timing in game state) ----------
+  const hawkMesh = cutout(atlasFor({ id: 'hawk', ...HAWK }, { talons: true, span: 1.25, longTail: true }), 7.5);
+  const owlMesh = cutout(atlasFor({ id: 'owl', ...OWL }, { owl: true, talons: true, span: 1.2 }), 7);
+  const hunterMesh = cutout(hunterAtlas, 13);
+  for (const m of [hawkMesh, owlMesh, hunterMesh]) { m.visible = false; fscene.add(m); }
+  const tracerGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const tracer = new THREE.Line(tracerGeo, new THREE.LineBasicMaterial({ color: 0xffe07a, transparent: true, opacity: 0 }));
+  fscene.add(tracer);
+  function chunkAtX(x) { return world.chunks.find((c) => x >= c.grp.position.x - CW / 2 && x < c.grp.position.x + CW / 2); }
+  function groundYAt(x, z) {
+    const c = chunkAtX(x); if (!c || c.kind === 'sea') return GROUND;
+    return GROUND + (c.kind === 'city' ? 3 : landHeight(c.wx0 + (x - c.grp.position.x) + CW / 2, z));
+  }
+  // hero offsets the predators add on top of bobbing and bug dives
+  function threatOffset() {
+    const th = side.threat; if (!th) return 0;
+    if (th.type === 'hunter') {
+      const up = 5.5 * clamp(th.meter, 0, 1);
+      return th.t < th.warn + 1.2 ? up : up * (1 - smooth(th.warn + 1.2, th.warn + 2.6, th.t));
+    }
+    if (th.resolved && th.ok) return -2.6 * Math.sin(Math.PI * clamp((th.t - th.warn + 0.25) / 1.0, 0, 1)); // the jink
+    return 0;
+  }
+  function updatePredators() {
+    const th = side.threat;
+    hawkMesh.visible = owlMesh.visible = hunterMesh.visible = false; tracer.material.opacity = 0;
+    if (!th) return;
+    const W = world.viewW || 14, t = th.t, strike = th.warn;
+    if (th.type === 'hunter') {
+      // walks into frame on the ground ahead, aims, fires at the strike, then scrolls away
+      // far enough out that the ground there is in frame from the raised camera
+      const hx = lerp(W * 1.1, -W * 0.2, clamp(t / (strike + 2.4), 0, 1)), hz = -60;
+      hunterMesh.visible = true;
+      hunterMesh.position.set(hx, groundYAt(hx, hz) + 3.9, hz);
+      setFrame(hunterMesh, t > strike && t < strike + 0.15 ? 1 : 0);
+      if (t > strike && t < strike + 0.35) {
+        const from = hunterMesh.position.clone().add(new THREE.Vector3(-3, 3, 0));
+        const target = hero.position.clone().add(new THREE.Vector3(0.4, th.ok ? -3.5 : 0, 0));
+        tracerGeo.setFromPoints([from, target]); tracer.material.opacity = 1 - (t - strike) / 0.35;
+      }
+      return;
+    }
+    const m = th.type === 'owl' ? owlMesh : hawkMesh;
+    m.visible = true;
+    // circles high and ahead during the warning, stoops onto the bird at the strike
+    const k = smooth(strike - 0.55, strike, t), after = clamp((t - strike) / 1.4, 0, 1);
+    const high = new THREE.Vector3(W * 0.3 + Math.sin(t * 1.3) * 1.2, 2.8 + Math.sin(t * 2.1) * 0.6, -4);
+    const hit = hero.position.clone().add(new THREE.Vector3(0.8, 1.2, 0.4));
+    const exit = new THREE.Vector3(-W * 0.6, th.ok ? -9 : 4, -2);
+    m.position.copy(t < strike ? high.clone().lerp(hit, k) : hit.clone().lerp(exit, after));
+    m.userData.roll = t < strike ? -0.55 * k : (th.ok ? -0.4 : 0.35);
+    setFrame(m, t < strike - 0.55 ? phaseFrame(t * 5, BIRD_FRAMES) : 3);
+  }
+  function featherBurst(at) {
+    const sp = sparks.geometry.attributes.position;
+    for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x, at.y, at.z); sparkV[i].randomDirection().multiplyScalar(1.5 + Math.random() * 3); }
+    sp.needsUpdate = true; side.burst = 1.1; sparks.material.color.setStyle('#f4ece0'); sparks.material.size = 0.55;
+  }
 
   // ---------- the bug (Bug Catcher upgrade) ----------
+  const SPH = new THREE.SphereGeometry(1, 16, 12);
   // A fat glowing beetle that crosses below the bird's line; the bird dips to
   // meet it at the beak, then climbs back. Timings live in game state (side.bug).
   const DIVE = 2.2, CLIMB = 1.4, DIP = -3.6;
@@ -507,7 +665,7 @@
     new THREE.PointsMaterial({ color: 0xffe08a, size: 0.35, transparent: true, opacity: 0, depthWrite: false }));
   fscene.add(sparks);
   const sparkV = Array.from({ length: 30 }, () => new THREE.Vector3());
-  const BEAK_TIP = new THREE.Vector3(1.95, 0.22, 0);
+  const BEAK_TIP = new THREE.Vector3(1.55, 0.12, 0); // beak tip on the 2D cutout
   // vertical offset of the hero during a dive episode
   function diveOffset(t) {
     if (t < DIVE) return DIP * smooth(0.2, DIVE, t);
@@ -540,7 +698,7 @@
   function burstAtBeak() {
     const sp = sparks.geometry.attributes.position, at = hero.position.clone().add(BEAK_TIP);
     for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x, at.y, at.z); sparkV[i].randomDirection().multiplyScalar(2 + Math.random() * 4); }
-    sp.needsUpdate = true; side.burst = 0.8;
+    sp.needsUpdate = true; side.burst = 0.8; sparks.material.color.setStyle('#ffe08a'); sparks.material.size = 0.35;
   }
 
   function sizeSide() {
@@ -612,20 +770,24 @@
     side.flap += dt * side.flapRate * Math.PI * 2;
     const glide = S.boost < 0.05 ? smooth(0.2, 0.9, Math.sin(side.t * 0.45)) * 0.8 : 0;
     setBirds();
-    poseBird(hero, side.flap, glide);
-    const dive = side.bug ? diveOffset(side.bug.t) : 0;
-    hero.position.set(0, Math.sin(side.t * 1.6) * 0.35 * (dive ? 0.3 : 1) - Math.sin(side.flap) * 0.08 + dive, 0);
+    // gliding holds the wings level; otherwise play the flap flipbook
+    const heroPh = glide > 0.55 ? 0.35 : side.flap;
+    setFrame(hero, phaseFrame(heroPh, BIRD_FRAMES));
+    const dive = (side.bug ? diveOffset(side.bug.t) : 0) + threatOffset();
+    const wobble = S.stun > 0 ? Math.sin(side.t * 14) * 0.25 : 0;
+    hero.position.set(0, Math.sin(side.t * 1.6) * 0.35 * (dive ? 0.3 : 1) - Math.sin(side.flap) * 0.08 + dive + wobble, 0);
     // nose down into the dive, up on the climb
     const pitch = side.bug ? (side.bug.t < DIVE ? -0.28 * Math.sin(Math.PI * clamp(side.bug.t / DIVE, 0, 1)) : 0.22 * Math.sin(Math.PI * clamp((side.bug.t - DIVE) / CLIMB, 0, 1))) : 0;
-    hero.rotation.set(Math.sin(side.t * 0.7) * 0.06, 0, 0.05 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch);
+    hero.userData.roll = 0.04 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch + wobble * 0.3;
     updateBug(dt);
+    updatePredators();
     // golden streaks while a bug rush is on
     streaks.material.color.setStyle(S.rush > 0 ? '#ffd36b' : '#ffffff');
     flock.forEach((f, i) => {
       const h = f.userData.home;
       f.position.set(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4, h.z);
-      f.rotation.set(Math.sin(side.t * 0.8 + i) * 0.08, 0, 0.05);
-      poseBird(f, side.flap * 1.05 + f.userData.phase, glide);
+      f.userData.roll = 0.04 + Math.sin(side.t * 0.8 + i) * 0.05;
+      setFrame(f, phaseFrame(glide > 0.55 ? 0.35 : side.flap * 1.05 + f.userData.phase, BIRD_FRAMES));
     });
 
     // sky, light and fog by the local hour under the bird
@@ -661,36 +823,11 @@
     // follow the bird part-way down into a bug dive
     fcam.position.y += hero.position.y * 0.6;
     fcam.lookAt(wantW * 0.14, 0.4 + hero.position.y * 0.7, 0);
+    // cutouts dim a little at night, like everything else
+    const lit = lerp(1, 0.6, night);
+    for (const m of [hero, ...flock, hawkMesh, owlMesh, hunterMesh]) { faceCamera(m); m.material.color.setScalar(lit); }
     fr.render(fscene, fcam);
   }
-
-  // 2D bird, used for the small portraits on the bird picker.
-  // A side-on bird seen slightly from below: belly shows, near wing in front
-  // of the body, far wing behind it and foreshortened.
-  function drawBird(g, x, y, S, b, ph, alpha) {
-    const w = Math.sin(ph);
-    g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate(-0.06 - w * 0.03);
-    const wing = (sx, sy, len, col, k) => {
-      const tipX = sx - len * 0.55, tipY = sy - len * w * k;
-      g.fillStyle = col; g.beginPath(); g.moveTo(sx + S * 0.25, sy);
-      g.quadraticCurveTo(sx - len * 0.1, sy - len * w * k * 0.7 - S * 0.05, tipX, tipY);
-      g.quadraticCurveTo(sx - len * 0.2, sy - len * w * k * 0.25 + S * 0.08, sx - S * 0.35, sy + S * 0.06);
-      g.closePath(); g.fill();
-    };
-    wing(S * 0.05, -S * 0.12, S * 1.15, b.wing, 0.75);       // far wing
-    g.fillStyle = b.wing;                                      // tail
-    g.beginPath(); g.moveTo(-S * 0.55, -S * 0.05); g.lineTo(-S * 1.15, -S * 0.22); g.lineTo(-S * 1.2, S * 0.12); g.lineTo(-S * 0.55, S * 0.12); g.fill();
-    g.fillStyle = b.body; g.beginPath(); g.ellipse(0, 0, S * 0.72, S * 0.34, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = b.belly; g.beginPath(); g.ellipse(S * 0.08, S * 0.13, S * 0.55, S * 0.2, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = b.body; g.beginPath(); g.arc(S * 0.66, -S * 0.12, S * 0.28, 0, Math.PI * 2); g.fill();
-    g.fillStyle = b.cap; g.beginPath(); g.arc(S * 0.66, -S * 0.12, S * 0.28, Math.PI * 1.05, Math.PI * 1.95); g.fill();
-    g.fillStyle = b.beak; g.beginPath(); g.moveTo(S * 0.9, -S * 0.2); g.lineTo(S * 1.2, -S * 0.1); g.lineTo(S * 0.9, -S * 0.04); g.fill();
-    g.fillStyle = '#fff'; g.beginPath(); g.arc(S * 0.76, -S * 0.17, S * 0.07, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#111'; g.beginPath(); g.arc(S * 0.78, -S * 0.17, S * 0.04, 0, Math.PI * 2); g.fill();
-    wing(S * 0.1, -S * 0.05, S * 1.35, shadeHex(b.wing, 1.25), 1); // near wing
-    g.restore();
-  }
-  function shadeHex(h, k) { return `rgb(${hex(h).map((v) => clamp(Math.round(v * k + 12), 0, 255)).join(',')})`; }
 
   // ======================================================================
   // Zoom: 0 = far out by the moon, 1 = beside the bird in profile.
@@ -776,17 +913,24 @@
   // flapping: tap the sky, the button, or space. Holding the button keeps flapping.
   const flapBtn = $('flap');
   let holdTimer = null;
-  function doFlap() { if (!S || !running) return; F.flap(S); side.flapRate += 3; }
+  // fromHold: auto-repeat while the button or Space is held. Hammering beats a
+  // hawk; holding mostly helps you climb away from a hunter.
+  function doFlap(fromHold) {
+    if (!S || !running) return;
+    F.flap(S); side.flapRate += 3;
+    const th = side.threat;
+    if (th && !th.resolved) th.meter += th.type === 'hunter' ? 0.12 : (fromHold ? 0.35 : 1) / F.THREAT.taps(S);
+  }
   flapBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault(); flapBtn.classList.add('down'); doFlap();
-    clearInterval(holdTimer); holdTimer = setInterval(doFlap, 160);
+    clearInterval(holdTimer); holdTimer = setInterval(() => doFlap(true), 160);
   });
   const flapUp = () => { flapBtn.classList.remove('down'); clearInterval(holdTimer); };
   flapBtn.addEventListener('pointerup', flapUp); flapBtn.addEventListener('pointerleave', flapUp); flapBtn.addEventListener('pointercancel', flapUp);
   flapBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doFlap(); } });
   addEventListener('keydown', (e) => {
     if (e.target.closest && e.target.closest('select')) return;
-    if (e.code === 'Space') { e.preventDefault(); doFlap(); flapBtn.classList.add('down'); } // held space auto-repeats flaps
+    if (e.code === 'Space') { e.preventDefault(); doFlap(e.repeat); flapBtn.classList.add('down'); } // held space auto-repeats flaps
     if (e.key === '=' || e.key === '+') ZT = clamp(ZT + 0.08, 0, 1);
     if (e.key === '-') ZT = clamp(ZT - 0.08, 0, 1);
   });
@@ -856,6 +1000,7 @@
     $('boostPct').textContent = `+${Math.round(b * 100)}%`;
     $('stampCount').textContent = S.visited.length;
     const rc = $('rushChip');
+    $('stunChip').hidden = !(S.stun > 0);
     rc.hidden = !(S.rush > 0);
     if (S.rush > 0) $('rushLeft').textContent = Math.ceil(S.rush) + 's';
     const mig = $('btnMigrate');
@@ -896,9 +1041,9 @@
 
   let pickBird = 'sparrow';
   function birdPreview(cv, b) {
-    const r = 2; cv.width = 120 * r; cv.height = 58 * r;
-    const g = cv.getContext('2d'); g.scale(r, r);
-    drawBird(g, 58, 34, 22, b, 1.1, 1);
+    cv.width = 240; cv.height = 150;
+    const g = cv.getContext('2d'); g.scale(240 / FW, 150 / FH);
+    drawBirdHD(g, 0.9, b);
   }
   function buildStart(mode) {
     const laps = S ? S.laps + (mode === 'migrate' ? 1 : 0) : 0;
@@ -987,7 +1132,7 @@
   function catchUp() {
     const away = clamp((Date.now() - (S.lastSave || Date.now())) / 1000, 0, 8 * 3600);
     if (away < 30) return null;
-    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; side.bug = null;
+    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; S.stun = 0; side.bug = null; side.threat = null;
     const steps = Math.min(4000, Math.ceil(away)), dt = away / steps;
     let lap = false;
     for (let i = 0; i < steps; i++) for (const e of F.step(S, dt, false)) if (e.lapDone) lap = true;
@@ -1021,6 +1166,68 @@
     if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) * (0.75 + Math.random() * 0.5); }
   }
 
+  // ---------- predators ----------
+  // Live play only, after the first few cities. A threat warns, the player
+  // fills its meter (hammer FLAP vs a hawk or owl, hold FLAP to climb from a
+  // hunter), and at the strike it either misses (bonus) or connects (penalty).
+  const banner = $('threat'), meterEl = $('threatMeter');
+  const THREATS = {
+    hawk: { icon: '🦅', name: 'hawk', ask: 'Hawk above! Tap FLAP fast to dodge' },
+    owl: { icon: '🦉', name: 'owl', ask: 'Owl in the dark! Tap FLAP fast to dodge' },
+    hunter: { icon: '🎯', name: 'hunter', ask: 'Hunter below! Hold FLAP to climb out of range' },
+  };
+  const anySheetOpen = () => !!document.querySelector('.sheet.on');
+  function pickThreat() {
+    const g = currentGeo(), hour = localHour(g.lon), v = F.speed(S);
+    const night = hour < 6 || hour > 19.5;
+    if (night) return 'owl';
+    // hunters only over open land: never over water, never right by a city
+    const fromCity = S.legKm / v, toCity = (F.legLen(S) - S.legKm) / v;
+    const open = isLand(g.lat, g.lon) && fromCity > 6 && toCity > 8;
+    return open && Math.random() < 0.55 ? 'hunter' : 'hawk';
+  }
+  function tickThreats(dt) {
+    const th = side.threat;
+    if (th) {
+      if (anySheetOpen() && !th.resolved) return; // never strike behind a dialog
+      th.t += dt;
+      if (!th.resolved && th.type === 'hunter' && flapBtn.classList.contains('down')) th.meter += dt / F.THREAT.climb(S);
+      th.meter = clamp(th.meter, 0, 1.2);
+      if (!th.resolved && th.t >= th.warn) resolveThreat(th);
+      if (th.t >= th.warn + 2.8) { side.threat = null; banner.hidden = true; flapBtn.classList.remove('alarm'); }
+      else if (!th.resolved) meterEl.style.width = Math.min(100, th.meter * 100) + '%';
+      return;
+    }
+    if (S.arrivals < 3 || side.bug || anySheetOpen()) return;
+    side.threatT -= dt;
+    if (side.threatT > 0) return;
+    side.threatT = F.THREAT.every(S);
+    const type = side.forceType || pickThreat(); side.forceType = null;
+    side.threat = { type, t: 0, warn: F.THREAT.warn(S), meter: 0, resolved: false, ok: false };
+    banner.hidden = false; banner.classList.remove('ok', 'bad');
+    $('threatIcon').textContent = THREATS[type].icon; $('threatText').textContent = THREATS[type].ask;
+    meterEl.style.width = '0%'; flapBtn.classList.add('alarm');
+  }
+  function resolveThreat(th) {
+    th.resolved = true; th.ok = th.meter >= 0.999;
+    const name = THREATS[th.type].name;
+    flapBtn.classList.remove('alarm');
+    if (th.ok) {
+      const bonus = F.predatorMiss(S);
+      banner.classList.add('ok');
+      $('threatText').textContent = th.type === 'hunter' ? `Out of range! +${fmt(bonus)} seeds` : `Dodged the ${name}! +${fmt(bonus)} seeds`;
+      meterEl.style.width = '100%';
+      return;
+    }
+    const r = F.predatorHit(S);
+    banner.classList.add('bad');
+    $('threatText').textContent = r.lost === 'follower'
+      ? `The ${name} got one of your flock. Slowed for ${F.THREAT.STUN}s.`
+      : `The ${name} knocked loose ${fmt(r.seeds)} seeds. Slowed for ${F.THREAT.STUN}s.`;
+    if (hero) featherBurst(hero.position.clone().add(new THREE.Vector3(r.lost === 'follower' ? -2.6 : 0, 0, 0)));
+    refreshUpgrades();
+  }
+
   // ======================================================================
   // Main loop
   // ======================================================================
@@ -1047,7 +1254,7 @@
         }
       }
       if (events.length) rebuildRoute();
-      tickBugs(dt);
+      tickBugs(dt); tickThreats(dt);
       // zoom easing (the take-off zoom is slower and more deliberate)
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
@@ -1095,6 +1302,12 @@
   $('hint').style.opacity = 0;
   requestAnimationFrame(frame);
 
+  // In the iOS app the page is local, so site-relative links need the full address.
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    document.querySelectorAll('a[href="/"]').forEach((el) => { el.href = 'https://www.freefowl.com/'; });
+    document.documentElement.classList.add('native-app');
+  }
+
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();

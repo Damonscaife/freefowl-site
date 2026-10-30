@@ -117,6 +117,11 @@
       blurb: (L) => `${L} follower${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} seeds, auto-flap` },
     { id: 'stamina', name: 'Stamina', icon: '💪', get base() { return T.bS; }, get growth() { return T.gS; },
       blurb: (L) => `flap boost up to +${Math.round(boostCap(L) * 100)}%` },
+    // defences against hawks, owls and hunters
+    { id: 'keen', name: 'Keen Eyes', icon: '👁️', base: 2000, growth: 2.4,
+      blurb: (L) => `warnings ${fmt(2 + 0.4 * L, 1)}s ahead · ${Math.max(3, 8 - L)} flaps to dodge` },
+    { id: 'camo', name: 'Camouflage', icon: '🍂', base: 5000, growth: 2.8,
+      blurb: (L) => L ? `predators ${Math.round((1 - 1 / (1 + 0.3 * L)) * 100)}% less often` : 'predators find you less often' },
     // the big-ticket item: the bird dips low to snatch a passing bug for a short rush
     { id: 'bugs', name: 'Bug Catcher', icon: '🪲', base: 25000, growth: 3.2,
       blurb: (L) => L ? `a bug every ~${Math.round(bugEvery(L))}s · ${bugRush(L)}s rush of 2× speed, 3× seeds` : 'dip low to catch bugs: 2× speed, 3× seeds' },
@@ -144,14 +149,36 @@
   function newState(birdId, startIdx) {
     return {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0,
-      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, bugs: 0 }, rush: 0,
+      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0,
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
     };
   }
 
   // older saves predate the bug catcher
-  function upgradeSave(s) { s.levels.bugs = s.levels.bugs || 0; s.rush = s.rush || 0; return s; }
+  function upgradeSave(s) {
+    for (const k of ['bugs', 'keen', 'camo']) s.levels[k] = s.levels[k] || 0;
+    s.rush = s.rush || 0; s.stun = 0; s.dodged = s.dodged || 0; s.caught = s.caught || 0; return s;
+  }
+
+  // ---- predators (live play only) ----
+  // A threat warns first; flapping fast (hawk, owl) or climbing (hunter) fills a
+  // meter before it strikes. Escaping pays a bonus; getting caught costs one flock
+  // follower (or 10% of seeds with no flock) and halves speed for a few seconds.
+  const THREAT = {
+    warn: (s) => 2 + 0.4 * s.levels.keen,                  // seconds of warning
+    taps: (s) => Math.max(3, 8 - s.levels.keen),           // flaps needed vs hawk/owl
+    climb: (s) => Math.max(0.6, 1.3 - 0.1 * s.levels.keen),// seconds of climbing vs hunter
+    every: (s) => (75 + Math.random() * 45) * (1 + 0.3 * s.levels.camo),
+    STUN: 4,
+  };
+  function escapeBonus(s) { return seedRate(s, false) * 20; }
+  function predatorHit(s) {
+    s.stun = THREAT.STUN; s.caught = (s.caught || 0) + 1;
+    if (s.levels.flock > 0) { s.levels.flock--; return { lost: 'follower' }; }
+    const seeds = s.seeds * 0.1; s.seeds -= seeds; return { lost: 'seeds', seeds };
+  }
+  function predatorMiss(s) { const b = escapeBonus(s); s.seeds += b; s.runSeeds += b; s.dodged = (s.dodged || 0) + 1; return b; }
 
   const birdOf = (s) => BIRDS.find((b) => b.id === s.bird) || BIRDS[0];
   const cityAt = (s, k) => CITIES[(s.start + k + CITIES.length * 1000) % CITIES.length];
@@ -166,7 +193,7 @@
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1);
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1);
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
@@ -189,6 +216,7 @@
     const ev = [];
     s.boost = Math.max(0, s.boost - dt * (0.18 + s.boost * 0.25));
     if (s.rush > 0) s.rush = Math.max(0, s.rush - dt);
+    if (s.stun > 0) s.stun = Math.max(0, s.stun - dt);
     const earned = seedRate(s, overOcean) * dt;
     s.seeds += earned; s.runSeeds += earned;
     let km = speed(s) * dt;
@@ -260,6 +288,6 @@
   root.Flyway = {
     T, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, cityAt, legFrom, legTo, legLen,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
-    feathersFor, featherMult, bugEvery, bugRush, catchBug, upgradeSave, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
+    feathersFor, featherMult, bugEvery, bugRush, catchBug, upgradeSave, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
