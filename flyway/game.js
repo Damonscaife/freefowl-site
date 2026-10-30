@@ -210,13 +210,12 @@
   function rebuildRoute() {
     for (const l of [loopLine, doneLine, cityPoints]) if (l) { routeGroup.remove(l); l.geometry.dispose(); }
     const all = [];
-    for (let k = 0; k < CITIES.length; k++) all.push(...arcPoints(F.cityAt(S, k), F.cityAt(S, k + 1)));
+    for (let k = 0; k < S.route.length - 1; k++) all.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]]));
     loopLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(all),
       new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, dashSize: 0.012, gapSize: 0.01 }));
     loopLine.computeLineDistances(); routeGroup.add(loopLine);
     const done = [];
-    const lapStart = S.leg - (S.leg % CITIES.length);
-    for (let k = lapStart; k < S.leg; k++) done.push(...arcPoints(F.cityAt(S, k), F.cityAt(S, k + 1), ROUTE_R + 0.0005));
+    for (let k = 0; k < S.ri; k++) done.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]], ROUTE_R + 0.0005));
     doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(done.length ? done : [new THREE.Vector3()]),
       new THREE.LineBasicMaterial({ color: 0xe3a52b, transparent: true, opacity: done.length ? 0.9 : 0 }));
     routeGroup.add(doneLine);
@@ -526,7 +525,9 @@
 
   // A side-on bird. ph is the wingbeat phase: sin(ph) = 1 is the top of the
   // upstroke, -1 the bottom of the downstroke. opt adds raptor or owl features.
-  function drawBirdHD(g, ph, b, opt = {}) {
+  function drawBirdHD(g, ph, b, opt0 = {}) {
+    const opt = Object.assign({}, b, opt0); // species flags live on the bird itself
+    if (opt.stubby && !opt0.span) opt.span = 0.62;
     const S = FW * 0.19, cx = FW * 0.47, cy = FH * 0.56, a = Math.sin(ph);
     const shade = (h, k) => { const c = hex(h); return `rgb(${c.map((v) => clamp(Math.round(v * k), 0, 255)).join(',')})`; };
     const feather = (x, y, ang, len, wid, col, tip) => {
@@ -592,28 +593,38 @@
     back.addColorStop(0, shade(b.body, 0.8)); back.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = back; g.beginPath(); g.ellipse(cx, cy - 0.05 * S, 0.8 * S, 0.3 * S, -0.06, Math.PI, Math.PI * 2); g.fill();
     // head
-    const hr = (opt.owl ? 0.44 : 0.32) * S, hx = cx + (opt.owl ? 0.62 : 0.78) * S, hy = cy - 0.3 * S;
-    g.fillStyle = b.body; g.beginPath(); g.arc(hx, hy, hr, 0, Math.PI * 2); g.fill();
+    const hr = (opt.owl ? 0.44 : opt.bigBeak ? 0.38 : 0.32) * S, hx = cx + (opt.owl ? 0.62 : 0.78) * S, hy = cy - 0.3 * S;
+    // crest (cardinal) and comb (rooster) sit behind the head
+    if (opt.crest) { g.fillStyle = b.cap; g.beginPath(); g.moveTo(hx - hr * 0.6, hy - hr * 0.5); g.lineTo(hx - hr * 0.55, hy - hr * 1.7); g.lineTo(hx + hr * 0.35, hy - hr * 0.75); g.fill(); }
+    if (opt.comb) { g.fillStyle = '#d8242c'; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(hx - hr * 0.35 + i * hr * 0.32, hy - hr * 0.95, hr * 0.26, 0, Math.PI * 2); g.fill(); } }
+    g.fillStyle = opt.head || b.body; g.beginPath(); g.arc(hx, hy, hr, 0, Math.PI * 2); g.fill();
     if (opt.owl) {
       g.fillStyle = shade(b.belly, 0.95); g.beginPath(); g.ellipse(hx + hr * 0.25, hy + hr * 0.05, hr * 0.62, hr * 0.78, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = b.body; for (const o of [-0.3, 0.15]) { g.beginPath(); g.moveTo(hx + o * hr, hy - hr * 0.8); g.lineTo(hx + (o + 0.12) * hr, hy - hr * 1.35); g.lineTo(hx + (o + 0.35) * hr, hy - hr * 0.85); g.fill(); }
     } else {
-      g.fillStyle = b.cap; g.beginPath(); g.arc(hx, hy, hr, Math.PI * 1.02, Math.PI * 1.98); g.fill();
-      g.fillStyle = shade(b.belly, 1); g.globalAlpha = 0.55; g.beginPath(); g.ellipse(hx + hr * 0.1, hy + hr * 0.45, hr * 0.55, hr * 0.32, 0, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+      if (!opt.head) { g.fillStyle = b.cap; g.beginPath(); g.arc(hx, hy, hr, Math.PI * 1.02, Math.PI * 1.98); g.fill(); }
+      if (!opt.head) { g.fillStyle = shade(b.belly, 1); g.globalAlpha = 0.55; g.beginPath(); g.ellipse(hx + hr * 0.1, hy + hr * 0.45, hr * 0.55, hr * 0.32, 0, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+      if (opt.mask) { g.fillStyle = opt.mask; g.beginPath(); g.ellipse(hx + hr * 0.62, hy + hr * 0.05, hr * 0.42, hr * 0.36, 0, 0, Math.PI * 2); g.fill(); }
+      if (opt.cheek) { g.fillStyle = opt.cheek; g.globalAlpha = 0.9; g.beginPath(); g.ellipse(hx - hr * 0.15, hy + hr * 0.25, hr * 0.32, hr * 0.42, 0.3, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
     }
     // eye
     const er = hr * (opt.owl ? 0.3 : 0.2), ex = hx + hr * (opt.owl ? 0.42 : 0.38), ey = hy - hr * 0.12;
-    g.fillStyle = opt.owl || opt.talons ? '#f2c230' : '#ffffff'; g.beginPath(); g.arc(ex, ey, er, 0, Math.PI * 2); g.fill();
+    if (opt.eye) { g.fillStyle = opt.eye; g.globalAlpha = 0.35; g.beginPath(); g.arc(ex, ey, er * 2.2, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+    g.fillStyle = opt.eye || (opt.owl || opt.talons || opt.hook ? '#f2c230' : '#ffffff'); g.beginPath(); g.arc(ex, ey, er, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#111'; g.beginPath(); g.arc(ex + er * 0.15, ey, er * 0.62, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + er * 0.35, ey - er * 0.3, er * 0.22, 0, Math.PI * 2); g.fill();
     // beak (hooked for raptors)
     const bx = hx + hr * 0.9, by = hy + hr * 0.02;
     g.fillStyle = b.beak; g.beginPath(); g.moveTo(bx, by - hr * 0.22);
-    if (opt.talons || opt.owl) { g.quadraticCurveTo(bx + hr * 0.75, by - hr * 0.2, bx + hr * 0.6, by + hr * 0.3); g.lineTo(bx, by + hr * 0.12); }
+    if (opt.bigBeak) { g.moveTo(bx - hr * 0.1, by - hr * 0.35); g.quadraticCurveTo(bx + hr * 1.5, by - hr * 0.45, bx + hr * 1.25, by + hr * 0.45); g.quadraticCurveTo(bx + hr * 0.6, by + hr * 0.3, bx - hr * 0.1, by + hr * 0.3); }
+    else if (opt.longBeak) { g.lineTo(bx + hr * 2.4, by + hr * 0.35); g.lineTo(bx + hr * 2.4, by + hr * 0.42); g.lineTo(bx, by + hr * 0.16); }
+    else if (opt.talons || opt.owl || opt.hook) { g.quadraticCurveTo(bx + hr * 0.75, by - hr * 0.2, bx + hr * 0.6, by + hr * 0.3); g.lineTo(bx, by + hr * 0.12); }
     else { g.lineTo(bx + hr * 1.0, by + hr * 0.02); g.lineTo(bx, by + hr * 0.2); }
     g.closePath(); g.fill();
+    if (opt.comb) { g.fillStyle = '#d8242c'; g.beginPath(); g.ellipse(bx + hr * 0.1, by + hr * 0.55, hr * 0.18, hr * 0.32, 0, 0, Math.PI * 2); g.fill(); }
     g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + hr * 0.6, by + hr * 0.02); g.stroke();
     wing(1, 1);                                          // near wing, in front
+    if (opt.wingBar) { g.fillStyle = opt.wingBar; g.globalAlpha = 0.9; g.beginPath(); g.ellipse(cx - 0.35 * S, cy - (0.3 + 0.55 * a) * S, 0.3 * S, 0.08 * S, -0.5 * a, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
   }
 
   const HAWK = { body: '#6b4a2e', wing: '#5a3d24', belly: '#efe2cc', beak: '#2a2a2a', cap: '#4e3420' };
@@ -922,7 +933,8 @@
     while (last.grp.position.x < 620 - CW && guard++ < 12) {
       const nx = last.grp.position.x + CW, sec = Math.max(0, nx / u);
       const left = (F.legLen(S) - S.legKm) / Math.max(v, 1e-6);
-      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0) {
+      // skip the skyline when legs fly by in a blink; the ticket shows lap progress instead
+      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0 && F.legLen(S) / v >= 3) {
         side.cityLeg = S.leg + 1;
         const to = F.legTo(S); pushChunk(nx, 'city', to, to.name);
       } else { const g = lookahead(sec); pushChunk(nx, world.nextType || kindAt(g), g); }
@@ -1018,6 +1030,195 @@
     const lit = lerp(1, 0.6, night);
     for (const m of [hero, ...flock, hawkMesh, owlMesh, hunterMesh]) { faceCamera(m); m.material.color.setScalar(lit); }
     fr.render(fscene, fcam);
+  }
+
+  // ======================================================================
+  // Space: a separate scene the close-up switches to while the bird is off
+  // Earth. Earth shrinks away behind, the destination grows ahead, and the
+  // bird rides a little shuttle.
+  // ======================================================================
+  const sscene = new THREE.Scene();
+  sscene.add(new THREE.AmbientLight(0xffffff, 0.35));
+  const ssun = new THREE.DirectionalLight(0xfff4e0, 2.4); ssun.position.set(-300, 120, 200); sscene.add(ssun);
+  {
+    const n = 1800, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const v = new THREE.Vector3().randomDirection().multiplyScalar(900);
+      pos.set([v.x, v.y, v.z], i * 3);
+      const w = 0.7 + Math.random() * 0.3, tint = Math.random();
+      col.set(tint < 0.15 ? [w, w * 0.85, w * 0.7] : tint > 0.85 ? [w * 0.8, w * 0.9, w] : [w, w, w], i * 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    sscene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.7, sizeAttenuation: false, vertexColors: true })));
+  }
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff8e0', 'rgba(255,214,140,.35)'), depthWrite: false, transparent: true }));
+  sunGlow.position.set(-700, 260, 420); sunGlow.scale.setScalar(160); sscene.add(sunGlow);
+
+  function bodyTexture(b) {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const g = c.getContext('2d'), base = hex(b.color);
+    g.fillStyle = b.color; g.fillRect(0, 0, 512, 256);
+    const img = g.getImageData(0, 0, 512, 256), d = img.data;
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 512; x++) {
+      const k = (y * 512 + x) * 4;
+      let n = b.bands ? 0.75 + 0.35 * Math.sin(y / 9 + fbm(x / 60, y / 20) * 4) : 0.8 + fbm(x / 40, y / 40) * 0.4;
+      if (b.id === 'mars') n *= 0.85 + fbm(x / 25 + 9, y / 25) * 0.3;
+      if (b.id === 'neptune' || b.id === 'uranus') n = 0.9 + 0.15 * Math.sin(y / 20 + fbm(x / 80, y / 40) * 2);
+      d[k] = clamp(base[0] * n, 0, 255); d[k + 1] = clamp(base[1] * n, 0, 255); d[k + 2] = clamp(base[2] * n, 0, 255);
+    }
+    g.putImageData(img, 0, 0);
+    if (b.id === 'moon' || b.id === 'pluto') { // craters
+      for (let i = 0; i < 70; i++) {
+        const x = hash(i, 3) * 512, y = 30 + hash(i, 7) * 196, r = 3 + hash(i, 11) * 14;
+        g.fillStyle = 'rgba(0,0,0,.16)'; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.12)'; g.beginPath(); g.arc(x - r * 0.25, y - r * 0.25, r * 0.7, 0, Math.PI * 2); g.fill();
+      }
+    }
+    if (b.id === 'jupiter') { g.fillStyle = 'rgba(176,82,52,.75)'; g.beginPath(); g.ellipse(330, 160, 26, 14, 0, 0, Math.PI * 2); g.fill(); }
+    if (b.id === 'pluto') { g.fillStyle = 'rgba(245,232,214,.55)'; g.beginPath(); g.ellipse(260, 140, 70, 55, 0, 0, Math.PI * 2); g.fill(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  }
+  const spaceEarth = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshPhongMaterial({ map: earthTex, shininess: 12 }));
+  const spaceEarthAtmo = new THREE.Mesh(new THREE.SphereGeometry(1.04, 48, 32), new THREE.MeshBasicMaterial({ color: 0x6fb6ff, transparent: true, opacity: 0.18, side: THREE.BackSide }));
+  spaceEarth.add(spaceEarthAtmo); sscene.add(spaceEarth);
+  const targetMat = new THREE.MeshStandardMaterial({ roughness: 0.95 });
+  const target = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), targetMat); sscene.add(target);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.35, 2.3, 96), new THREE.MeshBasicMaterial({ color: 0xd9c690, transparent: true, opacity: 0.75, side: THREE.DoubleSide }));
+  ring.rotation.x = Math.PI / 2.3; target.add(ring);
+  const starGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fffbe8', 'rgba(255,220,140,.5)'), depthWrite: false, transparent: true }));
+  starGlow.scale.setScalar(3.4); target.add(starGlow);
+  const bodyTex = {};
+  let targetId = null;
+  function setTarget(b) {
+    if (targetId === b.id) return; targetId = b.id;
+    targetMat.map = bodyTex[b.id] || (bodyTex[b.id] = bodyTexture(b));
+    targetMat.emissive = new THREE.Color(b.star ? 0xffe9a8 : 0x000000); targetMat.emissiveIntensity = b.star ? 1.2 : 0;
+    targetMat.needsUpdate = true;
+    ring.visible = !!b.ring; starGlow.visible = !!b.star;
+  }
+
+  // the shuttle: white hull, the bird in a glass bubble at the window, flame frames
+  let shuttleBirdDef = BIRDS[0];
+  function drawShuttle(g, i) {
+    const cx = FW * 0.5, cy = FH * 0.55, L = FW * 0.62, H = FH * 0.24, x0 = cx - L / 2;
+    // flame
+    const fl = 0.75 + (i % 2) * 0.35;
+    const fg = g.createLinearGradient(x0 - L * 0.45 * fl, 0, x0, 0);
+    fg.addColorStop(0, 'rgba(255,120,40,0)'); fg.addColorStop(0.5, 'rgba(255,170,60,.85)'); fg.addColorStop(1, '#fff6d0');
+    g.fillStyle = fg; g.beginPath(); g.moveTo(x0, cy - H * 0.32); g.quadraticCurveTo(x0 - L * 0.3 * fl, cy, x0, cy + H * 0.32);
+    g.quadraticCurveTo(x0 - L * 0.45 * fl, cy, x0, cy - H * 0.32); g.fill();
+    // wing and tail fin
+    g.fillStyle = '#cfd6df';
+    g.beginPath(); g.moveTo(x0 + L * 0.25, cy + H * 0.3); g.lineTo(x0 + L * 0.08, cy + H * 1.05); g.lineTo(x0 + L * 0.55, cy + H * 0.35); g.fill();
+    g.beginPath(); g.moveTo(x0 + L * 0.02, cy - H * 0.35); g.lineTo(x0 + L * 0.02, cy - H * 1.15); g.lineTo(x0 + L * 0.2, cy - H * 0.4); g.fill();
+    // hull
+    const hg = g.createLinearGradient(0, cy - H / 2, 0, cy + H / 2);
+    hg.addColorStop(0, '#ffffff'); hg.addColorStop(0.6, '#e9edf2'); hg.addColorStop(1, '#b8c0cb');
+    g.fillStyle = hg; g.beginPath(); g.moveTo(x0, cy - H / 2);
+    g.lineTo(x0 + L * 0.78, cy - H / 2); g.quadraticCurveTo(x0 + L * 1.02, cy - H * 0.1, x0 + L, cy + H * 0.15);
+    g.lineTo(x0 + L * 0.8, cy + H / 2); g.lineTo(x0, cy + H / 2); g.closePath(); g.fill();
+    g.fillStyle = '#2b3442'; g.beginPath(); g.moveTo(x0 + L * 0.93, cy - H * 0.22); g.quadraticCurveTo(x0 + L * 1.02, cy - H * 0.05, x0 + L, cy + H * 0.15); g.lineTo(x0 + L * 0.9, cy + H * 0.12); g.fill();
+    g.fillStyle = '#cf2e3a'; g.fillRect(x0 + L * 0.1, cy + H * 0.12, L * 0.6, H * 0.1); // stripe
+    g.fillStyle = '#2557a7'; g.fillRect(x0 + L * 0.1, cy + H * 0.24, L * 0.6, H * 0.06);
+    // window with the bird inside
+    const wx = x0 + L * 0.68, wy = cy - H * 0.45, wr = H * 0.62;
+    g.fillStyle = '#0f1a33'; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.fill();
+    g.save(); g.beginPath(); g.arc(wx, wy, wr * 0.95, Math.PI, 0); g.clip();
+    const b = shuttleBirdDef;
+    g.fillStyle = b.body; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.08, wr * 0.55, 0, Math.PI * 2); g.fill();
+    g.fillStyle = b.cap; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.08, wr * 0.55, Math.PI * 1.05, Math.PI * 1.95); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(wx + wr * 0.18, wy - wr * 0.14, wr * 0.12, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(wx + wr * 0.21, wy - wr * 0.14, wr * 0.07, 0, Math.PI * 2); g.fill();
+    g.fillStyle = b.beak; g.beginPath(); g.moveTo(wx + wr * 0.42, wy - wr * 0.12); g.lineTo(wx + wr * 0.75, wy - wr * 0.04); g.lineTo(wx + wr * 0.42, wy + wr * 0.02); g.fill();
+    g.restore();
+    g.strokeStyle = 'rgba(200,230,255,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.ellipse(wx - wr * 0.4, wy - wr * 0.55, wr * 0.18, wr * 0.08, -0.6, 0, Math.PI * 2); g.fill();
+  }
+  const shuttleAtlas = makeAtlas(drawShuttle, 2, 2, 1);
+  const shuttle = cutout(shuttleAtlas, 9); sscene.add(shuttle);
+  let shuttleBird = null;
+  const SSTREAK = 60;
+  const sstreakGeo = new THREE.BufferGeometry(); sstreakGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SSTREAK * 6), 3));
+  const sstreaks = new THREE.LineSegments(sstreakGeo, new THREE.LineBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.7 }));
+  sscene.add(sstreaks);
+  const sstreakData = Array.from({ length: SSTREAK }, () => ({ x: Math.random() * 160 - 60, y: Math.random() * 60 - 30, z: Math.random() * 80 - 70 }));
+
+  function updateSpace(dt) {
+    const sp = S.space, body = F.SPACE[sp.dest];
+    setTarget(body); labelsEl.style.display = 'none';
+    // redraw the shuttle once per bird so the right bird is in the window
+    if (shuttleBird !== S.bird) {
+      shuttleBird = S.bird; shuttleBirdDef = F.birdOf(S);
+      const c = shuttleAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      for (let i = 0; i < 2; i++) { g.save(); g.translate(i * FW, 0); g.beginPath(); g.rect(0, 0, FW, FH); g.clip(); drawShuttle(g, i); g.restore(); }
+      shuttle.userData.tex.needsUpdate = true;
+    }
+    side.t += dt;
+    const p = sp.arrived ? 1 : clamp(sp.km / body.km, 0, 1);
+    const e = p * p * (3 - 2 * p), grow = Math.pow(p, 2.2);
+    // the destination grows ahead and to the right; Earth falls away behind
+    const tScale = body.star ? lerp(2, 16, grow) : lerp(3, body.id === 'moon' ? 22 : 34, grow);
+    target.scale.setScalar(tScale);
+    target.position.set(lerp(260, 34, grow), lerp(60, 4, grow), lerp(-700, -60, grow));
+    target.rotation.y += dt * 0.05;
+    const es = lerp(40, 1.5, e);
+    spaceEarth.scale.setScalar(es);
+    spaceEarth.position.set(lerp(-46, -500, e), lerp(-40, -60, e), lerp(-30, -600, e));
+    spaceEarth.rotation.y += dt * 0.03;
+    spaceEarth.visible = !sp.arrived || sp.dest === 0;
+    if (sp.arrived) { spaceEarth.visible = sp.dest === 0; spaceEarth.scale.setScalar(1.5); spaceEarth.position.set(-500, -60, -600); }
+    // shuttle: steady, a little bob; in orbit it drifts slowly around the planet's near side
+    const bob = Math.sin(side.t * 1.3) * 0.4;
+    shuttle.position.set(sp.arrived ? Math.sin(side.t * 0.2) * 3 : 0, bob, 0);
+    shuttle.userData.roll = sp.arrived ? 0.05 : -0.04 + Math.sin(side.t * 0.9) * 0.02;
+    setFrame(shuttle, sp.arrived ? 0 : Math.floor(side.t * 14) % 2);
+    // speed streaks while travelling
+    const sp2 = sstreakGeo.attributes.position, n = sp.arrived ? 0 : SSTREAK, speedK = 120 + 260 * (1 - p * 0.7);
+    for (let i = 0; i < n; i++) {
+      const d = sstreakData[i]; d.x -= speedK * dt;
+      if (d.x < -80) { d.x = 90 + Math.random() * 40; d.y = Math.random() * 60 - 30; d.z = Math.random() * 80 - 70; }
+      sp2.setXYZ(i * 2, d.x, d.y, d.z); sp2.setXYZ(i * 2 + 1, d.x + 6, d.y, d.z);
+    }
+    sp2.needsUpdate = true; sstreakGeo.setDrawRange(0, n * 2);
+    // camera: same raised side view as on Earth
+    fcam.position.set(3, 4.2, 22);
+    fcam.lookAt(4, 0.5, 0);
+    faceCamera(shuttle);
+    fr.render(sscene, fcam);
+  }
+
+  // the zoomed-out view while in space: Earth, the destination, and the bird between
+  const chartBody = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), targetMat);
+  scene.add(chartBody); chartBody.visible = false;
+  const chartLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const chartLine = new THREE.Line(chartLineGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 0.08, gapSize: 0.06, transparent: true, opacity: 0.85 }));
+  scene.add(chartLine); chartLine.visible = false;
+  const CHART_DIR = new THREE.Vector3(0.75, 0.22, -0.62).normalize();
+  function updateSpaceChart(dt) {
+    const sp = S.space, body = F.SPACE[sp.dest];
+    setTarget(body);
+    const D = sp.dest === 0 ? 7 : 12, r = body.star ? 1.2 : sp.dest === 0 ? 0.27 : 0.6;
+    const P = CHART_DIR.clone().multiplyScalar(D);
+    chartBody.visible = chartLine.visible = true; chartBody.scale.setScalar(r); chartBody.position.copy(P);
+    moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
+    const a = CHART_DIR.clone().multiplyScalar(1.02), b = P.clone().addScaledVector(CHART_DIR, -r * 1.05);
+    chartLineGeo.setFromPoints([a, b]); chartLine.computeLineDistances();
+    const p = sp.arrived ? 1 : clamp(sp.km / body.km, 0, 1);
+    const at = a.clone().lerp(b, p);
+    birdSprite.position.copy(at);
+    // frame Earth and the destination together; only the last stretch of zoom closes in on the bird
+    const q = clamp(Z / SIDE_B, 0, 1), dist = (D * 0.95 + 14 * Math.pow(1 - q, 2)) / Math.min(1, SW / SH + 0.15);
+    birdSprite.scale.setScalar(0.05 + dist * 0.01);
+    const side3 = new THREE.Vector3(0, 1, 0).cross(CHART_DIR).normalize();
+    const focus = P.clone().multiplyScalar(0.5).lerp(at, smooth(0.75, 1, q));
+    camera.position.copy(focus).addScaledVector(side3, -dist).add(new THREE.Vector3(0, dist * 0.35, 0));
+    camera.lookAt(focus);
+    sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
+    renderer.render(scene, camera);
+  }
+  function leaveSpaceChart() {
+    chartBody.visible = chartLine.visible = false; moon.visible = true; routeGroup.visible = true; nextSprite.visible = true;
   }
 
   // ======================================================================
@@ -1172,7 +1373,20 @@
     refreshUpgrades();
   });
 
+  let hudName = '', hudNameAt = 0, lapCache = null;
+  // km still to fly this lap, from the bird's position
+  function lapKmLeft() {
+    if (!lapCache || lapCache.route !== S.route) {
+      const lens = []; for (let k = 0; k < S.route.length - 1; k++) lens.push(F.distKm(CITIES[S.route[k]], CITIES[S.route[k + 1]]));
+      lapCache = { route: S.route, lens };
+    }
+    let km = lapCache.lens[S.ri] - S.legKm;
+    for (let k = S.ri + 1; k < lapCache.lens.length; k++) km += lapCache.lens[k];
+    return Math.max(0, km);
+  }
+  function setTrack(t) { $('trackFill').style.width = (t * 100) + '%'; $('trackDot').style.left = (t * 100) + '%'; }
   function refreshHud() {
+    if (S.space) return refreshSpaceHud();
     const v = F.speed(S), len = F.legLen(S), t = clamp(S.legKm / len, 0, 1);
     const g = currentGeo(), ocean = !isLand(g.lat, g.lon);
     const arrivalsPerSec = v / len;
@@ -1180,25 +1394,37 @@
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(rate)}/s`;
     const from = F.legFrom(S), to = F.legTo(S);
-    $('fromCity').innerHTML = `${from.name}<small>${from.region}</small>`;
-    $('toCity').innerHTML = `${to.name}<small>+${fmt(F.arrivalBonus(S))} seeds</small>`;
-    $('legKm').textContent = `${fmt(len - S.legKm, 0)} km left`;
-    $('trackFill').style.width = (t * 100) + '%'; $('trackDot').style.left = (t * 100) + '%';
     $('speed').textContent = fmt(v, v < 10 ? 1 : 0);
-    $('eta').textContent = fmtTime((len - S.legKm) / v);
+    if (len / v < 2.5) {
+      // cities pass faster than anyone can read: show the lap, name cities at a readable pace
+      const legs = F.lapLegs(S), now = performance.now(), left = lapKmLeft();
+      if (now - hudNameAt > 900) { hudNameAt = now; hudName = to.name; }
+      $('fromCity').innerHTML = `Lap ${S.lapsFlown + 1}<small>${S.ri} of ${legs} cities</small>`;
+      $('toCity').innerHTML = `${hudName}<small>passing</small>`;
+      $('legKm').textContent = `${fmt(left, 0)} km to go`;
+      setTrack(clamp((S.ri + t) / legs, 0, 1));
+      $('etaLabel').textContent = 'Lap done in'; $('eta').textContent = fmtTime(left / v);
+    } else {
+      $('fromCity').innerHTML = `${from.name}<small>${from.region}</small>`;
+      $('toCity').innerHTML = `${to.name}<small>${S.visited.includes(to.i) ? 'visited' : 'new · '}${S.visited.includes(to.i) ? '' : '+' + fmt(F.arrivalBonus(S)) + ' seeds'}</small>`;
+      $('legKm').textContent = `${fmt(len - S.legKm, 0)} km left`;
+      setTrack(t);
+      $('etaLabel').textContent = 'Arrive in'; $('eta').textContent = fmtTime((len - S.legKm) / v);
+    }
     const cap = F.boostCap(S.levels.stamina), b = Math.max(S.boost, F.flockBoost(S));
     $('ring').style.strokeDashoffset = 289 * (1 - b / cap);
     $('boostPct').textContent = `+${Math.round(b * 100)}%`;
     $('stampCount').textContent = S.visited.length;
+    $('btnShop').hidden = !(S.laps > 0 || S.feathers > 0); $('shopCount').textContent = fmt(S.feathers, 0);
     const rc = $('rushChip');
     $('stunChip').hidden = !(S.stun > 0);
     refreshWeatherChip();
     rc.hidden = !(S.rush > 0);
     if (S.rush > 0) $('rushLeft').textContent = Math.ceil(S.rush) + 's';
     const mig = $('btnMigrate');
-    if (S.leg >= CITIES.length) {
+    if (S.lapsFlown >= 1 && !S.space) {
       mig.classList.add('on');
-      $('migrateSub').textContent = `+${F.feathersFor(S.runSeeds)} golden feathers · keeps your passport`;
+      $('migrateSub').textContent = `+${fmt(F.feathersFor(S.runSeeds), 0)} golden feathers for new birds and perks`;
     } else mig.classList.remove('on');
   }
 
@@ -1207,7 +1433,8 @@
   let lastStampAt = 0;
   function stamp(city, bonus, first) {
     const now = performance.now();
-    if (now - lastStampAt < 1400) return; // at high speed, don't strobe
+    // at high speed first visits come constantly; space the stamps out
+    if (now - lastStampAt < (F.legLen(S) / F.speed(S) < 2.5 ? 4000 : 1400)) return;
     lastStampAt = now;
     const d = new Date(), date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }).toUpperCase();
     const name = city.name.toUpperCase();
@@ -1231,51 +1458,96 @@
     if (e.target === s && s.querySelector('[data-close]')) s.classList.remove('on');
   }));
 
-  let pickBird = 'sparrow';
+  let pickBird = 'pigeon';
   function birdPreview(cv, b) {
     cv.width = 240; cv.height = 150;
     const g = cv.getContext('2d'); g.scale(240 / FW, 150 / FH);
     drawBirdHD(g, 0.9, b);
   }
+  const TIER = { starter: 'Starter', common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' };
+  // mode: 'new' (first flight) or 'migrate'. When migrating, the feathers this
+  // run earns can already be spent on a new bird here.
   function buildStart(mode) {
-    const laps = S ? S.laps + (mode === 'migrate' ? 1 : 0) : 0;
+    const migrating = mode === 'migrate';
+    const pending = migrating ? F.feathersFor(S.runSeeds) : 0;
+    const purse = S ? S.feathers + pending : 0;
+    const owns = (b) => b.cost === 0 || (S && S.birds.includes(b.id));
+    if (!owns(BIRDS.find((x) => x.id === pickBird) || BIRDS[0])) pickBird = S ? S.bird : 'pigeon';
+    if (!S) pickBird = 'pigeon';
     const wrap = $('birdPick'); wrap.innerHTML = '';
     for (const b of BIRDS) {
-      const locked = b.laps > laps;
-      const el = document.createElement('button'); el.className = 'bird'; el.type = 'button';
-      el.disabled = locked; el.setAttribute('aria-pressed', b.id === pickBird);
-      el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}</b><small>${locked ? `Unlocks after ${b.laps} migration${b.laps > 1 ? 's' : ''}` : b.trait}</small>`;
+      const have = owns(b), afford = migrating && !have && purse >= b.cost;
+      const el = document.createElement('button'); el.className = 'bird tier-' + b.tier; el.type = 'button';
+      el.disabled = !have && !afford; el.setAttribute('aria-pressed', b.id === pickBird);
+      el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}</b>
+        <small>${have ? b.trait : `🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
+        ${b.tier !== 'starter' ? `<i class="tier">${TIER[b.tier]}</i>` : ''}`;
       birdPreview(el.querySelector('canvas'), b);
-      el.onclick = () => { pickBird = b.id; wrap.querySelectorAll('.bird').forEach((x) => x.setAttribute('aria-pressed', x === el)); };
+      el.onclick = () => { pickBird = b.id; wrap.querySelectorAll('.bird').forEach((x) => x.setAttribute('aria-pressed', x === el)); updateGo(); };
       wrap.append(el);
     }
     const sel = $('cityPick'); sel.innerHTML = '';
     const regions = [...new Set(CITIES.map((c) => c.region))];
     for (const r of regions) {
       const og = document.createElement('optgroup'); og.label = r;
-      for (const c of CITIES.filter((x) => x.region === r)) { const o = new Option(c.name, c.i); og.append(o); }
+      for (const c of CITIES.filter((x) => x.region === r).sort((p, q) => p.name.localeCompare(q.name))) og.append(new Option(c.name, c.i));
       sel.append(og);
     }
-    sel.value = S ? String(F.cityAt(S, S.leg).i) : String(CITIES.findIndex((c) => c.name === 'New York'));
-    const migrating = mode === 'migrate';
+    sel.value = S ? String(F.legFrom(S).i) : String(CITIES.findIndex((c) => c.name === 'New York'));
     $('startTitle').textContent = migrating ? 'Migrate again' : 'Flyway';
     $('startLede').textContent = migrating
-      ? `You keep your passport and gain ${F.feathersFor(S.runSeeds)} golden feathers (+${F.feathersFor(S.runSeeds) * 5}% speed and seeds, forever). Upgrades and seeds reset.`
-      : 'Pick a bird and a city. It flies the world on its own; you make it faster.';
-    $('btnGo').textContent = migrating ? 'Migrate' : 'Take off';
+      ? `Start a fresh run and bank ${fmt(pending, 0)} golden feathers (${fmt(purse, 0)} in all). Spend them on new birds here, or on permanent perks in the feather shop. Your passport, birds and perks stay; upgrades and seeds reset.`
+      : 'Pick a bird and a city. It flies the world on its own; you make it faster. Migrate after a lap to earn golden feathers for new birds.';
+    function updateGo() {
+      const b = BIRDS.find((x) => x.id === pickBird);
+      $('btnGo').textContent = migrating ? (owns(b) ? 'Migrate' : `Unlock ${b.name} and migrate`) : 'Take off';
+    }
+    updateGo();
     $('btnStartCancel').hidden = !migrating;
     $('btnGo').onclick = () => {
       const start = +sel.value;
-      if (migrating) S = F.migrateAgain(S, pickBird, start).state;
-      else S = F.newState(pickBird, start);
+      if (migrating) {
+        const b = BIRDS.find((x) => x.id === pickBird);
+        S = F.migrateAgain(S, owns(b) ? pickBird : S.bird, start).state;
+        if (!owns(b) && F.buyBird(S, b.id)) { S.bird = b.id; toast(`${b.name} unlocked!`); }
+      } else S = F.newState(pickBird, start);
       close('startSheet'); beginFlight(true);
     };
     $('btnStartCancel').onclick = () => close('startSheet');
   }
 
+  // ---------- feather shop ----------
+  function openShop() {
+    const box = $('shopList'); box.innerHTML = '';
+    $('shopPurse').textContent = fmt(S.feathers, 0);
+    for (const p of F.PERKS) {
+      const L = S.perks[p.id] || 0, maxed = p.max && L >= p.max, c = F.perkCost(p, L);
+      const li = document.createElement('li'); li.className = 'up';
+      li.innerHTML = `<div class="ic" aria-hidden="true">${p.icon}<span class="lv num">${L}</span></div>
+        <div><div class="nm">${p.name}</div><div class="fx">${p.blurb(L)}${maxed ? '' : '  →  ' + p.blurb(L + 1).replace(/^start each migration with /, '')}</div></div>
+        <button class="buy feather"${maxed || S.feathers < c ? ' disabled' : ''}><b class="num">${maxed ? 'Max' : '🪶 ' + fmt(c, 0)}</b><small>${maxed ? '' : 'forever'}</small></button>`;
+      li.querySelector('button').onclick = () => { if (F.buyPerk(S, p.id)) { save(); openShop(); refreshHud(); refreshUpgrades(); } };
+      box.append(li);
+    }
+    const birds = $('shopBirds'); birds.innerHTML = '';
+    for (const b of BIRDS.filter((x) => x.cost > 0)) {
+      const have = S.birds.includes(b.id), li = document.createElement('li'); li.className = 'up';
+      li.innerHTML = `<div class="ic bird-ic" aria-hidden="true"><canvas width="88" height="55"></canvas></div>
+        <div><div class="nm">${b.name} <i class="tier tier-${b.tier}">${TIER[b.tier]}</i></div><div class="fx">${b.trait}</div></div>
+        <button class="buy feather"${have || S.feathers < b.cost ? ' disabled' : ''}><b class="num">${have ? 'Owned' : '🪶 ' + fmt(b.cost, 0)}</b><small>${have ? 'pick when you migrate' : 'unlock'}</small></button>`;
+      const cv = li.querySelector('canvas'), g = cv.getContext('2d'); g.scale(88 / FW, 55 / FH); drawBirdHD(g, 0.9, b);
+      li.querySelector('button').onclick = () => { if (F.buyBird(S, b.id)) { save(); toast(`${b.name} unlocked. Pick it when you migrate.`); openShop(); } };
+      birds.append(li);
+    }
+    open('shopSheet');
+  }
+  $('btnShop').onclick = openShop;
+  $('btnShopMenu').onclick = () => { close('menuSheet'); openShop(); };
+
   $('btnMigrate').onclick = () => { buildStart('migrate'); open('startSheet'); };
-  $('btnLapMigrate').onclick = () => { close('lapSheet'); buildStart('migrate'); open('startSheet'); };
-  $('btnLapKeep').onclick = () => close('lapSheet');
+  const lapNoAsk = () => { if ($('lapNoAsk').checked) { S.noLapPrompt = true; save(); } };
+  $('btnLapMigrate').onclick = () => { lapNoAsk(); close('lapSheet'); buildStart('migrate'); open('startSheet'); };
+  $('btnLapKeep').onclick = () => { lapNoAsk(); close('lapSheet'); };
   $('btnPassport').onclick = () => {
     const box = $('stamps'); box.innerHTML = '';
     const regionCol = { 'North America': '#2557a7', 'South America': '#2b8a57', Africa: '#b5651d', Europe: '#7a3ea0', Asia: '#cf2e3a', Oceania: '#11808a' };
@@ -1285,15 +1557,25 @@
       d.textContent = got ? c.name : '?'; d.title = got ? `${c.name}, ${c.region}` : `Somewhere in ${c.region}`;
       box.append(d);
     }
-    $('passText').textContent = `${S.visited.length} of ${CITIES.length} cities stamped.`;
+    for (const b of F.SPACE) {
+      const got = S.cosmos.includes(b.id), d = document.createElement('div');
+      d.className = 'stamp world' + (got ? ' got' : ''); if (got) d.style.color = '#5b3d8a';
+      d.textContent = got ? b.short : '🌑'; d.title = got ? b.name : 'Somewhere out in space';
+      box.append(d);
+    }
+    $('passText').textContent = `${S.visited.length} of ${CITIES.length} cities and ${S.cosmos.length} of ${F.SPACE.length} worlds stamped.`;
     open('passSheet');
   };
   $('btnMenu').onclick = () => {
     const b = F.birdOf(S);
     $('menuStats').innerHTML = [
       ['Bird', b.name], ['Distance flown', fmt(S.totalKm) + ' km'], ['Cities reached', fmt(S.arrivals, 0)],
-      ['Migrations', S.laps], ['Golden feathers', `${S.feathers} (+${S.feathers * 5}%)`], ['Lap progress', `${S.leg % CITIES.length}/${CITIES.length}`],
+      ['Migrations', S.laps], ['Golden feathers', `🪶 ${fmt(S.feathers, 0)} to spend`],
+      ['Perks', `×${fmt(F.perkSpeed(S), 2)} speed · ×${fmt(F.perkSeeds(S), 2)} seeds`], ['Birds', `${S.birds.length} of ${BIRDS.length}`],
+      ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} cities`],
+      ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
+    $('optLapPrompt').checked = !S.noLapPrompt;
     open('menuSheet');
   };
   // two taps instead of confirm(), which webviews and app shells often block
@@ -1353,7 +1635,7 @@
       if (side.bug.t >= DIVE + CLIMB) side.bug = null;
       return;
     }
-    if (!L || side.threat) return;
+    if (!L || side.threat || S.space) return;
     side.bugT -= dt;
     if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) * (0.75 + Math.random() * 0.5); }
   }
@@ -1400,7 +1682,7 @@
       }
       return;
     }
-    if (S.arrivals < 3 || side.bug || anySheetOpen() || (S.wx && S.wx.type === 'storm')) return;
+    if (S.arrivals < 3 || side.bug || S.space || anySheetOpen() || (S.wx && S.wx.type === 'storm')) return;
     side.threatT -= dt;
     if (side.threatT > 0) return;
     side.threatT = F.THREAT.every(S);
@@ -1443,6 +1725,7 @@
   // ---------- weather (game side) ----------
   let lastForecastAt = 0, boltT = 5;
   function forecast(e) {
+    if (e.type !== 'arrive') return;
     const w = F.WEATHER[e.wx];
     // at high speed legs pass in a blink, so only call out the forecast when it will be felt
     const legSecs = F.legLen(S) / Math.max(F.speed(S), 1e-6), now = performance.now();
@@ -1451,7 +1734,7 @@
     setTimeout(() => toast(`${w.icon} ${w.name} on the way to ${F.legTo(S).name}: ${w.note}`), 900);
   }
   function tickWeather(dt) {
-    if (!S.wx || S.wx.type !== 'storm') return;
+    if (S.space || !S.wx || S.wx.type !== 'storm') return;
     boltT -= dt;
     if (boltT > 0) return;
     boltT = 4 + Math.random() * 5;
@@ -1460,10 +1743,118 @@
     S.boost = 0; side.shake = Math.max(side.shake || 0, 0.18);
   }
   function refreshWeatherChip() {
-    const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx], el = $('wx');
+    const el = $('wx');
+    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${w.note}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
   }
+
+  // ---------- space: HUD, arrivals, expedition panel ----------
+  function refreshSpaceHud() {
+    const sp = S.space, b = F.SPACE[sp.dest], v = F.spaceSpeed(S);
+    $('seeds').textContent = fmt(S.seeds);
+    $('rate').textContent = `+${fmt(F.seedRate(S, false))}/s`;
+    if (sp.arrived) {
+      const nb = F.SPACE[sp.dest + 1];
+      $('fromCity').innerHTML = `${b.short}<small>in orbit</small>`;
+      $('toCity').innerHTML = `${nb ? nb.short : '—'}<small>${nb ? (S.gear[nb.needs] ? 'ready to launch' : 'needs ' + F.GEAR.find((g) => g.id === nb.needs).name) : 'the end of the map'}</small>`;
+      $('legKm').textContent = ''; setTrack(1);
+      $('speed').textContent = '0'; $('etaLabel').textContent = 'Arrived'; $('eta').textContent = '✓';
+    } else {
+      $('fromCity').innerHTML = `${sp.from}<small>leaving</small>`;
+      $('toCity').innerHTML = `${b.short}<small>+${fmt(F.seedRate(S, false) * 120 * (sp.dest + 1))} seeds</small>`;
+      $('legKm').textContent = `${fmt(b.km - sp.km, 0)} km left`;
+      setTrack(clamp(sp.km / b.km, 0, 1));
+      $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = 'Arrive in'; $('eta').textContent = fmtTime((b.km - sp.km) / v);
+    }
+    $('ring').style.strokeDashoffset = 289; $('boostPct').textContent = 'in space';
+    $('stampCount').textContent = S.visited.length + S.cosmos.length;
+    $('stunChip').hidden = true; $('rushChip').hidden = true; refreshWeatherChip();
+    $('btnMigrate').classList.remove('on');
+  }
+  function spaceArrival(e) {
+    const name = e.body.short.toUpperCase();
+    pm.innerHTML = `<svg viewBox="0 0 172 172" width="172" height="172">
+      <defs><path id="pmArcS" d="M 26 86 A 60 60 0 1 1 146 86"/></defs>
+      <circle cx="86" cy="86" r="80" fill="none" stroke="currentColor" stroke-width="4"/>
+      <circle cx="86" cy="86" r="62" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 5"/>
+      <text font-family="Bricolage Grotesque, sans-serif" font-weight="800" font-size="${name.length > 11 ? 14 : 18}" fill="currentColor" letter-spacing="2"><textPath href="#pmArcS" startOffset="50%" text-anchor="middle">${name}</textPath></text>
+      <text x="86" y="96" text-anchor="middle" font-size="34">${e.body.star ? '✨' : '🪐'}</text>
+      <text x="86" y="124" text-anchor="middle" font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="12" fill="currentColor">${e.first ? 'FIRST LANDING' : 'FLYWAY'}</text>
+    </svg><div class="bonus">+${fmt(e.bonus)} 🌰</div>`;
+    pm.style.color = '#7a5bd0';
+    pm.classList.remove('show'); void pm.offsetWidth; pm.classList.add('show');
+    setTimeout(() => { pm.style.color = ''; }, 2700);
+    toast(`Reached ${e.body.name}!` + (e.first ? ' All seeds +25%, for good.' : ''));
+    expoKey = ''; refreshExpo(); save();
+  }
+  let expoKey = '';
+  function refreshExpo() {
+    const box = $('expo');
+    const g = F.nextGear(S), nb = F.nextBody(S), sp = S.space;
+    const show = S.lapsFlown >= 1 || S.laps > 0 || Object.keys(S.gear).length > 0 || S.cosmos.length > 0;
+    box.hidden = !show; if (!show) return;
+    const key = [g && g.id, nb && nb.id, sp && sp.dest, sp && sp.arrived].join('|');
+    if (key !== expoKey) {
+      expoKey = key;
+      const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
+      let action = '';
+      if (sp && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
+      else if (nb) action = `<button class="expo-launch" id="btnLaunch">🚀 ${sp ? 'Fly on to' : 'Launch to'} ${nb.name}</button>`;
+      if (sp && sp.arrived) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
+      box.innerHTML = `<div class="expo-head"><h3>Expedition</h3><span>${owned} of ${F.GEAR.length} gear · ${S.cosmos.length} of ${F.SPACE.length} worlds</span></div>
+        ${action}
+        ${g ? `<div class="up expo-gear"><div class="ic" aria-hidden="true">${g.icon}</div>
+          <div><div class="nm">${g.name}</div><div class="fx">${g.blurb}</div></div>
+          <button class="buy" id="btnGear"><b class="num">${fmt(g.cost)}</b><small>buy once</small></button></div>`
+        : '<p class="expo-note">All gear owned. Every world is within reach.</p>'}`;
+      const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear');
+      if (bl) bl.onclick = () => {
+        if (!F.launch(S)) return;
+        side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm');
+        ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); save();
+        toast(`Liftoff! Next stop: ${F.SPACE[S.space.dest].name}`);
+      };
+      if (bh) bh.onclick = () => {
+        F.returnToEarth(S); leaveSpaceChart(); resetSide(); rebuildRoute(); expoKey = ''; refreshExpo(); save();
+        toast(`Back on Earth over ${F.legFrom(S).name}.`);
+      };
+      if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
+    }
+    const bg = $('btnGear'); if (bg && g) bg.disabled = S.seeds < g.cost;
+  }
+
+  // ---------- admin (testing) ----------
+  // Hidden: tap the menu title five times, or open the game with #admin.
+  const adminEl = $('admin');
+  function adminOn() { adminEl.hidden = false; try { localStorage.setItem('flyway.admin', '1'); } catch (e) {} }
+  try { if (localStorage.getItem('flyway.admin') === '1' || /admin/.test(location.hash + location.search)) adminEl.hidden = false; } catch (e) {}
+  let titleTaps = [];
+  $('menuTitle').addEventListener('click', () => {
+    const now = Date.now(); titleTaps = titleTaps.filter((t) => now - t < 4000); titleTaps.push(now);
+    if (titleTaps.length >= 5) { titleTaps = []; adminOn(); }
+  });
+  function adminSeeds(n) {
+    if (!(n > 0) || !isFinite(n)) { toast('Enter an amount like 5000 or 2e12.'); return; }
+    S.seeds += n; refreshHud(); // not counted toward golden feathers refreshUpgrades(); expoKey = ''; refreshExpo(); save();
+    toast(`Added ${fmt(n)} seeds.`);
+  }
+  $('adminAdd').onclick = () => adminSeeds(Number(String($('adminAmt').value).replace(/,/g, '').trim()));
+  adminEl.querySelectorAll('[data-seeds]').forEach((b) => b.onclick = () => adminSeeds(Number(b.dataset.seeds)));
+  adminEl.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => {
+    const a = b.dataset.act;
+    if (a === 'x10') return adminSeeds(Math.max(S.seeds, 1) * 9);
+    if (a === 'feathers') { S.feathers += 10; toast('+10 golden feathers.'); }
+    if (a === 'lap' && !S.space) { S.ri = F.lapLegs(S) - 1; S.legKm = Math.max(0, F.legLen(S) - 1); rebuildRoute(); toast('Last leg of the lap.'); }
+    if (a === 'hawk' || a === 'hunter') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = a; side.threatT = 0; S.wx = { type: 'clear', left: 0 }; close('menuSheet'); }
+    if (a === 'bug') { side.bug = { t: 0, caught: false }; close('menuSheet'); }
+    if (a === 'storm' || a === 'tailwind') { S.wx = { type: a, left: 30 }; close('menuSheet'); }
+    if (a === 'gear') { for (const g of F.GEAR) S.gear[g.id] = true; expoKey = ''; refreshExpo(); toast('All gear unlocked.'); }
+    if (a === 'hide') { adminEl.hidden = true; try { localStorage.removeItem('flyway.admin'); } catch (e) {} }
+    refreshHud(); refreshUpgrades(); save();
+  });
+  $('optLapPrompt').onchange = (e) => { S.noLapPrompt = !e.target.checked; save(); };
 
   // ======================================================================
   // Main loop
@@ -1483,12 +1874,19 @@
       const g = currentGeo();
       const events = F.step(S, dt, !isLand(g.lat, g.lon));
       for (const e of events) {
-        stamp(e.city, e.bonus, e.first);
+        if (e.type === 'space') { spaceArrival(e); continue; }
+        if (e.first) stamp(e.city, e.bonus, true); // only the first time the bird lands somewhere
         forecast(e);
         if (e.lapDone && lapShownFor !== S.leg) {
           lapShownFor = S.leg;
-          $('lapText').textContent = `${F.birdOf(S).name} made it all the way around, ${fmt(S.totalKm)} km. Migrate again to bank ${F.feathersFor(S.runSeeds)} golden feathers, or keep flying to earn more first.`;
-          open('lapSheet');
+          if (S.noLapPrompt) toast(`Lap ${S.lapsFlown} done. The next lap takes a new route.`);
+          else {
+            const fe = F.feathersFor(S.runSeeds);
+            $('lapText').textContent = `${F.birdOf(S).name} made it all the way around. That's lap ${S.lapsFlown}. ` + (fe > 0
+              ? `Migrate again to bank ${fmt(fe, 0)} golden feathers for new birds and perks, or keep flying: the next lap takes a new route.`
+              : `Keep flying to earn golden feathers (they grow with the seeds you gather this run). The next lap takes a new route.`);
+            $('lapNoAsk').checked = false; open('lapSheet');
+          }
         }
       }
       if (events.length) rebuildRoute();
@@ -1497,9 +1895,14 @@
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
       sideCanvas.style.opacity = sa;
-      if (sa < 1) updateGlobe(dt);
-      if (sa > 0) updateFlight(dt);
-      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); }
+      if (S.space) {
+        if (sa < 1) updateSpaceChart(dt);
+        if (sa > 0) updateSpace(dt);
+      } else {
+        if (sa < 1) updateGlobe(dt);
+        if (sa > 0) updateFlight(dt);
+      }
+      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); }
       saveT += dt; if (saveT > 5) { saveT = 0; save(); }
     } else {
       // behind the start sheet: let the globe turn slowly
@@ -1547,5 +1950,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();

@@ -103,6 +103,39 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
 [hidden] { display: none !important; }
+.check { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--blue); }
+.expo { margin: 0 14px 10px; padding: 12px 12px 4px; border-radius: 12px; background: linear-gradient(160deg, #0b1533, #1b1640); color: #fff; }
+.expo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.expo-head h3 { font-family: var(--display); font-size: 17px; font-weight: 800; }
+.expo-head span { font-size: 12px; opacity: .75; }
+.expo-note { font-size: 13px; opacity: .85; margin: 8px 0; }
+.expo-launch { display: block; width: 100%; margin-top: 10px; padding: 11px; border-radius: 10px; background: var(--gold); color: var(--ink);
+  font-family: var(--display); font-weight: 800; font-size: 16px; box-shadow: 0 4px 0 #9b6c12; }
+.expo-home { display: block; width: 100%; margin-top: 8px; padding: 9px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); color: #fff; font-weight: 700; }
+.expo .up { border-bottom: 0; padding: 10px 0 8px; }
+.expo .up .ic { background: rgba(255,255,255,.12); }
+.expo .up .fx { color: rgba(255,255,255,.72); }
+.wx.wx-space { color: #7a5bd0; }
+.stamp.world.got { background: #f3efff; }
+.bird { position: relative; }
+.bird .tier { position: absolute; top: 5px; right: 6px; font-style: normal; font-size: 9.5px; font-weight: 800; padding: 1px 5px; border-radius: 999px; background: var(--paper-2); color: var(--ink-2); }
+.tier-rare .tier, .tier.tier-rare { background: #dbe8ff; color: #1d4a99; }
+.tier-epic .tier, .tier.tier-epic { background: #ece0ff; color: #5b2e9e; }
+.tier-legendary .tier, .tier.tier-legendary { background: #ffe9b0; color: #7a4c00; }
+.bird.tier-legendary { border-color: #f2d27a; }
+.nm .tier { font-style: normal; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px; background: var(--paper-2); vertical-align: middle; }
+.shop-h { font-family: var(--display); font-size: 16px; margin: 16px 0 2px; }
+.ups.shop { padding: 0; overflow: visible; }
+.buy.feather { background: var(--gold); color: var(--ink); box-shadow: 0 3px 0 #9b6c12; }
+.bird-ic { background: #fff !important; overflow: hidden; }
+.bird-ic canvas { width: 100%; height: 100%; }
+.admin { margin-top: 16px; padding: 12px; border-radius: 12px; border: 2px dashed #c9d1de; }
+.admin h4 { font-family: var(--display); font-size: 15px; margin-bottom: 8px; }
+.admin-row { display: flex; gap: 8px; }
+.admin-row input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 9px 10px; border-radius: 9px; border: 2px solid var(--paper-2); }
+.admin button { padding: 8px 10px; border-radius: 9px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; }
+.admin-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .wx { margin: 7px 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wx.wx-tailwind { color: #2b8a57; }
 .wx.wx-headwind { color: #9a5b12; }
@@ -242,6 +275,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <span class="chip rush" id="rushChip" hidden>🪲 Rush <strong class="num" id="rushLeft">0s</strong></span>
         <span class="chip stun" id="stunChip" hidden>Slowed</span>
         <span class="spacer"></span>
+        <button class="chip" id="btnShop" aria-label="Open the feather shop" hidden>🪶 <span class="num" id="shopCount">0</span></button>
         <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
       </div>
@@ -254,7 +288,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <div class="track"><i id="trackFill"></i><b id="trackDot"></b></div>
         <div class="legstats">
           <span>Speed <strong class="num" id="speed">0</strong> km/s</span>
-          <span>Arrive in <strong class="num" id="eta">—</strong></span>
+          <span><span id="etaLabel">Arrive in</span> <strong class="num" id="eta">—</strong></span>
         </div>
         <div class="wx" id="wx" aria-live="polite">☀️ Clear skies</div>
       </div>
@@ -290,6 +324,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
       <span style="font-size:24px">🪶</span>
       <span><strong id="migrateTitle">Migrate again</strong><small id="migrateSub"></small></span>
     </button>
+    <section class="expo" id="expo" aria-label="Expedition" hidden></section>
     <ul class="ups" id="ups"></ul>
   </section>
 </div>
@@ -319,8 +354,21 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
   <div class="card">
     <h3 id="lapTitle">Around the world</h3>
     <p id="lapText"></p>
+    <label class="check"><input type="checkbox" id="lapNoAsk"> Don't ask again</label>
     <button class="go" id="btnLapMigrate">Migrate again</button>
     <button class="ghost" id="btnLapKeep">Keep flying for now</button>
+  </div>
+</div>
+
+<div class="sheet" id="shopSheet" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+  <div class="card">
+    <button class="x" data-close aria-label="Close">×</button>
+    <h3 id="shopTitle">Feather shop</h3>
+    <p>You have 🪶 <strong class="num" id="shopPurse">0</strong> golden feathers. Everything here lasts through every migration.</p>
+    <h4 class="shop-h">Perks</h4>
+    <ul class="ups shop" id="shopList"></ul>
+    <h4 class="shop-h">Birds</h4>
+    <ul class="ups shop" id="shopBirds"></ul>
   </div>
 </div>
 
@@ -338,7 +386,21 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <button class="x" data-close aria-label="Close">×</button>
     <h3 id="menuTitle">Your flight</h3>
     <div class="stats" id="menuStats"></div>
-    <p style="font-size:13.5px">Golden feathers 🪶 come from migrating again after a full lap. Each one adds 5% speed and seeds, forever.</p>
+    <p style="font-size:13.5px">Golden feathers 🪶 come from migrating again after a full lap. Spend them on new birds and on perks that last forever.</p>
+    <button class="go" id="btnShopMenu" style="margin-top:12px">Open the feather shop</button>
+    <label class="check"><input type="checkbox" id="optLapPrompt" checked> Ask to migrate after each lap</label>
+    <div class="admin" id="admin" hidden>
+      <h4>Admin (testing)</h4>
+      <div class="admin-row"><input id="adminAmt" inputmode="decimal" autocomplete="off" placeholder="Seeds, e.g. 5000 or 2e12" aria-label="Seeds to add"><button id="adminAdd">Add</button></div>
+      <div class="admin-btns">
+        <button data-seeds="1e3">+1K</button><button data-seeds="1e6">+1M</button><button data-seeds="1e9">+1B</button>
+        <button data-seeds="1e12">+1T</button><button data-seeds="1e15">+1Qa</button><button data-seeds="1e18">+1Qi</button>
+        <button data-act="x10">Seeds ×10</button><button data-act="feathers">+10 feathers</button><button data-act="lap">Finish lap</button>
+        <button data-act="gear">All gear</button><button data-act="hawk">Hawk now</button><button data-act="hunter">Hunter now</button>
+        <button data-act="bug">Bug now</button><button data-act="storm">Storm</button><button data-act="tailwind">Tailwind</button>
+        <button data-act="hide">Hide admin</button>
+      </div>
+    </div>
     <button class="ghost" id="btnReset" style="color:var(--red)">Start over from scratch</button>
     <p class="back"><a href="/">Back to FreeFowl Arcade</a></p>
   </div>
