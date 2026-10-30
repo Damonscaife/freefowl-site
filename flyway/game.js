@@ -1459,10 +1459,13 @@
   }));
 
   let pickBird = 'pigeon';
-  function birdPreview(cv, b) {
+  // an unowned secret bird shows only as a dark shape with a question mark
+  function silhouette(b) { return Object.assign({}, b, { body: '#1a1a22', wing: '#121218', belly: '#24242e', beak: '#1a1a22', cap: '#1a1a22', head: null, eye: '#1a1a22' }); }
+  function birdPreview(cv, b, hidden) {
     cv.width = 240; cv.height = 150;
     const g = cv.getContext('2d'); g.scale(240 / FW, 150 / FH);
-    drawBirdHD(g, 0.9, b);
+    drawBirdHD(g, 0.9, hidden ? silhouette(b) : b);
+    if (hidden) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#b9a8ff'; g.font = "800 54px 'Bricolage Grotesque', sans-serif"; g.textAlign = 'center'; g.fillText('?', 120, 92); }
   }
   const TIER = { starter: 'Starter', common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' };
   // mode: 'new' (first flight) or 'migrate'. When migrating, the feathers this
@@ -1480,9 +1483,9 @@
       const el = document.createElement('button'); el.className = 'bird tier-' + b.tier; el.type = 'button';
       el.disabled = !have && !afford; el.setAttribute('aria-pressed', b.id === pickBird);
       el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}</b>
-        <small>${have ? b.trait : `🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
+        <small>${have ? b.trait : `${b.secret ? 'Specs unknown · ' : ''}🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
         ${b.tier !== 'starter' ? `<i class="tier">${TIER[b.tier]}</i>` : ''}`;
-      birdPreview(el.querySelector('canvas'), b);
+      birdPreview(el.querySelector('canvas'), b, b.secret && !have);
       el.onclick = () => { pickBird = b.id; wrap.querySelectorAll('.bird').forEach((x) => x.setAttribute('aria-pressed', x === el)); updateGo(); };
       wrap.append(el);
     }
@@ -1509,7 +1512,7 @@
       if (migrating) {
         const b = BIRDS.find((x) => x.id === pickBird);
         S = F.migrateAgain(S, owns(b) ? pickBird : S.bird, start).state;
-        if (!owns(b) && F.buyBird(S, b.id)) { S.bird = b.id; toast(`${b.name} unlocked!`); }
+        if (!owns(b) && F.buyBird(S, b.id)) { S.bird = b.id; toast(b.secret ? `${b.name} unlocked: ${b.trait}!` : `${b.name} unlocked!`); }
       } else S = F.newState(pickBird, start);
       close('startSheet'); beginFlight(true);
     };
@@ -1533,10 +1536,10 @@
     for (const b of BIRDS.filter((x) => x.cost > 0)) {
       const have = S.birds.includes(b.id), li = document.createElement('li'); li.className = 'up';
       li.innerHTML = `<div class="ic bird-ic" aria-hidden="true"><canvas width="88" height="55"></canvas></div>
-        <div><div class="nm">${b.name} <i class="tier tier-${b.tier}">${TIER[b.tier]}</i></div><div class="fx">${b.trait}</div></div>
+        <div><div class="nm">${b.name} <i class="tier tier-${b.tier}">${TIER[b.tier]}</i></div><div class="fx">${b.secret && !have ? 'Specs unknown until you own it' : b.trait}</div></div>
         <button class="buy feather"${have || S.feathers < b.cost ? ' disabled' : ''}><b class="num">${have ? 'Owned' : '🪶 ' + fmt(b.cost, 0)}</b><small>${have ? 'pick when you migrate' : 'unlock'}</small></button>`;
-      const cv = li.querySelector('canvas'), g = cv.getContext('2d'); g.scale(88 / FW, 55 / FH); drawBirdHD(g, 0.9, b);
-      li.querySelector('button').onclick = () => { if (F.buyBird(S, b.id)) { save(); toast(`${b.name} unlocked. Pick it when you migrate.`); openShop(); } };
+      const cv = li.querySelector('canvas'), g = cv.getContext('2d'); g.scale(88 / FW, 55 / FH); drawBirdHD(g, 0.9, b.secret && !have ? silhouette(b) : b);
+      li.querySelector('button').onclick = () => { if (F.buyBird(S, b.id)) { save(); toast(b.secret ? `${b.name} unlocked: ${b.trait}!` : `${b.name} unlocked. Pick it when you migrate.`); openShop(); } };
       birds.append(li);
     }
     open('shopSheet');

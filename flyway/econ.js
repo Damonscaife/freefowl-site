@@ -160,16 +160,17 @@
       body: '#5c6670', wing: '#3a424a', belly: '#efe8dc', beak: '#f2c230', cap: '#22282e', hook: true },
     { id: 'eagle', name: 'Bald Eagle', cost: 300, tier: 'epic', trait: '2.5× speed and seeds; half the flaps to win fights', speed: 2.5, seeds: 2.5, stamina: 2, fight: 2,
       body: '#4a3222', wing: '#3a2618', belly: '#4a3222', beak: '#f2b630', cap: '#ffffff', head: '#ffffff', hook: true },
-    { id: 'shadow', name: 'Shadow Falcon', cost: 1000, tier: 'epic', trait: '4× speed, 3× seeds; predators rarely see it', speed: 4, seeds: 3, stamina: 2, camo: 3,
-      body: '#2a2340', wing: '#171226', belly: '#3d3360', beak: '#9b8cff', cap: '#120e1f', hook: true, eye: '#b9a8ff' },
     { id: 'rooster', name: 'Rooster', cost: 250000, tier: 'legendary', trait: '10× seeds, crows up a tailwind every city', speed: 4, seeds: 10, stamina: 3, crow: true,
       body: '#b5532a', wing: '#2f5a3a', belly: '#d97a3a', beak: '#f2c230', cap: '#b5532a', comb: true, longTail: true },
     { id: 'penguin', name: 'Emperor Penguin', cost: 2000000, tier: 'legendary', trait: '8× speed, 8× seeds, 6× over ocean', speed: 8, seeds: 8, stamina: 3, ocean: 6,
       body: '#1b1d24', wing: '#15161c', belly: '#f6f4ee', beak: '#f08a2e', cap: '#1b1d24', cheek: '#f2c230', stubby: true },
     { id: 'kiwi', name: 'Kiwi', cost: 20000000, tier: 'legendary', trait: '20× speed, 12× seeds', speed: 20, seeds: 12, stamina: 4,
       body: '#7a5a38', wing: '#6a4c2e', belly: '#8c6a44', beak: '#d8c79a', cap: '#7a5a38', longBeak: true, stubby: true },
-    { id: 'dodo', name: 'Dodo', cost: 500000000, tier: 'legendary', trait: 'Back from extinction: 40× everything', speed: 40, seeds: 40, stamina: 5,
+    { id: 'dodo', name: 'Dodo', cost: 500000000, tier: 'legendary', trait: '10× everything, but predators find it twice as often and strike twice as fast', speed: 10, seeds: 10, stamina: 10, prey: 2,
       body: '#8c8a86', wing: '#6e6c69', belly: '#a9a6a0', beak: '#e0c48a', cap: '#8c8a86', bigBeak: true, stubby: true, longTail: true },
+    // the secret one: its specs stay hidden until it is bought
+    { id: 'shadow', name: 'Shadow Falcon', cost: 10000000000, tier: 'legendary', secret: true, trait: '69× everything', speed: 69, seeds: 69, stamina: 69, fight: 69, camo: 69,
+      body: '#2a2340', wing: '#171226', belly: '#3d3360', beak: '#9b8cff', cap: '#120e1f', hook: true, eye: '#b9a8ff' },
   ];
 
   // Permanent upgrades bought with golden feathers. They survive every migration.
@@ -311,10 +312,10 @@
   // meter before it strikes. Escaping pays a bonus; getting caught costs one flock
   // follower (or 10% of seeds with no flock) and halves speed for a few seconds.
   const THREAT = {
-    warn: (s) => 2 + 0.4 * s.levels.keen,                  // seconds of warning
+    warn: (s) => (2 + 0.4 * s.levels.keen) / (birdOf(s).prey || 1), // seconds of warning (the dodo gets half)
     taps: (s) => Math.max(2, Math.ceil((8 - Math.min(5, s.levels.keen)) / (birdOf(s).fight || 1))), // flaps needed vs hawk/owl
     climb: (s) => Math.max(0.6, 1.3 - 0.1 * s.levels.keen),// seconds of climbing vs hunter
-    every: (s) => (75 + Math.random() * 45) * (1 + 0.3 * s.levels.camo) * (birdOf(s).camo || 1),
+    every: (s) => (75 + Math.random() * 45) * (1 + 0.3 * s.levels.camo) * (birdOf(s).camo || 1) / (birdOf(s).prey || 1),
     STUN: 4,
   };
   function escapeBonus(s) { return seedRate(s, false) * 20; }
