@@ -112,6 +112,7 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .expo-note { font-size: 13px; opacity: .85; margin: 8px 0; }
 .expo-launch { display: block; width: 100%; margin-top: 10px; padding: 11px; border-radius: 10px; background: var(--gold); color: var(--ink);
   font-family: var(--display); font-weight: 800; font-size: 16px; box-shadow: 0 4px 0 #9b6c12; }
+.expo-launch[disabled] { opacity: .5; box-shadow: none; }
 .expo-home { display: block; width: 100%; margin-top: 8px; padding: 9px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); color: #fff; font-weight: 700; }
 .expo .up { border-bottom: 0; padding: 10px 0 8px; }
 .expo .up .ic { background: rgba(255,255,255,.12); }
@@ -396,7 +397,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <button class="x" data-close aria-label="Close">×</button>
     <h3 id="menuTitle">Your flight</h3>
     <div class="stats" id="menuStats"></div>
-    <p style="font-size:13.5px">Golden feathers 🪶 come from migrating again after a full lap. Spend them on new birds and on perks that last forever.</p>
+    <p style="font-size:13.5px">Golden feathers 🪶: 5 for every lap around the globe, and a bonus when you migrate. Spend them on new birds and on perks that last forever.</p>
     <button class="go" id="btnShopMenu" style="margin-top:12px">Open the feather shop</button>
     <label class="check"><input type="checkbox" id="optLapPrompt" checked> Ask to migrate after each lap</label>
     <div class="admin" id="admin" hidden>
@@ -408,7 +409,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <button data-act="x10">Seeds ×10</button><button data-act="feathers">+10 feathers</button><button data-act="lap">Finish lap</button>
         <button data-act="gear">All gear</button><button data-act="hawk">Hawk now</button><button data-act="hunter">Hunter now</button>
         <button data-act="bug">Bug now</button><button data-act="storm">Storm</button><button data-act="tailwind">Tailwind</button>
-        <button data-act="orbit">Orbital speed now</button><button data-act="rocks">+100 moon rocks</button><button data-act="raider">Raider now</button>
+        <button data-act="orbit">Orbital speed now</button><button data-act="laps10">+10 lifetime laps</button><button data-act="birds">Unlock all birds</button><button data-act="rocks">+100 moon rocks</button><button data-act="raider">Raider now</button>
         <button data-act="hide">Hide admin</button>
       </div>
     </div>

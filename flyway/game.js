@@ -190,17 +190,60 @@
   // Route: the full loop dimly, legs already flown in gold, the live leg growing.
   const routeGroup = new THREE.Group(); scene.add(routeGroup);
   const ROUTE_R = 1.004;
+  // Legs arc up off the globe like flight paths: higher for longer hops.
+  // Nonstop circles (open-sky waypoints) hold a steady altitude instead.
+  function legLift(a, b, t) {
+    if (a.v || b.v) return 0.04;
+    const d = F.distKm(a, b) / 6371;
+    return Math.min(0.14, d * 0.12) * Math.sin(Math.PI * clamp(t, 0, 1));
+  }
   function arcPoints(a, b, r = ROUTE_R, tEnd = 1) {
     const n = Math.max(8, Math.ceil(F.distKm(a, b) / 120 * tEnd));
     const pts = [];
-    for (let i = 0; i <= n; i++) { const g = F.lerpGeo(a, b, (i / n) * tEnd); pts.push(geoVec(g.lat, g.lon, r)); }
+    for (let i = 0; i <= n; i++) { const t = (i / n) * tEnd, g = F.lerpGeo(a, b, t); pts.push(geoVec(g.lat, g.lon, r + legLift(a, b, t))); }
     return pts;
   }
   let loopLine = null, doneLine = null;
-  const liveGeo = new THREE.BufferGeometry();
-  liveGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(400 * 3), 3));
-  const liveLine = new THREE.Line(liveGeo, new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.95 }));
-  routeGroup.add(liveLine);
+  // The bird's trail: a short gold ribbon that tapers and fades out behind it.
+  // (A ribbon, not a line, so it has width on every device.)
+  const TRAIL_N = 64, TRAIL_LEN = 0.45; // points, and length in globe radii
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
+  trailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 4), 4));
+  {
+    const idx = [];
+    for (let k = 0; k < TRAIL_N - 1; k++) { const a0 = k * 2; idx.push(a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2); }
+    trailGeo.setIndex(idx);
+  }
+  const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  trailMesh.renderOrder = 4; trailMesh.frustumCulled = false;
+  routeGroup.add(trailMesh);
+  let trail = [];
+  function updateTrail(head, width) {
+    // 'trail' holds points laid down behind the bird; the head is added fresh each frame
+    const last = trail[trail.length - 1];
+    if (last && last.distanceTo(head) > 0.6) trail = []; // a jump (new route, back from space): start fresh
+    if (!trail.length || trail[trail.length - 1].distanceTo(head) > 0.004) trail.push(head.clone());
+    trail = trail.concat([head.clone()]); // temporary head point for drawing
+    let len = 0;
+    for (let k = trail.length - 1; k > 0; k--) { len += trail[k].distanceTo(trail[k - 1]); if (len > TRAIL_LEN) { trail = trail.slice(k); break; } }
+    if (trail.length > TRAIL_N) trail = trail.slice(trail.length - TRAIL_N);
+    const pa = trailGeo.attributes.position, ca = trailGeo.attributes.color, n = trail.length;
+    const side = new THREE.Vector3(), dir = new THREE.Vector3();
+    for (let k = 0; k < TRAIL_N; k++) {
+      if (k >= n || n < 2) { pa.setXYZ(k * 2, 0, 0, 0); pa.setXYZ(k * 2 + 1, 0, 0, 0); ca.setXYZW(k * 2, 0, 0, 0, 0); ca.setXYZW(k * 2 + 1, 0, 0, 0, 0); continue; }
+      const p = trail[k], q = trail[Math.min(n - 1, k + 1)], o = trail[Math.max(0, k - 1)];
+      dir.subVectors(q, o).normalize();
+      side.crossVectors(dir, p).normalize();           // across the path, flat on the globe
+      const t = k / (n - 1), w = width * (0.25 + 0.75 * t), a = t * t;
+      pa.setXYZ(k * 2, p.x + side.x * w, p.y + side.y * w, p.z + side.z * w);
+      pa.setXYZ(k * 2 + 1, p.x - side.x * w, p.y - side.y * w, p.z - side.z * w);
+      ca.setXYZW(k * 2, 1, 0.83, 0.42, a * 0.9); ca.setXYZW(k * 2 + 1, 1, 0.83, 0.42, a * 0.9);
+    }
+    pa.needsUpdate = true; ca.needsUpdate = true;
+    trailGeo.setDrawRange(0, Math.max(0, (n - 1) * 6));
+    trail.pop(); // drop the temporary head again
+  }
   let cityPoints = null;
   const birdSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff3c9', 'rgba(227,165,43,.7)'), depthTest: false, transparent: true }));
   birdSprite.renderOrder = 5; scene.add(birdSprite);
@@ -210,15 +253,13 @@
   function rebuildRoute() {
     for (const l of [loopLine, doneLine, cityPoints]) if (l) { routeGroup.remove(l); l.geometry.dispose(); }
     const all = [];
-    for (let k = 0; k < S.route.length - 1; k++) all.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]]));
+    for (let k = 0; k < S.route.length - 1; k++) all.push(...arcPoints(F.routePt(S, k), F.routePt(S, k + 1)));
     loopLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(all),
       new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, dashSize: 0.012, gapSize: 0.01 }));
     loopLine.computeLineDistances(); loopLine.visible = false; // no dotted route ahead: the next stop's dot is enough
     routeGroup.add(loopLine);
-    const done = [];
-    for (let k = 0; k < S.ri; k++) done.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]], ROUTE_R + 0.0005));
-    doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(done.length ? done : [new THREE.Vector3()]),
-      new THREE.LineBasicMaterial({ color: 0xe3a52b, transparent: true, opacity: done.length ? 0.9 : 0 }));
+    // (no long gold line for legs already flown: the fading trail shows where the bird has been)
+    doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), new THREE.LineBasicMaterial({ visible: false }));
     routeGroup.add(doneLine);
     const pos = [], col = [];
     for (const c of CITIES) {
@@ -233,12 +274,7 @@
       map: dotTexture('#fff', 'rgba(255,255,255,.4)'), transparent: true, depthWrite: false }));
     routeGroup.add(cityPoints);
   }
-  function updateLiveLine(t) {
-    const pts = arcPoints(F.legFrom(S), F.legTo(S), ROUTE_R + 0.001, Math.max(0.001, t)).slice(0, 400);
-    const a = liveGeo.attributes.position;
-    pts.forEach((p, i) => a.setXYZ(i, p.x, p.y, p.z));
-    a.needsUpdate = true; liveGeo.setDrawRange(0, pts.length); liveGeo.computeBoundingSphere();
-  }
+
 
   // ======================================================================
   // Close-up: 3D flight view, elevated side profile.
@@ -951,7 +987,7 @@
       const nx = last.grp.position.x + CW, sec = Math.max(0, nx / u);
       const left = (F.legLen(S) - S.legKm) / Math.max(v, 1e-6);
       // skip the skyline when legs fly by in a blink; the ticket shows lap progress instead
-      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0 && F.legLen(S) / v >= 3) {
+      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0 && F.legLen(S) / v >= 3 && !F.legTo(S).v) {
         side.cityLeg = S.leg + 1;
         const to = F.legTo(S); pushChunk(nx, 'city', to, to.name);
       } else { const g = lookahead(sec); pushChunk(nx, world.nextType || kindAt(g), g); }
@@ -1521,22 +1557,32 @@
     const dist = 1.05 + 11 * Math.pow(1 - q, 2.2);
     const g = currentGeo();
     const bv = geoVec(g.lat, g.lon, 1);
-    // follow the bird smoothly; at speed it jumps city to city every frame
-    camDir.lerp(bv, 1 - Math.exp(-dt * (q > 0.6 ? 6 : 2.5))).normalize();
-    const south = new THREE.Vector3(0, -1, 0).addScaledVector(camDir, camDir.y).normalize();
+    // The camera is locked to the bird: the bird stays put, flying left to
+    // right across the screen, and the Earth turns underneath it. Only the
+    // heading is smoothed (it turns at each stop), never the position.
+    camDir.copy(bv);
+    const legT0 = clamp(S.legKm / F.legLen(S), 0, 1);
+    const ahead = F.lerpGeo(F.legFrom(S), F.legTo(S), Math.min(1, legT0 + 0.01));
+    let h = geoVec(ahead.lat, ahead.lon, 1).sub(bv);
+    if (h.lengthSq() < 1e-12) h = side.camHead ? side.camHead.clone() : new THREE.Vector3(0, 1, 0).cross(bv);
+    h.addScaledVector(bv, -h.dot(bv)).normalize();
+    if (!side.camHead) side.camHead = h.clone();
+    side.camHead.lerp(h, 1 - Math.exp(-dt * 3)).addScaledVector(bv, -side.camHead.dot(bv)).normalize();
+    const upV = new THREE.Vector3().crossVectors(bv, side.camHead).normalize(); // screen up; screen right = heading
     const tilt = 0.55 * smooth(0.55, 1, q);
-    camera.position.copy(camDir).multiplyScalar(dist).addScaledVector(south, tilt * (dist - 0.95));
-    camera.up.set(0, 1, 0);
+    camera.position.copy(camDir).multiplyScalar(dist).addScaledVector(upV, -tilt * (dist - 0.95));
+    camera.up.copy(upV);
     const look = camDir.clone().multiplyScalar(smooth(0.35, 0.95, q));
     camera.lookAt(look);
     // light rides with the camera (a little up and left) so the day/night line stays off the visible face
     sun.position.copy(camera.position).add(new THREE.Vector3(-0.15, 0.25, 0).multiplyScalar(camera.position.length()));
     clouds.rotation.y += dt * 0.004;
-    birdSprite.position.copy(geoVec(g.lat, g.lon, 1.008));
+    const legT = clamp(S.legKm / F.legLen(S), 0, 1);
+    birdSprite.position.copy(geoVec(g.lat, g.lon, ROUTE_R + 0.004 + legLift(F.legFrom(S), F.legTo(S), legT)));
+    updateTrail(birdSprite.position, 0.006 + (dist - 1) * 0.0055);
     const bs = 0.004 + (dist - 1) * 0.03; birdSprite.scale.set(bs, bs, 1);
     const to = F.legTo(S); nextSprite.position.copy(geoVec(to.lat, to.lon, 1.007));
     const ns = (0.008 + (dist - 1) * 0.02) * (1 + 0.25 * Math.sin(performance.now() / 250)); nextSprite.scale.set(ns, ns, 1);
-    updateLiveLine(clamp(S.legKm / F.legLen(S), 0, 1));
     renderer.render(scene, camera);
     placeLabels();
   }
@@ -1664,7 +1710,7 @@
   // km still to fly this lap, from the bird's position
   function lapKmLeft() {
     if (!lapCache || lapCache.route !== S.route) {
-      const lens = []; for (let k = 0; k < S.route.length - 1; k++) lens.push(F.distKm(CITIES[S.route[k]], CITIES[S.route[k + 1]]));
+      const lens = []; for (let k = 0; k < S.route.length - 1; k++) lens.push(F.distKm(F.routePt(S, k), F.routePt(S, k + 1)));
       lapCache = { route: S.route, lens };
     }
     let km = lapCache.lens[S.ri] - S.legKm;
@@ -1686,14 +1732,16 @@
       // cities pass faster than anyone can read: show the lap, name cities at a readable pace
       const legs = F.lapLegs(S), now = performance.now(), left = lapKmLeft();
       if (now - hudNameAt > 900) { hudNameAt = now; hudName = to.name; }
-      $('fromCity').innerHTML = `${F.isOrbit(S) ? 'Orbit' : 'Lap'} ${S.lapsFlown + 1}<small>${S.ri} of ${legs} stops</small>`;
-      $('toCity').innerHTML = `${hudName}<small>passing</small>`;
+      $('fromCity').innerHTML = F.isNonstop(S) ? `Lap ${fmt(S.lapsTotal + 1, 0)}<small>nonstop around the globe</small>`
+        : `${F.isOrbit(S) ? 'Orbit' : 'Lap'} ${S.lapsFlown + 1}<small>${S.ri} of ${legs} stops</small>`;
+      $('toCity').innerHTML = `${hudName}<small>${F.isNonstop(S) ? 'passing over' : 'passing'}</small>`;
       $('legKm').textContent = `${fmt(left, 0)} km to go`;
       setTrack(clamp((S.ri + t) / legs, 0, 1));
       $('etaLabel').textContent = 'Lap done in'; $('eta').textContent = fmtTime(left / v);
     } else {
-      $('fromCity').innerHTML = `${from.name}<small>${from.region}</small>`;
-      $('toCity').innerHTML = `${to.name}<small>${S.visited.includes(to.i) ? 'visited' : 'new · '}${S.visited.includes(to.i) ? '' : '+' + fmt(F.arrivalBonus(S)) + ' seeds'}</small>`;
+      $('fromCity').innerHTML = `${from.name}<small>${S.lapsTotal >= 100 ? 'lap ' + fmt(S.lapsTotal + 1, 0) : from.region}</small>`;
+      $('toCity').innerHTML = to.v ? `${to.name}<small>open sky</small>`
+        : `${to.name}<small>${S.visited.includes(to.i) ? 'visited' : 'new · '}${S.visited.includes(to.i) ? '' : '+' + fmt(F.arrivalBonus(S)) + ' seeds'}</small>`;
       $('legKm').textContent = `${fmt(len - S.legKm, 0)} km left`;
       setTrack(t);
       $('etaLabel').textContent = 'Arrive in'; $('eta').textContent = fmtTime((len - S.legKm) / v);
@@ -1711,7 +1759,7 @@
     const mig = $('btnMigrate');
     if (S.lapsFlown >= 1 && !S.space) {
       mig.classList.add('on');
-      $('migrateSub').textContent = `+${fmt(F.feathersFor(S.runSeeds), 0)} golden feathers for new birds and perks`;
+      $('migrateSub').textContent = `+${fmt(F.migrateBonus(S), 0)} bonus golden feathers (this run's again)`;
     } else mig.classList.remove('on');
   }
 
@@ -1766,7 +1814,7 @@
   // run earns can already be spent on a new bird here.
   function buildStart(mode) {
     const migrating = mode === 'migrate';
-    const pending = migrating ? F.feathersFor(S.runSeeds) : 0;
+    const pending = migrating ? F.migrateBonus(S) : 0;
     const purse = S ? S.feathers + pending : 0;
     const owns = (b) => b.cost === 0 || (S && S.birds.includes(b.id));
     if (!owns(BIRDS.find((x) => x.id === pickBird) || BIRDS[0])) pickBird = S ? S.bird : 'pigeon';
@@ -1793,8 +1841,8 @@
     sel.value = S ? String(F.legFrom(S).i) : String(CITIES.findIndex((c) => c.name === 'New York'));
     $('startTitle').textContent = migrating ? 'Migrate again' : 'Flyway';
     $('startLede').textContent = migrating
-      ? `Start a fresh run and bank ${fmt(pending, 0)} golden feathers (${fmt(purse, 0)} in all). Spend them on new birds here, or on permanent perks in the feather shop. Your passport, birds and perks stay; upgrades and seeds reset.`
-      : 'Pick a bird and a city. It flies the world on its own; you make it faster. Migrate after a lap to earn golden feathers for new birds.';
+      ? `Start a fresh run and get ${fmt(pending, 0)} bonus golden feathers (${fmt(purse, 0)} in all). Spend them on new birds here, or on permanent perks in the feather shop. Your passport, birds and perks stay; upgrades and seeds reset.`
+      : 'Pick a bird and a city. It flies the world on its own; you make it faster. Every lap around the globe earns 5 golden feathers for new birds.';
     function updateGo() {
       const b = BIRDS.find((x) => x.id === pickBird);
       $('btnGo').textContent = migrating ? (owns(b) ? 'Migrate' : `Unlock ${b.name} and migrate`) : 'Take off';
@@ -1870,7 +1918,8 @@
       ['Migrations', S.laps], ['Golden feathers', `🪶 ${fmt(S.feathers, 0)} to spend`],
       ['Perks', `×${fmt(F.perkSpeed(S), 2)} speed · ×${fmt(F.perkSeeds(S), 2)} seeds`], ['Birds', `${S.birds.length} of ${BIRDS.length}`],
       ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} stops`],
-      ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`], ['Moon rocks', `🌙 ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
+      ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`],
+      ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Moon rocks', `🌙 ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
@@ -2073,6 +2122,7 @@
       const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.LOOP_KM;
       $('fromCity').innerHTML = `${out ? 'Earth' : 'Moon'}<small>trip ${sp.trips + 1}</small>`;
       $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} 🌙 on return`}</small>`;
+      $('wx').textContent = `⛽ Fuel for ${Math.ceil(S.moon.fuel)} more round trip${Math.ceil(S.moon.fuel) === 1 ? '' : 's'} · ${fmt(S.moon.trips, 0)} done`;
       $('legKm').textContent = `${fmt(left, 0)} km left`;
       setTrack(clamp(sp.u, 0, 1));
       $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = out ? 'Moon in' : 'Home in'; $('eta').textContent = fmtTime(left / v);
@@ -2127,8 +2177,8 @@
       expoKey = key;
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
-      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button>`;
-      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home moon rocks.</p>`;
+      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button><p class="expo-note" id="fuelNote"></p>`;
+      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home moon rocks.</p><p class="expo-note" id="fuelNote"></p>`;
       if (sp && !sp.loop && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
       else if (nb && (!sp || sp.loop || sp.arrived)) action += `<button class="expo-launch" id="btnLaunch">🚀 Fly on to ${nb.name}</button>`;
       if (sp && (sp.arrived || sp.loop)) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
@@ -2163,6 +2213,10 @@
       if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
     }
     const bg = $('btnGear'); if (bg && g) bg.disabled = S.seeds < g.cost;
+    const fn = $('fuelNote'), mx = F.fuelMax(S), fu = S.moon.fuel || 0;
+    if (fn) fn.textContent = sp ? `⛽ Fuel: ${Math.ceil(fu)} of ${mx} round trips left. Refuels only on Earth.`
+      : fu >= mx ? `⛽ Fuel full: ${mx} round trips.` : `⛽ Refueling on Earth: ${Math.floor(fu)} of ${mx} round trips, full in ${fmtTime((mx - fu) * F.REFUEL_SECS)}.`;
+    const bo = $('btnLoop'); if (bo) bo.disabled = fu < 1;
     refreshRocks();
   }
   function refreshRocks() {
@@ -2178,7 +2232,7 @@
   }
   function orbitUnlocked() {
     toast(ORBIT_MSG);
-    if (!S.space) { S.route = F.genLap(S, F.legFrom(S).i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
+    if (!S.space && !F.isNonstop(S)) { const f = F.legFrom(S); S.route = F.genLap(S, f.v ? f : f.i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
     save();
   }
   const ORBIT_MSG = 'Orbital speed! Your bird can circle the globe in under a minute, so it now flies like a satellite. Each orbit pays out every destination.';
@@ -2237,6 +2291,8 @@
     if (a === 'hawk' || a === 'hunter') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = a; side.threatT = 0; S.wx = { type: 'clear', left: 0 }; close('menuSheet'); }
     if (a === 'bug') { side.bug = { t: 0, caught: false }; close('menuSheet'); }
     if (a === 'storm' || a === 'tailwind') { S.wx = { type: a, left: 30 }; close('menuSheet'); }
+    if (a === 'birds') { S.birds = BIRDS.map((b) => b.id); toast('Every bird unlocked. Pick one when you migrate.'); }
+    if (a === 'laps10') { const was = F.isNonstop(S); S.lapsTotal += 10; toast(`Lifetime laps: ${S.lapsTotal}.`); if (!was && F.isNonstop(S) && !S.space) { S.route = F.genLap(S, F.legFrom(S)); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); } }
     if (a === 'orbit') { if (!S.orbitUnlocked) { S.orbitUnlocked = true; orbitUnlocked(); } }
     if (a === 'rocks') { S.moon.rocks += 100; S.moon.total += 100; refreshRocks(); refreshShip(); toast('+100 moon rocks.'); }
     if (a === 'gear') { for (const g of F.GEAR) S.gear[g.id] = true; expoKey = ''; refreshExpo(); toast('All gear unlocked.'); }
@@ -2266,18 +2322,18 @@
         if (e.type === 'space') { spaceArrival(e); continue; }
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
         if (e.type === 'trip') { tripDone(e); continue; }
+        if (e.type === 'outOfFuel') { leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); toast(`Out of fuel: back on Earth over ${F.legFrom(S).name}. The shuttle refuels while you fly here.`); save(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
-        if (e.orbitPay) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
+        if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }
+        else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
         if (e.first) stamp(e.city, e.bonus, true); // only the first time the bird lands somewhere
         forecast(e);
-        if (e.lapDone && lapShownFor !== S.leg) {
+        // after 100 laps the ticket shows the lap count; no more pop-ups
+        if (e.lapDone && lapShownFor !== S.leg && S.lapsTotal <= 100) {
           lapShownFor = S.leg;
-          if (S.noLapPrompt) toast(`Lap ${S.lapsFlown} done. The next lap takes a new route.`);
+          if (S.noLapPrompt || S.lapsTotal > 1) toast(`Lap ${fmt(S.lapsTotal, 0)} done: +${F.FEATHERS_PER_LAP} 🪶. ${F.isNonstop(S) ? 'Next circle: a new direction.' : 'The next lap takes a new route.'}`);
           else {
-            const fe = F.feathersFor(S.runSeeds);
-            $('lapText').textContent = `${F.birdOf(S).name} made it all the way around. That's lap ${S.lapsFlown}. ` + (fe > 0
-              ? `Migrate again to bank ${fmt(fe, 0)} golden feathers for new birds and perks, or keep flying: the next lap takes a new route.`
-              : `Keep flying to earn golden feathers (they grow with the seeds you gather this run). The next lap takes a new route.`);
+            $('lapText').textContent = `${F.birdOf(S).name} made it all the way around and earned ${F.FEATHERS_PER_LAP} golden feathers 🪶. Every lap pays ${F.FEATHERS_PER_LAP} more. Migrate again to start fresh and get this run's ${fmt(F.migrateBonus(S), 0)} feathers again as a bonus, or keep flying: the next lap takes a new route.`;
             $('lapNoAsk').checked = false; open('lapSheet');
           }
         }
@@ -2346,5 +2402,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, dbgTrail: () => ({ n: trailGeo.drawRange.count, vis: trailMesh.visible, grp: routeGroup.visible, p0: Array.from(trailGeo.attributes.position.array.slice(0, 6)).map((x) => +x.toFixed(3)), c0: Array.from(trailGeo.attributes.color.array.slice(60, 68)).map((x) => +x.toFixed(2)) }), setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();

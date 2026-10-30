@@ -146,38 +146,38 @@
       body: '#9a6b43', wing: '#6e4a2c', belly: '#e9dcc6', beak: '#3b2a1c', cap: '#7a7f86' },
     { id: 'swallow', name: 'Barn Swallow', cost: 0, tier: 'starter', trait: '+30% speed', speed: 1.3, seeds: 1, stamina: 1,
       body: '#1f3f8a', wing: '#16285a', belly: '#f1d7b0', beak: '#1a1a1a', cap: '#b4442e' },
-    { id: 'goose', name: 'Canada Goose', cost: 3, tier: 'common', trait: 'Flaps hit 2× harder', speed: 1.2, seeds: 1.2, stamina: 2,
+    { id: 'goose', name: 'Canada Goose', cost: 10, tier: 'common', trait: 'Flaps hit 2× harder', speed: 1.2, seeds: 1.2, stamina: 2,
       body: '#7d6f60', wing: '#4f4539', belly: '#ece6dc', beak: '#161616', cap: '#161616' },
-    { id: 'cardinal', name: 'Northern Cardinal', cost: 8, tier: 'common', trait: '+80% seeds', speed: 1.15, seeds: 1.8, stamina: 1,
+    { id: 'cardinal', name: 'Northern Cardinal', cost: 25, tier: 'common', trait: '+80% seeds', speed: 1.15, seeds: 1.8, stamina: 1,
       body: '#c8202c', wing: '#9e1822', belly: '#d8414a', beak: '#f08a2e', cap: '#c8202c', crest: true, mask: '#1a1a1a' },
-    { id: 'mockingbird', name: 'Mockingbird', cost: 15, tier: 'common', trait: 'Bug rushes last 2× longer, +40% seeds', speed: 1.3, seeds: 1.4, stamina: 1.2, rush: 2,
+    { id: 'mockingbird', name: 'Mockingbird', cost: 40, tier: 'common', trait: 'Bug rushes last 2× longer, +40% seeds', speed: 1.3, seeds: 1.4, stamina: 1.2, rush: 2,
       body: '#8a8f96', wing: '#55595f', belly: '#e9e9e4', beak: '#1e1e1e', cap: '#8a8f96', wingBar: '#f2f2ee' },
-    { id: 'tern', name: 'Arctic Tern', cost: 30, tier: 'rare', trait: '+60% speed, +60% seeds', speed: 1.6, seeds: 1.6, stamina: 1,
+    { id: 'tern', name: 'Arctic Tern', cost: 75, tier: 'rare', trait: '+60% speed, +60% seeds', speed: 1.6, seeds: 1.6, stamina: 1,
       body: '#e9eef2', wing: '#b9c4cc', belly: '#ffffff', beak: '#d8342b', cap: '#151515' },
-    { id: 'albatross', name: 'Albatross', cost: 60, tier: 'rare', trait: '4× seeds over ocean', speed: 1.6, seeds: 1.5, stamina: 1.5, ocean: 4,
+    { id: 'albatross', name: 'Albatross', cost: 120, tier: 'rare', trait: '4× seeds over ocean', speed: 1.6, seeds: 1.5, stamina: 1.5, ocean: 4,
       body: '#f4f2ee', wing: '#3a3632', belly: '#ffffff', beak: '#e8b04a', cap: '#f4f2ee' },
-    { id: 'falcon', name: 'Peregrine Falcon', cost: 120, tier: 'rare', trait: '2.5× speed', speed: 2.5, seeds: 1.5, stamina: 1.5,
+    { id: 'falcon', name: 'Peregrine Falcon', cost: 200, tier: 'rare', trait: '2.5× speed', speed: 2.5, seeds: 1.5, stamina: 1.5,
       body: '#5c6670', wing: '#3a424a', belly: '#efe8dc', beak: '#f2c230', cap: '#22282e', hook: true },
-    { id: 'eagle', name: 'Bald Eagle', cost: 300, tier: 'epic', trait: '2.5× speed and seeds; half the flaps to win fights', speed: 2.5, seeds: 2.5, stamina: 2, fight: 2,
+    { id: 'eagle', name: 'Bald Eagle', cost: 400, tier: 'epic', trait: '2.5× speed and seeds; half the flaps to win fights', speed: 2.5, seeds: 2.5, stamina: 2, fight: 2,
       body: '#4a3222', wing: '#3a2618', belly: '#4a3222', beak: '#f2b630', cap: '#ffffff', head: '#ffffff', hook: true },
-    { id: 'rooster', name: 'Rooster', cost: 250000, tier: 'legendary', trait: '10× seeds, crows up a tailwind every city', speed: 4, seeds: 10, stamina: 3, crow: true,
+    { id: 'rooster', name: 'Rooster', cost: 2500, tier: 'legendary', trait: '10× seeds, crows up a tailwind every city', speed: 4, seeds: 10, stamina: 3, crow: true,
       body: '#b5532a', wing: '#2f5a3a', belly: '#d97a3a', beak: '#f2c230', cap: '#b5532a', comb: true, longTail: true },
-    { id: 'penguin', name: 'Emperor Penguin', cost: 2000000, tier: 'legendary', trait: '8× speed, 8× seeds, 6× over ocean', speed: 8, seeds: 8, stamina: 3, ocean: 6,
+    { id: 'penguin', name: 'Emperor Penguin', cost: 6000, tier: 'legendary', trait: '8× speed, 8× seeds, 6× over ocean', speed: 8, seeds: 8, stamina: 3, ocean: 6,
       body: '#1b1d24', wing: '#15161c', belly: '#f6f4ee', beak: '#f08a2e', cap: '#1b1d24', cheek: '#f2c230', stubby: true },
-    { id: 'kiwi', name: 'Kiwi', cost: 20000000, tier: 'legendary', trait: '20× speed, 12× seeds', speed: 20, seeds: 12, stamina: 4,
+    { id: 'kiwi', name: 'Kiwi', cost: 15000, tier: 'legendary', trait: '20× speed, 12× seeds', speed: 20, seeds: 12, stamina: 4,
       body: '#7a5a38', wing: '#6a4c2e', belly: '#8c6a44', beak: '#d8c79a', cap: '#7a5a38', longBeak: true, stubby: true },
-    { id: 'dodo', name: 'Dodo', cost: 500000000, tier: 'legendary', trait: '10× everything, but predators find it twice as often and strike twice as fast', speed: 10, seeds: 10, stamina: 10, prey: 2,
+    { id: 'dodo', name: 'Dodo', cost: 40000, tier: 'legendary', trait: '10× everything, but predators find it twice as often and strike twice as fast', speed: 10, seeds: 10, stamina: 10, prey: 2,
       body: '#8c8a86', wing: '#6e6c69', belly: '#a9a6a0', beak: '#e0c48a', cap: '#8c8a86', bigBeak: true, stubby: true, longTail: true },
     // the secret one: its specs stay hidden until it is bought
-    { id: 'shadow', name: 'Shadow Falcon', cost: 10000000000, tier: 'legendary', secret: true, trait: '69× everything', speed: 69, seeds: 69, stamina: 69, fight: 69, camo: 69,
+    { id: 'shadow', name: 'Shadow Falcon', cost: 150000, tier: 'legendary', secret: true, trait: '69× everything', speed: 69, seeds: 69, stamina: 69, fight: 69, camo: 69,
       body: '#2a2340', wing: '#171226', belly: '#3d3360', beak: '#9b8cff', cap: '#120e1f', hook: true, eye: '#b9a8ff' },
   ];
 
   // Permanent upgrades bought with golden feathers. They survive every migration.
   const PERKS = [
-    { id: 'swift', name: 'Swift Wings', icon: '💨', base: 2, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} speed` },
-    { id: 'gold', name: 'Golden Beak', icon: '🌰', base: 2, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} seeds` },
-    { id: 'nest', name: 'Nest Egg', icon: '🥚', base: 5, growth: 3, max: 12, blurb: (L) => L ? `start each migration with ${fmt(nestEgg(L))} seeds` : 'start each migration with seeds in hand' },
+    { id: 'swift', name: 'Swift Wings', icon: '💨', base: 5, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} speed` },
+    { id: 'gold', name: 'Golden Beak', icon: '🌰', base: 5, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} seeds` },
+    { id: 'nest', name: 'Nest Egg', icon: '🥚', base: 10, growth: 2.5, max: 12, blurb: (L) => L ? `start each migration with ${fmt(nestEgg(L))} seeds` : 'start each migration with seeds in hand' },
   ];
   const nestEgg = (L) => (L ? 100 * 10 ** (L - 1) : 0);
   const perkCost = (p, L) => Math.ceil(p.base * p.growth ** L);
@@ -246,12 +246,16 @@
 
   const featherMult = () => 1; // feathers are spent now, not a passive bonus
   // Feathers earned for this run's lifetime seeds (prestige).
-  const feathersFor = (seeds) => Math.floor(Math.sqrt(seeds / 2e4));
+  const feathersFor = (seeds) => Math.floor(Math.sqrt(seeds / 2e4)); // (older formula, kept for reference)
+  // Golden feathers: 5 every time the bird circles the globe, paid as it flies.
+  // Migrating pays the run's feathers again as a bonus.
+  const FEATHERS_PER_LAP = 5;
+  const migrateBonus = (s) => s.runFeathers || 0;
 
   function newState(birdId, startIdx) {
     const s = {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0, ri: 0, route: null, lapsFlown: 0,
-      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {} }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
+      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {}, fuel: 5 }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
       seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
@@ -265,7 +269,10 @@
   // in a latitude band. Later laps use other bands and favour places the bird
   // has not been, so each trip around shows somewhere new.
   const BANDS = [40, 22, 52, -28, 32, 8, 60, -15, 45, 28, -35, 15];
-  function genLap(s, startIdx) {
+  function genLap(s, startRef) {
+    const startPt = typeof startRef === 'number' ? CITIES[startRef] : startRef;
+    if (isNonstop(s)) return genFree(s, startPt);
+    const startIdx = typeof startRef === 'number' ? startRef : nearestCity(startPt.lat, startPt.lon).i;
     if (isOrbit(s)) return genOrbit(s, startIdx);
     const n = s.lapsFlown || 0, start = CITIES[startIdx];
     const band = n === 0 ? start.lat : BANDS[(n - 1) % BANDS.length] + (Math.random() - 0.5) * 8;
@@ -303,6 +310,31 @@
   const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const norm3 = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+  // ---- nonstop circles ----
+  // After NONSTOP_AT laps the bird stops landing anywhere: each lap is one
+  // unbroken circle around the globe in a fresh random direction, and pays
+  // as if it had passed every destination.
+  const NONSTOP_AT = 50;
+  const isNonstop = (s) => (s.lapsTotal || 0) >= NONSTOP_AT;
+  function nearestCity(lat, lon) {
+    let best = CITIES[0], bd = Infinity;
+    for (const c of CITIES) { const d = distKm({ lat, lon }, c); if (d < bd) { bd = d; best = c; } }
+    return best;
+  }
+  function skyPoint(lat, lon) { return { i: -1, v: true, lat, lon, name: 'near ' + nearestCity(lat, lon).name, region: 'Open sky' }; }
+  function genFree(s, start) {
+    const p0 = { lat: start.lat, lon: start.lon };
+    const u = v3(p0), o = rad(p0.lon), east = [-Math.sin(o), Math.cos(o), 0];
+    let axis = norm3(cross3(u, norm3([Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5])));
+    let w = cross3(axis, u);
+    if (dot3(w, east) < 0) w = w.map((x) => -x);
+    const pts = [skyPoint(p0.lat, p0.lon)];
+    for (let k = 1; k <= 8; k++) {
+      const a = k / 8 * Math.PI * 2, x = u.map((c, j) => c * Math.cos(a) + w[j] * Math.sin(a));
+      pts.push(skyPoint(Math.asin(Math.max(-1, Math.min(1, x[2]))) * 180 / Math.PI, Math.atan2(x[1], x[0]) * 180 / Math.PI));
+    }
+    return pts;
+  }
   function genOrbit(s, startIdx) {
     const c0 = CITIES[startIdx], u = v3(c0), o = rad(c0.lon), east = [-Math.sin(o), Math.cos(o), 0];
     let best = null;
@@ -337,7 +369,9 @@
     }
     s.gear = s.gear || {}; s.space = s.space || null; s.cosmos = s.cosmos || []; s.perks = s.perks || {};
     if (s.lapsTotal == null) s.lapsTotal = (s.laps || 0) + (s.lapsFlown || 0);
+    s.runFeathers = s.runFeathers || 0;
     s.moon = s.moon || { rocks: 0, total: 0, trips: 0, lv: {} };
+    if (s.moon.fuel == null) s.moon.fuel = fuelMax(s);
     if (s.space && !s.space.loop && s.space.dest === 0) s.space = { loop: true, dest: 0, u: 0.5, trips: 0, from: 'Earth' };
     if (!s.birds) { // before feathers were spent: keep what the old lap-count unlocks gave
       const old = { tern: 1, albatross: 2, falcon: 4 };
@@ -367,8 +401,10 @@
   function predatorMiss(s) { const b = escapeBonus(s); s.seeds += b; s.runSeeds += b; s.dodged = (s.dodged || 0) + 1; return b; }
 
   const birdOf = (s) => BIRDS.find((b) => b.id === s.bird) || BIRDS[0];
-  const legFrom = (s) => CITIES[s.route[s.ri]];
-  const legTo = (s) => CITIES[s.route[s.ri + 1]];
+  // a route holds city indices, or (when flying nonstop) open-sky waypoints
+  const routePt = (s, k) => { const r = s.route[k]; return typeof r === 'number' ? CITIES[r] : r; };
+  const legFrom = (s) => routePt(s, s.ri);
+  const legTo = (s) => routePt(s, s.ri + 1);
   const legLen = (s) => distKm(legFrom(s), legTo(s));
 
   function baseSpeed(s) {
@@ -417,11 +453,13 @@
         s.spaceStage = Math.max(s.spaceStage, 0);
         ev.push({ type: 'moonpass', first });
       }
-      const trips = Math.floor(s.space.u);
+      const trips = Math.min(Math.floor(s.space.u), Math.ceil(s.moon.fuel));
       if (trips > 0) {
         s.space.u -= trips; s.space.trips += trips;
         const r = rocksPerTrip(s) * trips; s.moon.rocks += r; s.moon.total += r; s.moon.trips += trips;
+        s.moon.fuel = Math.max(0, s.moon.fuel - trips);
         ev.push({ type: 'trip', rocks: r, trips });
+        if (s.moon.fuel < 1) { s.space = null; ev.push({ type: 'outOfFuel' }); }
       }
       return ev;
     }
@@ -440,6 +478,8 @@
       }
       return ev;
     }
+    // the shuttle refuels while the bird is back on Earth
+    if (s.moon && s.gear.shuttle) s.moon.fuel = Math.min(fuelMax(s), (s.moon.fuel || 0) + dt / REFUEL_SECS);
     if (!s.orbitUnlocked && baseSpeed(s) >= ORBIT_SPEED) { s.orbitUnlocked = true; ev.push({ type: 'orbit' }); }
     let km = speed(s) * dt;
     let guard = 0;
@@ -450,23 +490,24 @@
       s.legKm += use; s.totalKm += use; km -= use;
       if (s.legKm >= len - 1e-6) {
         const to = legTo(s);
-        const bonus = arrivalBonus(s);
-        s.seeds += bonus; s.runSeeds += bonus; s.arrivals++;
-        const first = !s.visited.includes(to.i);
+        const bonus = to.v ? 0 : arrivalBonus(s);
+        s.seeds += bonus; s.runSeeds += bonus; if (!to.v) s.arrivals++;
+        const first = !to.v && !s.visited.includes(to.i);
         if (first) s.visited.push(to.i);
         s.leg++; s.ri++; s.legKm = 0;
         let lapDone = false;
         let orbitPay = 0;
         if (s.ri >= lapLegs(s)) {
-          if (isOrbit(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
+          if (isOrbit(s) || isNonstop(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
           lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
+          s.feathers += FEATHERS_PER_LAP; s.runFeathers = (s.runFeathers || 0) + FEATHERS_PER_LAP;
           s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
         if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather();
         // the rooster crows up a tailwind whenever the sky is calm
         if (birdOf(s).crow && s.wx.type === 'clear') s.wx = { type: 'tailwind', left: 12 };
-        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay });
+        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay, waypoint: !!to.v, nonstopNow: lapDone && s.lapsTotal === NONSTOP_AT });
       }
     }
     return ev;
@@ -555,6 +596,7 @@
     { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} moon rocks` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
+    { id: 'tank', name: 'Fuel Tanks', icon: '⛽', base: 6, growth: 1.8, blurb: (L) => `${fuelMaxL(L)} round trips per tank` },
   ];
   const shipLv = (s, id) => (s.moon && s.moon.lv[id]) || 0;
   const shipCost = (u, L) => Math.ceil(u.base * u.growth ** L);
@@ -573,14 +615,20 @@
     return 384400 / 60 * (1 + 0.6 * Math.log10(1 + baseSpeed(s))) * (1 + 0.3 * shipLv(s, 'thrust'))
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1);
   }
-  // one moon rock is worth about four minutes of foraging on Earth
-  const rockValue = (s) => forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * birdOf(s).seeds * perkSeeds(s) * cosmicMult(s) * 240;
+  // One moon rock is worth a quarter of a city landing on Earth, so a loop
+  // with a few cargo and wingmate upgrades earns about twice what Earth does. The catch: the shuttle burns a tank of fuel per
+  // round trip and only refuels on Earth, and golden feathers and bird
+  // upgrades are Earth-only.
+  const rockValue = (s) => arrivalBonus(s) * 0.25;
+  const fuelMaxL = (L) => 5 + 3 * L;
+  const fuelMax = (s) => fuelMaxL(shipLv(s, 'tank'));
+  const REFUEL_SECS = 20; // on Earth, one round trip of fuel every 20 seconds
   function tradeRocks(s, n) {
     n = Math.min(Math.floor(n), s.moon.rocks); if (n <= 0) return 0;
     const v = n * rockValue(s); s.moon.rocks -= n; s.seeds += v; s.runSeeds += v; return v;
   }
   function launchLoop(s) {
-    if (!s.gear.shuttle || s.space) return false;
+    if (!s.gear.shuttle || s.space || s.moon.fuel < 1) return false;
     s.space = { loop: true, dest: 0, u: 0, trips: 0, from: 'Earth' }; s.boost = 0; s.rush = 0; s.stun = 0;
     return true;
   }
@@ -608,7 +656,7 @@
 
   // Prestige: keep feathers, laps and passport; reset the rest.
   function migrateAgain(s, birdId, startIdx) {
-    const gained = feathersFor(s.runSeeds);
+    const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
       birds: s.birds, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked };
     const n = newState(birdId, startIdx);
@@ -642,7 +690,7 @@
 
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
-    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, fuelMax, REFUEL_SECS, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
