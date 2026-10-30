@@ -117,7 +117,13 @@
       blurb: (L) => `${L} follower${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} seeds, auto-flap` },
     { id: 'stamina', name: 'Stamina', icon: '💪', get base() { return T.bS; }, get growth() { return T.gS; },
       blurb: (L) => `flap boost up to +${Math.round(boostCap(L) * 100)}%` },
+    // the big-ticket item: the bird dips low to snatch a passing bug for a short rush
+    { id: 'bugs', name: 'Bug Catcher', icon: '🪲', base: 25000, growth: 3.2,
+      blurb: (L) => L ? `a bug every ~${Math.round(bugEvery(L))}s · ${bugRush(L)}s rush of 2× speed, 3× seeds` : 'dip low to catch bugs: 2× speed, 3× seeds' },
   ];
+  const bugEvery = (L) => 50 / (1 + 0.3 * (L - 1));   // seconds between bugs
+  const bugRush = (L) => 15 + 3 * (L - 1);            // seconds of rush per bug
+  const RUSH_SPEED = 2, RUSH_SEEDS = 3;
 
   const wingSpeed = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L); // km/s
   const forage = (L) => T.k0 * (1 + L) * 2 ** doublings(L);
@@ -138,11 +144,14 @@
   function newState(birdId, startIdx) {
     return {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0,
-      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0 },
+      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, bugs: 0 }, rush: 0,
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
     };
   }
+
+  // older saves predate the bug catcher
+  function upgradeSave(s) { s.levels.bugs = s.levels.bugs || 0; s.rush = s.rush || 0; return s; }
 
   const birdOf = (s) => BIRDS.find((b) => b.id === s.bird) || BIRDS[0];
   const cityAt = (s, k) => CITIES[(s.start + k + CITIES.length * 1000) % CITIES.length];
@@ -157,12 +166,12 @@
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s)));
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1);
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
     const oc = overOcean && b.ocean ? b.ocean : 1;
-    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * featherMult(s.feathers) * oc;
+    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * featherMult(s.feathers) * oc * (s.rush > 0 ? RUSH_SEEDS : 1);
   }
   // Payout for landing in the next city: worth T.arrive seconds of foraging,
   // growing with each city already reached this run.
@@ -179,6 +188,7 @@
   function step(s, dt, overOcean) {
     const ev = [];
     s.boost = Math.max(0, s.boost - dt * (0.18 + s.boost * 0.25));
+    if (s.rush > 0) s.rush = Math.max(0, s.rush - dt);
     const earned = seedRate(s, overOcean) * dt;
     s.seeds += earned; s.runSeeds += earned;
     let km = speed(s) * dt;
@@ -201,6 +211,9 @@
     }
     return ev;
   }
+
+  // A caught bug starts (or extends) the rush.
+  function catchBug(s) { s.rush = Math.max(s.rush, 0) + bugRush(s.levels.bugs || 1); return s.rush; }
 
   function buy(s, id, n) {
     const u = UPGRADES.find((x) => x.id === id);
@@ -247,6 +260,6 @@
   root.Flyway = {
     T, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, cityAt, legFrom, legTo, legLen,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
-    feathersFor, featherMult, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
+    feathersFor, featherMult, bugEvery, bugRush, catchBug, upgradeSave, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

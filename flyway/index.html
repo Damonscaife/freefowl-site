@@ -102,6 +102,14 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .label3d { position: absolute; left: 0; top: 0; color: #fff; font-size: 12px; font-weight: 700;
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
+[hidden] { display: none !important; }
+.chip.rush { background: var(--gold); color: var(--ink); border-color: transparent; font-weight: 700; }
+.toast { position: absolute; left: 50%; top: 30%; transform: translate(-50%, 8px); background: var(--paper);
+  color: var(--ink); font-weight: 700; font-size: 15px; padding: 10px 16px; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+  max-width: calc(100% - 32px); text-align: center; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
 /* ---------- postmark (arrival) ---------- */
 .postmark { position: absolute; left: 50%; top: 42%; width: 172px; height: 172px; margin: -86px 0 0 -86px;
   pointer-events: none; opacity: 0; color: var(--red); }
@@ -212,6 +220,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
           <span class="amt num" id="seeds">0</span>
           <span class="rate num" id="rate">+0/s</span>
         </div>
+        <span class="chip rush" id="rushChip" hidden>🪲 Rush <strong class="num" id="rushLeft">0s</strong></span>
         <span class="spacer"></span>
         <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
@@ -239,6 +248,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     </button>
     <div class="hint" id="hint">Pinch or scroll to zoom out</div>
     <div class="postmark" id="postmark" aria-hidden="true"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
 
   <section id="drawer" aria-label="Upgrades">

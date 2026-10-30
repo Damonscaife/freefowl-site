@@ -241,13 +241,15 @@
   }
 
   // ======================================================================
-  // Side view: the bird in profile, sky by the local time of day, ground
-  // that matches whatever is actually below it.
+  // Close-up: 3D flight view, elevated side profile.
   // ======================================================================
+  // The close-up is its own small 3D world: the bird at the origin flying +x,
+  // the camera raised above it and off to its side, and the ground 40 units
+  // below, built in strips from whatever is actually under the route.
   const sideCanvas = $('side');
-  const sctx = sideCanvas.getContext('2d');
+  const fr = new THREE.WebGLRenderer({ canvas: sideCanvas, antialias: true });
   let SW = 0, SH = 0, DPR = 1;
-  const side = { segs: [], farSegs: [], clouds: [], streaks: [], off: { near: 0, far: 0 }, cityLeg: -1, flap: 0, flapRate: 2, t: 0 };
+  const side = { flap: 0, flapRate: 2, t: 0, cityLeg: -1, bug: null, burst: 0, bugT: 20 };
 
   const SKY = [ // hour, top, bottom
     [0, '#0a1332', '#1c2a55'], [4.5, '#141c46', '#3a3a6e'], [6, '#33407a', '#f09a73'], [7.5, '#4f8fd6', '#cfe7f7'],
@@ -263,212 +265,406 @@
   }
   const localHour = (lon) => ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + lon / 15) % 24 + 24) % 24;
 
-  function sizeSide() {
-    DPR = Math.min(2, window.devicePixelRatio || 1);
-    const r = stage.getBoundingClientRect();
-    SW = r.width; SH = r.height;
-    sideCanvas.width = Math.round(SW * DPR); sideCanvas.height = Math.round(SH * DPR);
-    sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
-    camera.aspect = SW / SH; camera.updateProjectionMatrix();
+  const fscene = new THREE.Scene();
+  const fcam = new THREE.PerspectiveCamera(48, 1, 0.5, 1400);
+  fscene.fog = new THREE.Fog(0xbfe0f5, 160, 640);
+  const hemi = new THREE.HemisphereLight(0xe4f0ff, 0x56663f, 1.1); fscene.add(hemi);
+  const fsun = new THREE.DirectionalLight(0xfff1d6, 2.2); fsun.position.set(-60, 90, 70); fscene.add(fsun);
+
+  // sky dome: a two-colour gradient, plus stars that only show at night
+  const skyU = { top: { value: new THREE.Color(0x3a86d9) }, bottom: { value: new THREE.Color(0xb4e2ff) } };
+  fscene.add(new THREE.Mesh(new THREE.SphereGeometry(1200, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 vP; void main(){ float h = normalize(vP).y; gl_FragColor = vec4(mix(bottom, top, smoothstep(-0.02, 0.45, h)), 1.0); }',
+  })));
+  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
+  {
+    const n = 500, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const v = new THREE.Vector3().randomDirection(); v.y = Math.abs(v.y) * 0.9 + 0.1; v.normalize().multiplyScalar(1100);
+      pos.set([v.x, v.y, v.z], i * 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    fscene.add(new THREE.Points(g, starMat));
+  }
+  const sunDisc = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff6dc', 'rgba(255,226,160,.35)'), fog: false, depthWrite: false, transparent: true }));
+  sunDisc.scale.set(120, 120, 1); fscene.add(sunDisc);
+
+  const GROUND = -24, CW = 80, DEPTH = 420, ZC = -150; // strip width, depth and centre z
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000),
+    new THREE.MeshStandardMaterial({ color: 0x2468a6, roughness: 0.35, metalness: 0.15 }));
+  water.rotation.x = -Math.PI / 2; water.position.set(0, GROUND + 0.6, -300); fscene.add(water);
+
+  const landMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 });
+  const towerMat = new THREE.MeshStandardMaterial({ color: 0x8a97ad, roughness: 0.7, emissive: 0x000000 });
+  const towerGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  const world = { chunks: [], cursor: 0, nextType: null, clouds: [], u: 10, viewW: 14 };
+
+  // land height at a world position; heights are continuous across strips
+  function landHeight(wx, z) {
+    const far = smooth(-60, -330, z);
+    const n = fbm(wx / 70, z / 70 + 9);
+    const ridge = Math.pow(fbm(wx / 160 + 40, z / 160), 2.2) * 40 * far;
+    return 3 + n * (12 + far * 18) + ridge;
+  }
+  function vertColor(b, h, wx, z) {
+    let c = BIOME_RGB[b];
+    if (b !== 'ice' && h > 30) c = [128, 124, 118];              // bare rock
+    if (b === 'ice' || h > 46) c = [236, 240, 244];               // snow
+    const k = 0.85 + fbm(wx / 25, z / 25) * 0.3;
+    return c.map((v) => Math.pow(v / 255 * k, 2.2)); // sRGB → linear for vertex colours
+  }
+  function buildChunk(kind, geo, prevKind, nextKind, name) {
+    const wx0 = world.cursor; world.cursor += CW;
+    const b = geo ? biome(geo.lat, geo.lon) : 'temperate';
+    const g = new THREE.PlaneGeometry(CW, DEPTH, 16, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
+    const p = g.attributes.position, col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const lx = p.getX(i), z = p.getZ(i), wx = wx0 + lx + CW / 2;
+      let h;
+      if (kind === 'sea') h = -6;
+      else {
+        // cities sit on a plain; open land gets hills and far ranges
+        h = kind === 'city' ? 2 + fbm(wx / 30, z / 30) * 3 : landHeight(wx, z);
+        // slope down to the water where the next or previous strip is sea
+        const dl = lx + CW / 2, dr = CW / 2 - lx;
+        let t = 1;
+        if (prevKind === 'sea') t = Math.min(t, smooth(0, 26, dl));
+        if (nextKind === 'sea') t = Math.min(t, smooth(0, 26, dr));
+        h = -6 + (h + 6) * t;
+      }
+      p.setY(i, GROUND + h);
+      col.set(kind === 'sea' ? [0.26, 0.21, 0.13] : vertColor(b, h, wx, z), i * 3);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(g, landMat));
+    if (kind === 'city') addCity(grp, name, wx0);
+    return { grp, kind };
+  }
+  function addCity(grp, name, seed) {
+    const n = 90, inst = new THREE.InstancedMesh(towerGeo, towerMat, n), m = new THREE.Matrix4();
+    for (let i = 0; i < n; i++) {
+      const x = (hash(seed, i) - 0.5) * (CW - 10), z = -30 - hash(i, seed) * 130;
+      const core = 1 - Math.min(1, Math.hypot(x / (CW * 0.5), (z + 95) / 65));
+      const h = 3 + core * core * 30 * (0.4 + hash(i * 3, seed) * 0.9);
+      const w = 2.2 + hash(i, i + seed) * 3;
+      m.compose(new THREE.Vector3(x, GROUND + 2, z), new THREE.Quaternion(), new THREE.Vector3(w, h, w * (0.7 + hash(seed, i * 7) * 0.6)));
+      inst.setMatrixAt(i, m);
+    }
+    grp.add(inst);
+    if (name) {
+      const c = document.createElement('canvas'); c.width = 1024; c.height = 192;
+      const g = c.getContext('2d');
+      g.font = "800 112px 'Bricolage Grotesque', sans-serif"; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.lineWidth = 18; g.strokeStyle = 'rgba(6,12,31,.55)'; g.strokeText(name, 512, 100);
+      g.fillStyle = '#fff'; g.fillText(name, 512, 100);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, fog: false, transparent: true, depthWrite: false }));
+      sp.scale.set(36, 6.75, 1); sp.position.set(0, GROUND + 36, -95); grp.add(sp);
+    }
+  }
+  function disposeChunk(c) {
+    c.grp.traverse((o) => { if (o.isMesh || o.isSprite) { if (o.geometry && o.geometry !== towerGeo) o.geometry.dispose(); if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } } });
+    fscene.remove(c.grp);
   }
 
-  const groundY = () => SH * 0.8;
-  const birdX = () => SW * (SW > 700 ? 0.36 : 0.34);
-  const birdY = () => SH * 0.5;
-  // What will be under the bird by the time a segment entering on the right reaches it.
+  // What will be under the bird by the time a strip now at world x reaches it.
   function lookahead(sec) {
     const km = Math.min(F.legLen(S), S.legKm + F.speed(S) * sec);
     return F.lerpGeo(F.legFrom(S), F.legTo(S), km / F.legLen(S));
   }
-  function makeSeg(x, kind, geo, extra) {
-    const w = kind === 'city' ? Math.max(420, SW * 0.7) : 260 + Math.random() * 180;
-    const b = geo ? biome(geo.lat, geo.lon) : 'temperate';
-    return Object.assign({ x, w, kind, biome: b, seed: Math.random() * 1000, lat: geo ? geo.lat : 0 }, extra || {});
-  }
-  function resetSide(cityName) {
-    side.segs = []; side.farSegs = [];
-    const here = { lat: F.legFrom(S).lat, lon: F.legFrom(S).lon };
-    let x = -40;
-    // start the scene over the departure city so take-off reads right
-    side.segs.push(makeSeg(x, 'city', here, { name: cityName || F.legFrom(S).name }));
-    side.segs[0].x = birdX() - side.segs[0].w * 0.55;
-    x = side.segs[0].x + side.segs[0].w;
-    while (x < SW + 300) { const s = makeSeg(x, isLand(here.lat, here.lon) ? 'land' : 'sea', here); side.segs.push(s); x += s.w; }
-    for (let fx = -50; fx < SW + 300;) { const s = makeSeg(fx, isLand(here.lat, here.lon) ? 'land' : 'sea', here); side.farSegs.push(s); fx += s.w; }
-    side.clouds = [];
-    for (let i = 0; i < 14; i++) side.clouds.push(newCloud(Math.random() * SW * 1.4));
-    side.cityLeg = S.leg;
-  }
-  function newCloud(x) {
-    const depth = Math.random();
-    return { x, y: SH * (0.08 + Math.random() * 0.55), s: 0.5 + depth * 1.3, depth, front: depth > 0.86, seed: Math.random() * 99 };
+  const kindAt = (g) => (isLand(g.lat, g.lon) ? 'land' : 'sea');
+  function pushChunk(x, kind, geo, name) {
+    const prev = world.chunks[world.chunks.length - 1];
+    const nextGeo = lookahead(Math.max(0, (x + CW) / world.u));
+    world.nextType = kindAt(nextGeo);
+    const c = buildChunk(kind, geo, prev ? prev.kind : kind, world.nextType, name);
+    c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
 
-  function pxPerSec(v) { return clamp(38 + 95 * Math.log10(1 + v), 38, 900); }
+  function makeCloud(x) {
+    const grp = new THREE.Group();
+    // self-lit so undersides stay cloud-white instead of picking up the ground's green
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xc9d3de, emissiveIntensity: 0.55, flatShading: true, transparent: true, opacity: 0.94 });
+    const n = 5 + Math.floor(Math.random() * 6), s = 3 + Math.random() * 6;
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(cloudGeo, mat);
+      const r = s * (0.6 + Math.random() * 0.7);
+      m.scale.set(r * 1.3, r * 0.8, r);
+      m.position.set((i - n / 2) * s * 0.9 + Math.random() * s, Math.random() * s * 0.5, (Math.random() - 0.5) * s);
+      grp.add(m);
+    }
+    // keep clouds off the camera's lens: either well behind the bird or below/above it
+    const far = Math.random() < 0.9;
+    if (!far) grp.scale.setScalar(0.45);
+    const z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
+    // near clouds stay well below or above the bird's line so they never swallow the shot
+    const y = far ? -8 + Math.random() * 38 : -15 + Math.random() * 5;
+    grp.position.set(x, y, z);
+    grp.userData.mat = mat;
+    fscene.add(grp); world.clouds.push(grp);
+  }
+  const cloudGeo = new THREE.IcosahedronGeometry(1, 1);
 
-  function updateSide(dt) {
-    const v = F.speed(S), gs = pxPerSec(v) * (reduceMotion ? 0.5 : 1);
-    side.t += dt;
-    const move = (arr, f, gen, key) => {
-      side.off[key] += gs * f * dt;
-      for (const s of arr) s.x -= gs * f * dt;
-      while (arr.length && arr[0].x + arr[0].w < -60) arr.shift();
-      let last = arr[arr.length - 1];
-      while (!last || last.x + last.w < SW + 260) {
-        const nx = last ? last.x + last.w : 0;
-        const s = gen(nx); arr.push(s); last = s;
-      }
+  // speed streaks
+  const STREAKS = 48;
+  const streakGeo = new THREE.BufferGeometry();
+  streakGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(STREAKS * 6), 3));
+  const streaks = new THREE.LineSegments(streakGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, fog: false }));
+  fscene.add(streaks);
+  const streakData = Array.from({ length: STREAKS }, () => ({ x: Math.random() * 80 - 20, y: Math.random() * 16 - 7, z: Math.random() * 14 - 10 }));
+
+  // ---------- the bird ----------
+  function wingGeo(pts) {
+    const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]);
+    for (const q of pts.slice(1)) sh.lineTo(q[0], q[1]);
+    const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); return g; // shape y → +z (out to the side)
+  }
+  const INNER = wingGeo([[0.55, 0], [-0.6, 0], [-0.75, 1.35], [0.3, 1.35]]);
+  const OUTER = wingGeo([[0.3, 0], [-0.75, 0], [-1.55, 1.45], [-0.55, 1.75], [0.05, 1.2]]);
+  const TAIL = (() => {
+    const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(-1.15, 0.6); sh.lineTo(-1.3, 0); sh.lineTo(-1.15, -0.6); sh.closePath();
+    const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); return g;
+  })();
+  const SPH = new THREE.SphereGeometry(1, 16, 12);
+  const CAP = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.42);
+  const BEAK = new THREE.ConeGeometry(0.15, 0.55, 8).rotateZ(-Math.PI / 2);
+
+  function buildBird(b) {
+    const M = (c, o) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.75, flatShading: true }, o));
+    const bodyM = M(b.body), wingM = M(b.wing, { side: THREE.DoubleSide }), bellyM = M(b.belly), capM = M(b.cap), beakM = M(b.beak, { roughness: 0.4 });
+    const bird = new THREE.Group(), add = (geo, mat, p, s, parent = bird) => {
+      const m = new THREE.Mesh(geo, mat); m.position.set(...p); if (s) m.scale.set(...s); parent.add(m); return m;
     };
-    // near ground
-    move(side.segs, 1, (nx) => {
-      const secToBird = Math.max(0, (nx - birdX()) / gs);
+    add(SPH, bodyM, [0, 0, 0], [1.25, 0.6, 0.6]);
+    add(SPH, bellyM, [0.1, -0.17, 0], [1.05, 0.44, 0.5]);
+    add(SPH, bodyM, [1.12, 0.28, 0], [0.5, 0.47, 0.47]);
+    add(CAP, capM, [1.12, 0.3, 0], [0.51, 0.5, 0.49]);
+    const eyeM = M(0x111111, { roughness: 0.2 }), whiteM = M(0xffffff);
+    for (const s of [1, -1]) { add(SPH, whiteM, [1.4, 0.4, 0.34 * s], [0.1, 0.1, 0.05]); add(SPH, eyeM, [1.45, 0.41, 0.36 * s], [0.06, 0.06, 0.04]); }
+    add(BEAK, beakM, [1.8, 0.22, 0]);
+    add(TAIL, wingM, [-1.05, 0.08, 0]);
+    const wings = [];
+    for (const s of [1, -1]) {
+      const shoulder = new THREE.Group(); shoulder.position.set(0.15, 0.22, 0.42 * s); shoulder.scale.z = s; bird.add(shoulder);
+      add(INNER, wingM, [0, 0, 0], null, shoulder);
+      const elbow = new THREE.Group(); elbow.position.set(0, 0, 1.35); shoulder.add(elbow);
+      add(OUTER, wingM, [0, 0, 0], null, elbow);
+      wings.push({ shoulder, elbow, s });
+    }
+    bird.userData.wings = wings;
+    return bird;
+  }
+  function poseBird(bird, ph, glide) {
+    for (const w of bird.userData.wings) {
+      const a = Math.sin(ph) * 0.75 * (1 - glide * 0.85) + 0.12, e = Math.sin(ph - 0.7) * 0.45 * (1 - glide);
+      // positive values lift the wing; the left wing is mirrored, so it takes the other sign
+      w.shoulder.rotation.x = -a * w.s; w.elbow.rotation.x = -e * w.s;
+    }
+  }
+  let hero = null, flock = [], heroBirdId = null;
+  function setBirds() {
+    const b = F.birdOf(S);
+    if (heroBirdId !== b.id || !hero) {
+      if (hero) fscene.remove(hero);
+      hero = buildBird(b); fscene.add(hero); heroBirdId = b.id;
+      for (const f of flock) fscene.remove(f); flock = [];
+    }
+    const want = Math.min(S.levels.flock, 8);
+    while (flock.length < want) {
+      const f = buildBird(b), i = flock.length, row = Math.floor(i / 2) + 1, sgn = i % 2 ? 1 : -1;
+      f.scale.setScalar(0.62);
+      // both arms of the V trail away from the camera so the lead bird stays clear
+      f.userData.home = new THREE.Vector3(-row * 2.6, -0.4 * row, sgn > 0 ? row * 0.8 - 1.4 : -row * 2.3 - 0.6);
+      f.userData.phase = Math.random() * 6;
+      fscene.add(f); flock.push(f);
+    }
+    while (flock.length > want) fscene.remove(flock.pop());
+  }
+
+
+  // ---------- the bug (Bug Catcher upgrade) ----------
+  // A fat glowing beetle that crosses below the bird's line; the bird dips to
+  // meet it at the beak, then climbs back. Timings live in game state (side.bug).
+  const DIVE = 2.2, CLIMB = 1.4, DIP = -3.6;
+  const bugMesh = (() => {
+    const g = new THREE.Group();
+    const shell = new THREE.Mesh(SPH, new THREE.MeshStandardMaterial({ color: 0x2f7a3a, roughness: 0.3, metalness: 0.4, flatShading: true }));
+    shell.scale.set(0.42, 0.28, 0.3); g.add(shell);
+    const head = new THREE.Mesh(SPH, new THREE.MeshStandardMaterial({ color: 0x1b1b1b, flatShading: true }));
+    head.scale.setScalar(0.17); head.position.x = 0.4; g.add(head);
+    const wingM = new THREE.MeshBasicMaterial({ color: 0xe8f6ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+    const wings = [1, -1].map((sgn) => { const w = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.26), wingM); w.position.set(-0.05, 0.22, 0.14 * sgn); g.add(w); return w; });
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff8c4', 'rgba(255,214,90,.55)'), transparent: true, depthWrite: false, fog: false }));
+    glow.scale.setScalar(3.2); g.add(glow);
+    g.userData = { wings, glow }; g.visible = false; fscene.add(g);
+    return g;
+  })();
+  const sparks = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(30 * 3), 3)),
+    new THREE.PointsMaterial({ color: 0xffe08a, size: 0.35, transparent: true, opacity: 0, depthWrite: false }));
+  fscene.add(sparks);
+  const sparkV = Array.from({ length: 30 }, () => new THREE.Vector3());
+  const BEAK_TIP = new THREE.Vector3(1.95, 0.22, 0);
+  // vertical offset of the hero during a dive episode
+  function diveOffset(t) {
+    if (t < DIVE) return DIP * smooth(0.2, DIVE, t);
+    return DIP * (1 - smooth(DIVE, DIVE + CLIMB, t));
+  }
+  function updateBug(dt) {
+    const e = side.bug;
+    if (!e) { bugMesh.visible = false; } else {
+      const t = e.t;
+      if (t < DIVE) {
+        bugMesh.visible = true;
+        // from up ahead and below, on a gentle wobble, to the beak at the moment of the catch
+        const k = t / DIVE, from = new THREE.Vector3(2 + (world.viewW || 14) * 0.45, DIP + 0.6, -1.2);
+        const to = BEAK_TIP.clone().add(new THREE.Vector3(0, DIP, 0));
+        bugMesh.position.lerpVectors(from, to, k);
+        bugMesh.position.y += Math.sin(t * 9) * 0.25 * (1 - k); bugMesh.position.z += Math.sin(t * 5) * 0.3 * (1 - k);
+        for (const w of bugMesh.userData.wings) w.rotation.x = Math.sin(side.t * 70) * 0.9;
+        bugMesh.userData.glow.material.opacity = 0.7 + Math.sin(side.t * 12) * 0.3;
+      } else bugMesh.visible = false;
+    }
+    // little burst of sparks at the catch
+    const sp = sparks.geometry.attributes.position;
+    if (side.burst > 0) {
+      side.burst -= dt;
+      sparks.material.opacity = clamp(side.burst / 0.8, 0, 1);
+      for (let i = 0; i < 30; i++) { const p = new THREE.Vector3().fromBufferAttribute(sp, i).addScaledVector(sparkV[i], dt); sp.setXYZ(i, p.x, p.y, p.z); }
+      sp.needsUpdate = true;
+    } else sparks.material.opacity = 0;
+  }
+  function burstAtBeak() {
+    const sp = sparks.geometry.attributes.position, at = hero.position.clone().add(BEAK_TIP);
+    for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x, at.y, at.z); sparkV[i].randomDirection().multiplyScalar(2 + Math.random() * 4); }
+    sp.needsUpdate = true; side.burst = 0.8;
+  }
+
+  function sizeSide() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    const r = stage.getBoundingClientRect();
+    SW = r.width; SH = r.height;
+    renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
+    camera.aspect = SW / SH; camera.updateProjectionMatrix();
+    fr.setPixelRatio(DPR); fr.setSize(SW, SH, false);
+    fcam.aspect = SW / SH; fcam.updateProjectionMatrix();
+  }
+
+  const unitsPerSec = (v) => clamp(10 + 30 * Math.log10(1 + v), 10, 230) * (reduceMotion ? 0.5 : 1);
+
+  function resetSide() {
+    for (const c of world.chunks) disposeChunk(c); world.chunks = [];
+    for (const c of world.clouds) fscene.remove(c); world.clouds = [];
+    world.u = unitsPerSec(F.speed(S));
+    const here = F.legFrom(S);
+    // start over the departure city so take-off reads right
+    world.cursor = 0;
+    let x = -CW * 3 + 30; // puts the departure city in frame at take-off
+    for (let i = 0; i < 2; i++) { pushChunk(x, kindAt(here), here); x += CW; }
+    pushChunk(x, 'city', here, here.name); x += CW;
+    while (x < 620) { const g = lookahead(Math.max(0, x / world.u)); pushChunk(x, kindAt(g), g); x += CW; }
+    for (let i = 0; i < 16; i++) makeCloud(-150 + Math.random() * 760);
+    side.cityLeg = S.leg;
+    setBirds();
+  }
+
+  function updateFlight(dt) {
+    const v = F.speed(S);
+    world.u = lerp(world.u, unitsPerSec(v), 1 - Math.exp(-dt * 2));
+    const u = world.u, dx = u * dt;
+    side.t += dt;
+    // ground strips: slide back, recycle behind, add ahead
+    for (const c of world.chunks) c.grp.position.x -= dx;
+    while (world.chunks.length && world.chunks[0].grp.position.x < -CW * 3.5) disposeChunk(world.chunks.shift());
+    let last = world.chunks[world.chunks.length - 1], guard = 0;
+    while (last.grp.position.x < 620 - CW && guard++ < 12) {
+      const nx = last.grp.position.x + CW, sec = Math.max(0, nx / u);
       const left = (F.legLen(S) - S.legKm) / Math.max(v, 1e-6);
-      // drop the destination skyline in so it is under the bird on arrival
-      if (side.cityLeg !== S.leg + 1 && left < secToBird + 2.2 && left > 1.2 && left > secToBird - 1) {
+      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0) {
         side.cityLeg = S.leg + 1;
-        const to = F.legTo(S);
-        return makeSeg(nx, 'city', to, { name: to.name });
-      }
-      const g = lookahead(secToBird);
-      return makeSeg(nx, isLand(g.lat, g.lon) ? 'land' : 'sea', g);
-    }, 'near');
-    move(side.farSegs, 0.32, (nx) => {
-      const g = lookahead(Math.max(0, (nx - birdX()) / (gs * 0.32)));
-      return makeSeg(nx, isLand(g.lat, g.lon) ? 'land' : 'sea', g);
-    }, 'far');
-    for (const c of side.clouds) c.x -= gs * (0.15 + c.depth * 1.15) * dt;
-    side.clouds = side.clouds.filter((c) => c.x > -260 * c.s);
-    while (side.clouds.length < 14) side.clouds.push(newCloud(SW + 80 + Math.random() * 200));
-    // speed streaks once things get fast
-    const want = clamp(Math.floor(Math.log10(1 + v) * 7 - 6), 0, 40);
-    while (side.streaks.length < want) side.streaks.push({ x: SW + Math.random() * SW, y: Math.random() * SH * 0.75, l: 40 + Math.random() * 140 });
-    if (side.streaks.length > want) side.streaks.length = want;
-    for (const st of side.streaks) { st.x -= gs * 3.5 * dt; if (st.x + st.l < 0) { st.x = SW + Math.random() * 200; st.y = Math.random() * SH * 0.75; } }
+        const to = F.legTo(S); pushChunk(nx, 'city', to, to.name);
+      } else { const g = lookahead(sec); pushChunk(nx, world.nextType || kindAt(g), g); }
+      last = world.chunks[world.chunks.length - 1];
+    }
+    for (const c of world.clouds) {
+      c.position.x -= dx;
+      if (c.position.x < -220) { fscene.remove(c); c.userData.recycle = true; }
+    }
+    world.clouds = world.clouds.filter((c) => !c.userData.recycle);
+    while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
+
+    // streaks show once things get fast
+    const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
+    const sp = streakGeo.attributes.position, len = 2 + Math.log10(1 + v) * 3;
+    for (let i = 0; i < want; i++) {
+      const d = streakData[i]; d.x -= u * 2.5 * dt;
+      if (d.x < -30) { d.x = 50 + Math.random() * 30; d.y = Math.random() * 16 - 7; d.z = Math.random() * 14 - 10; }
+      sp.setXYZ(i * 2, d.x, d.y, d.z); sp.setXYZ(i * 2 + 1, d.x + len, d.y, d.z);
+    }
+    sp.needsUpdate = true; streakGeo.setDrawRange(0, want * 2);
+
     // wing beat: quick when boosting, lazy glide-and-flap when not
-    const target = 1.6 + S.boost * 7 + Math.min(2, Math.log10(1 + v) * 0.4);
+    const target = 1.5 + S.boost * 6 + Math.min(2, Math.log10(1 + v) * 0.35);
     side.flapRate = lerp(side.flapRate, target, 1 - Math.exp(-dt * 4));
     side.flap += dt * side.flapRate * Math.PI * 2;
-  }
+    const glide = S.boost < 0.05 ? smooth(0.2, 0.9, Math.sin(side.t * 0.45)) * 0.8 : 0;
+    setBirds();
+    poseBird(hero, side.flap, glide);
+    const dive = side.bug ? diveOffset(side.bug.t) : 0;
+    hero.position.set(0, Math.sin(side.t * 1.6) * 0.35 * (dive ? 0.3 : 1) - Math.sin(side.flap) * 0.08 + dive, 0);
+    // nose down into the dive, up on the climb
+    const pitch = side.bug ? (side.bug.t < DIVE ? -0.28 * Math.sin(Math.PI * clamp(side.bug.t / DIVE, 0, 1)) : 0.22 * Math.sin(Math.PI * clamp((side.bug.t - DIVE) / CLIMB, 0, 1))) : 0;
+    hero.rotation.set(Math.sin(side.t * 0.7) * 0.06, 0, 0.05 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch);
+    updateBug(dt);
+    // golden streaks while a bug rush is on
+    streaks.material.color.setStyle(S.rush > 0 ? '#ffd36b' : '#ffffff');
+    flock.forEach((f, i) => {
+      const h = f.userData.home;
+      f.position.set(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4, h.z);
+      f.rotation.set(Math.sin(side.t * 0.8 + i) * 0.08, 0, 0.05);
+      poseBird(f, side.flap * 1.05 + f.userData.phase, glide);
+    });
 
-  // Hill height comes from the layer's continuous world position, so the
-  // horizon flows across segment joins instead of stepping.
-  function drawHills(seg, baseY, amp, color, dark, scale, off) {
-    const g = sctx;
-    if (dark) { const gr = g.createLinearGradient(0, baseY - amp, 0, SH); gr.addColorStop(0, color); gr.addColorStop(1, dark); g.fillStyle = gr; }
-    else g.fillStyle = color;
-    g.beginPath(); g.moveTo(seg.x - 1, SH);
-    for (let x = 0; x <= seg.w + 12; x += 12) {
-      const wx = Math.min(seg.x + x, seg.x + seg.w + 1);
-      const n = fbm((wx + off) / (140 * scale), 3.7);
-      g.lineTo(wx, baseY - n * amp);
-    }
-    g.lineTo(seg.x + seg.w + 1, SH); g.closePath(); g.fill();
-  }
-  function biomeCss(b, k = 1, night = 0) {
-    const c = BIOME_RGB[b].map((v) => v * k * (1 - night * 0.55));
-    return `rgb(${c.map(Math.round).join(',')})`;
-  }
-
-  function drawSide() {
-    const g = sctx, cur = currentGeo();
-    const hour = localHour(cur.lon);
-    const night = 1 - smooth(5.5, 7.5, hour) + smooth(18.5, 20.5, hour);
-    const nf = clamp(night, 0, 1);
+    // sky, light and fog by the local hour under the bird
+    const cur = currentGeo(), hour = localHour(cur.lon);
+    const night = clamp(1 - smooth(5.5, 7.5, hour) + smooth(18.5, 20.5, hour), 0, 1);
     const [top, bot] = skyAt(hour);
-    const sky = g.createLinearGradient(0, 0, 0, groundY());
-    sky.addColorStop(0, top); sky.addColorStop(1, bot);
-    g.fillStyle = sky; g.fillRect(0, 0, SW, SH);
-    // stars at night
-    if (nf > 0.05) {
-      g.fillStyle = `rgba(255,255,255,${0.8 * nf})`;
-      for (let i = 0; i < 70; i++) { const x = (hash(i, 1) * SW * 1.2 - side.t * 2) % SW; g.fillRect((x + SW) % SW, hash(i, 2) * SH * 0.6, 1.5, 1.5); }
-    }
-    // sun or moon arcs across the sky with the hour
-    {
-      const dayT = (hour - 6) / 12, nightT = ((hour + 6) % 24) / 12;
-      const isDay = hour >= 6 && hour <= 18;
-      const t = isDay ? dayT : nightT;
-      const x = SW * (0.1 + 0.8 * t), y = groundY() * (0.75 - Math.sin(t * Math.PI) * 0.6);
-      g.beginPath(); g.arc(x, y, isDay ? 26 : 18, 0, Math.PI * 2);
-      g.fillStyle = isDay ? 'rgba(255,240,200,.95)' : 'rgba(230,234,245,.9)'; g.fill();
-      if (isDay) { g.beginPath(); g.arc(x, y, 52, 0, Math.PI * 2); g.fillStyle = 'rgba(255,230,170,.18)'; g.fill(); }
-    }
-    // far clouds
-    for (const c of side.clouds) if (!c.front && c.depth < 0.5) drawCloud(c, nf);
-    // far horizon
-    const fy = groundY() - SH * 0.06;
-    for (const s of side.farSegs) {
-      if (s.kind !== 'sea') drawHills(s, fy + SH * 0.05, SH * 0.11, mix(hex('#9db4cf'), hex('#2c3a5c'), nf), null, 2.2, side.off.far);
-    }
-    for (const c of side.clouds) if (!c.front && c.depth >= 0.5) drawCloud(c, nf);
-    // near ground
-    const gy = groundY();
-    for (const s of side.segs) {
-      if (s.kind === 'sea') {
-        g.fillStyle = nf > 0.5 ? '#16305a' : '#2468a6'; g.fillRect(s.x - 1, gy, s.w + 2, SH - gy);
-        g.strokeStyle = `rgba(255,255,255,${0.28 - nf * 0.15})`; g.lineWidth = 2;
-        for (let r = 0; r < 4; r++) {
-          const yy = gy + 10 + r * 16; g.beginPath();
-          for (let x = 0; x <= s.w; x += 18) {
-            const wx = s.x + x; const yv = yy + Math.sin((wx + side.t * 30 + r * 40) / 22) * 2;
-            x === 0 ? g.moveTo(wx, yv) : g.lineTo(wx, yv);
-          }
-          g.stroke();
-        }
-      } else {
-        drawHills(s, gy, SH * 0.05, biomeCss(s.biome, 1, nf), biomeCss(s.biome, 0.6, nf), 1, side.off.near);
-        if (s.kind === 'city') drawSkyline(s, gy, nf);
-      }
-    }
-    // speed streaks behind the bird
-    g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = 1.5;
-    for (const st of side.streaks) { g.beginPath(); g.moveTo(st.x, st.y); g.lineTo(st.x + st.l, st.y); g.stroke(); }
-    // flock, then the bird
-    const L = S.levels.flock, bird = F.birdOf(S), S0 = Math.min(SW, SH) * (SW > 700 ? 0.075 : 0.095);
-    for (let i = Math.min(L, 8) - 1; i >= 0; i--) {
-      const row = Math.floor(i / 2) + 1, sideSign = i % 2 ? 1 : -1;
-      const x = birdX() - row * S0 * 1.5, y = birdY() + sideSign * row * S0 * 0.75 + Math.sin(side.t * 2 + i) * 4;
-      drawBird(g, x, y, S0 * 0.55, bird, side.flap + i * 0.9, 0.85);
-    }
-    const bob = Math.sin(side.t * 1.7) * SH * 0.012;
-    drawBird(g, birdX(), birdY() + bob, S0, bird, side.flap, 1);
-    for (const c of side.clouds) if (c.front) drawCloud(c, nf, 0.55);
+    skyU.top.value.setStyle(top); skyU.bottom.value.setStyle(bot);
+    fscene.fog.color.setStyle(bot);
+    starMat.opacity = night * 0.9;
+    const dayT = clamp((hour - 6) / 12, 0, 1), elev = Math.sin(dayT * Math.PI);
+    const isDay = hour > 6 && hour < 18;
+    // the light comes from the camera's side so the bird's visible flank is lit;
+    // the sun you see sits ahead in the sky on the mirrored bearing
+    fsun.position.set(-260 + dayT * 520, 60 + elev * 220, 200);
+    fsun.color.setStyle(elev < 0.35 && isDay ? '#ffc08a' : isDay ? '#fff1d6' : '#9fb4ff');
+    fsun.intensity = isDay ? 1.1 + elev * 1.4 : 0.45;
+    hemi.intensity = lerp(1.1, 0.4, night);
+    sunDisc.position.set(fsun.position.x, fsun.position.y * 0.5, -fsun.position.z).normalize().multiplyScalar(1000);
+    sunDisc.material.color.setStyle(isDay ? '#ffffff' : '#c9d4f5');
+    sunDisc.scale.setScalar(isDay ? 130 : 70);
+    water.material.color.setStyle(night > 0.5 ? '#183461' : '#2468a6');
+    towerMat.emissive.setStyle(night > 0.4 ? '#b8862e' : '#000000');
+    towerMat.emissiveIntensity = night * 0.55;
+
+    // camera: raised and off to the near side, framed so the bird sits left of centre
+    const f = smooth(SIDE_A, 1, Z);
+    const hfov = 2 * Math.atan(Math.tan(fcam.fov * D2R / 2) * fcam.aspect);
+    const wantW = lerp(60, 10, f) * Math.max(1, fcam.aspect * 1.25); world.viewW = wantW;
+    const d = (wantW / 2) / Math.tan(hfov / 2);
+    // ~12° above the bird keeps the horizon in the upper third of the frame
+    const elevA = lerp(22, 12, f) * D2R, sway = Math.sin(side.t * 0.12) * 0.12;
+    fcam.position.set(d * 0.18 + Math.sin(sway) * d * 0.15, Math.sin(elevA) * d, Math.cos(elevA) * d);
+    // follow the bird part-way down into a bug dive
+    fcam.position.y += hero.position.y * 0.6;
+    fcam.lookAt(wantW * 0.14, 0.4 + hero.position.y * 0.7, 0);
+    fr.render(fscene, fcam);
   }
 
-  function drawCloud(c, nf, alpha = 1) {
-    const g = sctx, s = c.s * (SW > 700 ? 1.2 : 0.9);
-    const shade = Math.round(255 - nf * 150), a = (0.55 + c.depth * 0.4) * alpha;
-    g.fillStyle = `rgba(${shade},${shade},${Math.min(255, shade + 15)},${a})`;
-    g.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const ox = (i - 2) * 26 * s, oy = -Math.abs(i - 2) * -4 * s - hash(c.seed, i) * 12 * s;
-      g.moveTo(c.x + ox + 30 * s, c.y + oy); g.arc(c.x + ox, c.y + oy, (22 + hash(i, c.seed) * 16) * s, 0, Math.PI * 2);
-    }
-    g.fill();
-  }
-
-  function drawSkyline(s, gy, nf) {
-    const g = sctx, n = Math.floor(s.w / 26);
-    for (let i = 0; i < n; i++) {
-      const bw = 18 + hash(s.seed, i) * 22, x = s.x + 20 + i * (s.w - 40) / n;
-      const mid = 1 - Math.abs(i / n - 0.5) * 1.6;
-      const bh = SH * (0.04 + mid * 0.16 * (0.4 + hash(i, s.seed) * 0.8));
-      g.fillStyle = mix(hex('#5a6b86'), hex('#1b2238'), nf);
-      g.fillRect(x, gy - bh, bw, bh + 4);
-      g.fillStyle = nf > 0.4 ? 'rgba(255,214,120,.85)' : 'rgba(210,230,250,.5)';
-      for (let wy = gy - bh + 6; wy < gy - 6; wy += 9)
-        for (let wx = x + 4; wx < x + bw - 4; wx += 7) if (hash(wx, wy) > (nf > 0.4 ? 0.45 : 0.7)) g.fillRect(wx, wy, 3, 4);
-    }
-    if (s.name) {
-      const tx = s.x + s.w / 2;
-      g.font = `800 ${Math.round(clamp(SW * 0.05, 18, 32))}px 'Bricolage Grotesque', sans-serif`;
-      g.textAlign = 'center';
-      g.fillStyle = 'rgba(6,12,31,.55)'; g.fillText(s.name, tx + 2, gy - SH * 0.24 + 2);
-      g.fillStyle = '#fff'; g.fillText(s.name, tx, gy - SH * 0.24);
-    }
-  }
-
+  // 2D bird, used for the small portraits on the bird picker.
   // A side-on bird seen slightly from below: belly shows, near wing in front
   // of the body, far wing behind it and foreshortened.
   function drawBird(g, x, y, S, b, ph, alpha) {
@@ -659,6 +855,9 @@
     $('ring').style.strokeDashoffset = 289 * (1 - b / cap);
     $('boostPct').textContent = `+${Math.round(b * 100)}%`;
     $('stampCount').textContent = S.visited.length;
+    const rc = $('rushChip');
+    rc.hidden = !(S.rush > 0);
+    if (S.rush > 0) $('rushLeft').textContent = Math.ceil(S.rush) + 's';
     const mig = $('btnMigrate');
     if (S.leg >= CITIES.length) {
       mig.classList.add('on');
@@ -781,18 +980,45 @@
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
   }
   function load() {
-    try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.v === 1 && s.levels) return s; } catch (e) {}
+    try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.v === 1 && s.levels) return F.upgradeSave(s); } catch (e) {}
     return null;
   }
   // Offline: fly on without flaps for up to 8 hours.
   function catchUp() {
     const away = clamp((Date.now() - (S.lastSave || Date.now())) / 1000, 0, 8 * 3600);
     if (away < 30) return null;
-    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0;
+    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; side.bug = null;
     const steps = Math.min(4000, Math.ceil(away)), dt = away / steps;
     let lap = false;
     for (let i = 0; i < steps; i++) for (const e of F.step(S, dt, false)) if (e.lapDone) lap = true;
     return { away, seeds: S.seeds - seeds0, km: S.totalKm - km0, cities: S.arrivals - arr0, lap };
+  }
+
+  // ---------- Bug Catcher ----------
+  // Every so often a bug crosses below the bird; it dives, catches it at the
+  // moment the dive bottoms out, and the rush starts.
+  const toastEl = $('toast');
+  let toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2600);
+  }
+  function tickBugs(dt) {
+    const L = S.levels.bugs || 0;
+    if (side.bug) {
+      side.bug.t += dt;
+      if (!side.bug.caught && side.bug.t >= DIVE) {
+        side.bug.caught = true;
+        const rush = F.catchBug(S);
+        burstAtBeak();
+        toast(`Caught a bug! 2× speed and 3× seeds for ${Math.ceil(rush)}s`);
+      }
+      if (side.bug.t >= DIVE + CLIMB) side.bug = null;
+      return;
+    }
+    if (!L) return;
+    side.bugT -= dt;
+    if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) * (0.75 + Math.random() * 0.5); }
   }
 
   // ======================================================================
@@ -803,7 +1029,7 @@
     running = true;
     rebuildRoute(); resetSide();
     const g = currentGeo(); camDir.copy(geoVec(g.lat, g.lon, 1));
-    if (fresh) { Z = 0.02; ZT = 0.97; } // the opening move: orbit to wingtip
+    if (fresh) { Z = 0.02; ZT = 0.985; } // the opening move: orbit to wingtip
     refreshUpgrades(); refreshHud(); save();
   }
 
@@ -821,12 +1047,13 @@
         }
       }
       if (events.length) rebuildRoute();
+      tickBugs(dt);
       // zoom easing (the take-off zoom is slower and more deliberate)
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
       sideCanvas.style.opacity = sa;
       if (sa < 1) updateGlobe(dt);
-      if (sa > 0) { updateSide(dt); drawSide(); }
+      if (sa > 0) updateFlight(dt);
       uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); }
       saveT += dt; if (saveT > 5) { saveT = 0; save(); }
     } else {
@@ -861,7 +1088,7 @@
   if (saved) {
     S = saved;
     const r = catchUp();
-    beginFlight(false); Z = ZT = 0.97; everZoomed = true; $('hint').style.opacity = 0;
+    beginFlight(false); Z = ZT = 0.985; everZoomed = true; $('hint').style.opacity = 0;
     if (r) showAway(r);
   } else { buildStart('new'); open('startSheet'); }
   setTimeout(() => { if (!everZoomed) $('hint').style.opacity = 1; }, 6000);
@@ -869,5 +1096,5 @@
   requestAnimationFrame(frame);
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth } };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, fscene, world };
 })();
