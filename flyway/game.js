@@ -213,7 +213,8 @@
     for (let k = 0; k < S.route.length - 1; k++) all.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]]));
     loopLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(all),
       new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, dashSize: 0.012, gapSize: 0.01 }));
-    loopLine.computeLineDistances(); routeGroup.add(loopLine);
+    loopLine.computeLineDistances(); loopLine.visible = false; // no dotted route ahead: the next stop's dot is enough
+    routeGroup.add(loopLine);
     const done = [];
     for (let k = 0; k < S.ri; k++) done.push(...arcPoints(CITIES[S.route[k]], CITIES[S.route[k + 1]], ROUTE_R + 0.0005));
     doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(done.length ? done : [new THREE.Vector3()]),
@@ -263,6 +264,20 @@
     return [mix(hex(t0), hex(t1), t), mix(hex(b0), hex(b1), t)];
   }
   const localHour = (lon) => ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + lon / 15) % 24 + 24) % 24;
+  // The sky in the close-up follows the local hour under the bird, but moves
+  // at most a quarter hour per second so it never blinks. Once a lap takes
+  // under two minutes it settles on the player's own time of day instead.
+  let skyH = null;
+  function skyHour(dt, cur) {
+    const v = F.speed(S), lapSecs = (F.lapLegs(S) * F.legLen(S)) / Math.max(v, 1e-6);
+    const now = new Date(), mine = now.getHours() + now.getMinutes() / 60;
+    const want = lapSecs < 120 ? mine : localHour(cur.lon);
+    if (skyH == null) skyH = want;
+    const d = ((want - skyH + 36) % 24) - 12, step = 0.25 * dt;
+    skyH = (skyH + clamp(d, -step, step) + 24) % 24;
+    side.skyHour = skyH;
+    return skyH;
+  }
 
   const fscene = new THREE.Scene();
   const fcam = new THREE.PerspectiveCamera(48, 1, 0.5, 1400);
@@ -672,7 +687,7 @@
     while (flock.length > want) fscene.remove(flock.pop());
   }
   // Cutouts face the camera; roll tips the nose up or down.
-  function faceCamera(m) { m.quaternion.copy(fcam.quaternion); m.rotateZ(m.userData.roll || 0); }
+  function faceCamera(m) { m.quaternion.copy(fcam.quaternion); m.rotateZ(m.userData.roll || 0); } // scale.x = -1 mirrors
 
   // ---------- predators (visuals; rules live in econ.js, timing in game state) ----------
   const hawkMesh = cutout(atlasFor({ id: 'hawk', ...HAWK }, { talons: true, span: 1.25, longTail: true }), 7.5);
@@ -989,7 +1004,7 @@
     });
 
     // sky, light and fog by the local hour under the bird
-    const cur = currentGeo(), hour = localHour(cur.lon);
+    const cur = currentGeo(), hour = skyHour(dt, cur);
     const night = clamp(1 - smooth(5.5, 7.5, hour) + smooth(18.5, 20.5, hour), 0, 1);
     const [top, bot] = skyAt(hour);
     skyU.top.value.setStyle(top); skyU.bottom.value.setStyle(bot);
@@ -1202,7 +1217,7 @@
     setTarget(body);
     const D = sp.dest === 0 ? 7 : 12, r = body.star ? 1.2 : sp.dest === 0 ? 0.27 : 0.6;
     const P = CHART_DIR.clone().multiplyScalar(D);
-    chartBody.visible = chartLine.visible = true; chartBody.scale.setScalar(r); chartBody.position.copy(P);
+    chartBody.visible = true; chartLine.visible = false; chartBody.scale.setScalar(r); chartBody.position.copy(P);
     moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
     const a = CHART_DIR.clone().multiplyScalar(1.02), b = P.clone().addScaledVector(CHART_DIR, -r * 1.05);
     chartLineGeo.setFromPoints([a, b]); chartLine.computeLineDistances();
@@ -1219,8 +1234,278 @@
     sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
     renderer.render(scene, camera);
   }
+  // ======================================================================
+  // The Earth–Moon loop (close-up). Earth and the Moon take turns: one falls
+  // away behind while the other grows ahead, swings past, and becomes the
+  // one behind. Wingmates fly in their own pods; raiders attack in ships or
+  // as hawks in space helmets.
+  // ======================================================================
+  const POD_W = 4.6;
+  function drawPod(g, i, b, opts = {}) {
+    const cx = FW * 0.5, cy = FH * 0.56, L = FW * (opts.raider ? 0.6 : 0.5), H = FH * (opts.raider ? 0.26 : 0.3), x0 = cx - L / 2;
+    // exhaust
+    const fl = 0.8 + (i % 2) * 0.3;
+    const fg = g.createLinearGradient(x0 - L * 0.4 * fl, 0, x0, 0);
+    const hot = opts.raider ? ['rgba(255,60,60,0)', 'rgba(255,90,80,.85)', '#ffe0d8'] : ['rgba(90,170,255,0)', 'rgba(120,200,255,.85)', '#e8f6ff'];
+    fg.addColorStop(0, hot[0]); fg.addColorStop(0.5, hot[1]); fg.addColorStop(1, hot[2]);
+    g.fillStyle = fg; g.beginPath(); g.moveTo(x0 + 4, cy - H * 0.22); g.quadraticCurveTo(x0 - L * 0.4 * fl, cy, x0 + 4, cy + H * 0.22); g.fill();
+    if (opts.raider) {
+      // a jagged dark-red hull with spikes
+      g.fillStyle = '#5a1620';
+      g.beginPath(); g.moveTo(x0, cy - H * 0.35); g.lineTo(x0 + L * 0.25, cy - H * 0.95); g.lineTo(x0 + L * 0.42, cy - H * 0.38);
+      g.lineTo(x0 + L * 0.98, cy - H * 0.05); g.lineTo(x0 + L * 0.42, cy + H * 0.4); g.lineTo(x0 + L * 0.25, cy + H * 0.95); g.lineTo(x0, cy + H * 0.35); g.closePath(); g.fill();
+      g.fillStyle = '#8c2430'; g.beginPath(); g.moveTo(x0 + L * 0.1, cy - H * 0.2); g.lineTo(x0 + L * 0.85, cy - H * 0.04); g.lineTo(x0 + L * 0.1, cy + H * 0.2); g.fill();
+      g.fillStyle = '#ffb02e'; g.fillRect(x0 + L * 0.15, cy + H * 0.02, L * 0.5, H * 0.06);
+    } else {
+      const hg = g.createLinearGradient(0, cy - H / 2, 0, cy + H / 2);
+      hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, '#b9c2cf');
+      g.fillStyle = hg; g.beginPath(); g.ellipse(cx, cy + H * 0.1, L / 2, H * 0.42, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2557a7'; g.fillRect(x0 + L * 0.12, cy + H * 0.18, L * 0.7, H * 0.08);
+      g.fillStyle = '#cfd6df'; g.beginPath(); g.moveTo(x0 + L * 0.15, cy + H * 0.3); g.lineTo(x0 + L * 0.02, cy + H * 0.75); g.lineTo(x0 + L * 0.42, cy + H * 0.35); g.fill();
+    }
+    // the dome, with the pilot's head inside
+    const wx = x0 + L * (opts.raider ? 0.52 : 0.6), wy = cy - H * (opts.raider ? 0.22 : 0.18), wr = H * 0.55;
+    g.fillStyle = '#0f1a33'; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.fill();
+    g.save(); g.beginPath(); g.arc(wx, wy, wr * 0.95, Math.PI, 0); g.clip();
+    g.fillStyle = b.body; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.1, wr * 0.55, 0, Math.PI * 2); g.fill();
+    if (!b.head) { g.fillStyle = b.cap; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.1, wr * 0.55, Math.PI * 1.05, Math.PI * 1.95); g.fill(); }
+    g.fillStyle = opts.raider ? '#f2c230' : '#fff'; g.beginPath(); g.arc(wx + wr * 0.18, wy - wr * 0.16, wr * 0.13, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(wx + wr * 0.21, wy - wr * 0.16, wr * 0.075, 0, Math.PI * 2); g.fill();
+    if (opts.raider) { // an angry brow
+      g.strokeStyle = '#111'; g.lineWidth = 3; g.beginPath(); g.moveTo(wx + wr * 0.02, wy - wr * 0.38); g.lineTo(wx + wr * 0.38, wy - wr * 0.25); g.stroke();
+    }
+    g.fillStyle = b.beak; g.beginPath(); g.moveTo(wx + wr * 0.42, wy - wr * 0.14);
+    if (opts.raider) { g.quadraticCurveTo(wx + wr * 0.85, wy - wr * 0.12, wx + wr * 0.72, wy + wr * 0.18); g.lineTo(wx + wr * 0.42, wy + wr * 0.04); }
+    else { g.lineTo(wx + wr * 0.78, wy - wr * 0.06); g.lineTo(wx + wr * 0.42, wy + wr * 0.02); }
+    g.fill(); g.restore();
+    g.strokeStyle = 'rgba(200,230,255,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.stroke();
+  }
+  const podAtlases = {};
+  function podAtlas(b) { return podAtlases[b.id] || (podAtlases[b.id] = makeAtlas((g, i) => drawPod(g, i, b), 2, 2, 1)); }
+  const raiderAtlas = makeAtlas((g, i) => drawPod(g, i, { id: 'raider', ...HAWK, beak: '#f2b630' }, { raider: true }), 2, 2, 1);
+  // a hawk in a space helmet with a little jetpack
+  const spaceHawkAtlas = makeAtlas((g, i, n) => {
+    g.translate(0, PAD);
+    drawBirdHD(g, (i / n) * Math.PI * 2, { id: 'spacehawk', ...HAWK }, { talons: true, span: 1.15, longTail: true });
+    const S0 = FW * 0.19, hx = FW * 0.47 + 0.78 * S0, hy = FH * 0.56 - 0.3 * S0, hr = 0.32 * S0;
+    g.fillStyle = 'rgba(190,225,255,.28)'; g.strokeStyle = 'rgba(220,240,255,.95)'; g.lineWidth = 3;
+    g.beginPath(); g.arc(hx + hr * 0.3, hy, hr * 1.9, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(hx - hr * 0.4, hy - hr * 1.1, hr * 0.45, hr * 0.18, -0.5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#6a7380'; g.fillRect(FW * 0.47 - S0 * 0.4, FH * 0.56 - S0 * 0.62, S0 * 0.5, S0 * 0.3);
+    g.fillStyle = i % 2 ? '#ffb347' : '#ffe08a'; g.beginPath(); g.moveTo(FW * 0.47 - S0 * 0.4, FH * 0.56 - S0 * 0.58);
+    g.lineTo(FW * 0.47 - S0 * 0.9, FH * 0.56 - S0 * 0.47); g.lineTo(FW * 0.47 - S0 * 0.4, FH * 0.56 - S0 * 0.36); g.fill();
+  }, BIRD_FRAMES, 4, 3, FH + PAD * 2);
+  const raiderShip = cutout(raiderAtlas, 8.5), spaceHawk = cutout(spaceHawkAtlas, 9);
+  // raiders face back toward the flock: mirror the art rather than turning it upside down
+  for (const m of [raiderShip, spaceHawk]) { m.visible = false; m.scale.x = -1; sscene.add(m); }
+  const raiderGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,90,90,.9)', 'rgba(255,60,60,.25)'), transparent: true, depthWrite: false }));
+  raiderGlow.scale.setScalar(9); raiderGlow.visible = false; sscene.add(raiderGlow);
+  // wingmate pods: other birds, each in its own little craft
+  const WING_BIRDS = ['sparrow', 'swallow', 'cardinal', 'pigeon', 'goose', 'tern', 'mockingbird', 'albatross'];
+  let pods = [];
+  function setPods() {
+    const want = Math.min(F.shipLv(S, 'wing'), 6);
+    while (pods.length < want) {
+      const i = pods.length, b = BIRDS.find((x) => x.id === WING_BIRDS[i % WING_BIRDS.length]);
+      const m = cutout(podAtlas(b), POD_W), row = Math.floor(i / 2) + 1, sgn = i % 2 ? 1 : -1;
+      m.userData.home = new THREE.Vector3(-row * 3.4, sgn * (1.3 * row) - 0.4, sgn > 0 ? -row * 1.2 : -row * 2.6);
+      m.userData.phase = Math.random() * 6; sscene.add(m); pods.push(m);
+    }
+    while (pods.length > want) sscene.remove(pods.pop());
+  }
+  // lasers and sparks
+  const LASERS = 8;
+  const laserGeo = new THREE.BufferGeometry();
+  laserGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LASERS * 6), 3));
+  laserGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(LASERS * 6), 3));
+  const lasers = new THREE.LineSegments(laserGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 }));
+  sscene.add(lasers);
+  const laserData = Array.from({ length: LASERS }, () => ({ t: 0 }));
+  function fireLaser(from, to, color) {
+    const k = laserData.findIndex((l) => l.t <= 0); if (k < 0) return;
+    Object.assign(laserData[k], { t: 0.28, from: from.clone(), to: to.clone(), c: new THREE.Color(color) });
+  }
+  const sSparkV = Array.from({ length: 40 }, () => new THREE.Vector3());
+  const sSparks = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(40 * 3), 3)),
+    new THREE.PointsMaterial({ size: 0.5, transparent: true, opacity: 0, depthWrite: false }));
+  sscene.add(sSparks);
+  let sBurst = 0;
+  function spaceBurst(at, color, speed = 4) {
+    const p = sSparks.geometry.attributes.position;
+    for (let i = 0; i < 40; i++) { p.setXYZ(i, at.x, at.y, at.z); sSparkV[i].randomDirection().multiplyScalar(speed * (0.4 + Math.random())); }
+    p.needsUpdate = true; sBurst = 1.2; sSparks.material.color.setStyle(color);
+  }
+  let lostPod = null;
+
+  function bodyPlace(m, phi, maxS) {
+    // phi: 0 = the bird is at this body; up to 0.5 it falls away; from 0.5 it comes back and swings past
+    if (phi < 0.5) {
+      const t = smooth(0, 1, phi / 0.5);
+      m.position.set(lerp(-40, -520, t), lerp(-34, -70, t), lerp(-40, -640, t)); m.scale.setScalar(lerp(maxS, 1.2, t));
+    } else {
+      const t = (phi - 0.5) / 0.5;
+      if (t < 0.85) {
+        const g = Math.pow(t / 0.85, 2.2);
+        m.position.set(lerp(260, 40, g), lerp(60, -22, g), lerp(-700, -95, g)); m.scale.setScalar(lerp(2.5, maxS * 0.8, g));
+      } else {
+        const k = smooth(0.85, 1, t);
+        m.position.set(lerp(40, -40, k), lerp(-22, -34, k), lerp(-95, -40, k)); m.scale.setScalar(lerp(maxS * 0.8, maxS, k));
+      }
+    }
+  }
+
+  function updateLoop(dt) {
+    const sp = S.space;
+    setTarget(F.SPACE[0]); labelsEl.style.display = 'none';
+    if (shuttleBird !== S.bird) {
+      shuttleBird = S.bird; shuttleBirdDef = F.birdOf(S);
+      const c = shuttleAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      for (let i = 0; i < 2; i++) { g.save(); g.translate(i * FW, 0); g.beginPath(); g.rect(0, 0, FW, FH); g.clip(); drawShuttle(g, i); g.restore(); }
+      shuttle.userData.tex.needsUpdate = true;
+    }
+    side.t += dt;
+    const fight = side.threat && side.threat.phase === 'battle';
+    ring.visible = false; starGlow.visible = false; spaceEarth.visible = true;
+    bodyPlace(spaceEarth, sp.u % 1, 40);
+    bodyPlace(target, (sp.u + 0.5) % 1, 24);
+    spaceEarth.rotation.y += dt * 0.03; target.rotation.y += dt * 0.02;
+    // the shuttle, steady with a little bob
+    const bob = Math.sin(side.t * 1.3) * 0.4, jink = fight ? Math.sin(side.t * 5.1) * 1.1 : 0;
+    shuttle.position.set(0, bob + jink, 0);
+    shuttle.userData.roll = -0.04 + Math.sin(side.t * 0.9) * 0.02 + (fight ? Math.cos(side.t * 5.1) * 0.12 : 0);
+    setFrame(shuttle, Math.floor(side.t * 14) % 2);
+    // wingmates hold formation; in a fight they break and swirl around the raider
+    setPods();
+    const th = side.threat, b = th ? th.t - th.warn : -9, R = th && th.rPos;
+    pods.forEach((m, i) => {
+      const h = m.userData.home;
+      let want = new THREE.Vector3(h.x + Math.sin(side.t * 0.6 + i) * 0.5, h.y + Math.sin(side.t * 1.3 + i * 1.7) * 0.4, h.z);
+      if (th && R && b > -0.2 && b < BATTLE && !(th.type === 'spacehawk' && i > 3)) {
+        const a = b * (2.2 + (i % 3) * 0.5) + i * 2.1, r = 3 + (i % 3);
+        want = want.lerp(R.clone().add(new THREE.Vector3(Math.cos(a) * r, Math.sin(a * 1.4) * 1.6, Math.sin(a) * r * 0.5)), smooth(-0.2, 0.6, b) * (1 - smooth(4.3, BATTLE, b)));
+      }
+      m.position.lerp(want, 1 - Math.exp(-dt * 6));
+      m.userData.roll = Math.sin(side.t * 0.8 + i) * 0.05;
+      setFrame(m, Math.floor(side.t * 14 + i) % 2);
+    });
+    updateRaiders(dt, fight, b);
+    // lost pod tumbling away
+    if (lostPod) {
+      const f = lostPod.userData.fall; f.v += 6 * dt;
+      lostPod.position.add(new THREE.Vector3(-8 * dt, -f.v * dt, -4 * dt)); lostPod.userData.roll += dt * 6;
+      if (lostPod.position.y < -40) { sscene.remove(lostPod); lostPod = null; }
+    }
+    // lasers fade out quickly
+    const lp = laserGeo.attributes.position, lc = laserGeo.attributes.color;
+    laserData.forEach((l, k) => {
+      if (l.t > 0) {
+        l.t -= dt; const a = Math.max(0, l.t / 0.28);
+        lp.setXYZ(k * 2, l.from.x, l.from.y, l.from.z); lp.setXYZ(k * 2 + 1, l.to.x, l.to.y, l.to.z);
+        lc.setXYZ(k * 2, l.c.r * a, l.c.g * a, l.c.b * a); lc.setXYZ(k * 2 + 1, l.c.r * a, l.c.g * a, l.c.b * a);
+      } else { lp.setXYZ(k * 2, 0, -999, 0); lp.setXYZ(k * 2 + 1, 0, -999, 0); }
+    });
+    lp.needsUpdate = true; lc.needsUpdate = true;
+    if (sBurst > 0) {
+      sBurst -= dt; sSparks.material.opacity = clamp(sBurst, 0, 1);
+      const p = sSparks.geometry.attributes.position;
+      for (let i = 0; i < 40; i++) { const v = new THREE.Vector3().fromBufferAttribute(p, i).addScaledVector(sSparkV[i], dt); p.setXYZ(i, v.x, v.y, v.z); }
+      p.needsUpdate = true;
+    } else sSparks.material.opacity = 0;
+    // star streaks
+    const sp2 = sstreakGeo.attributes.position, speedK = 160 * (fight ? 0.4 : 1);
+    for (let i = 0; i < SSTREAK; i++) {
+      const d = sstreakData[i]; d.x -= speedK * dt;
+      if (d.x < -80) { d.x = 90 + Math.random() * 40; d.y = Math.random() * 60 - 30; d.z = Math.random() * 80 - 70; }
+      sp2.setXYZ(i * 2, d.x, d.y, d.z); sp2.setXYZ(i * 2 + 1, d.x + 6, d.y, d.z);
+    }
+    sp2.needsUpdate = true; sstreakGeo.setDrawRange(0, SSTREAK * 2);
+    // camera pulls back a little during a fight
+    side.fightK = lerp(side.fightK || 0, th && b > -0.6 && b < BATTLE + 1.6 ? 1 : 0, 1 - Math.exp(-dt * 2.5));
+    const shake = side.shake > 0 ? (side.shake -= dt, side.shake) : 0;
+    fcam.position.set(3 - side.fightK * 4 + (Math.random() - 0.5) * shake, 4.2 + side.fightK * 2 + (Math.random() - 0.5) * shake, 22 + side.fightK * 10);
+    fcam.lookAt(4 - side.fightK * 3, 0.5, 0);
+    for (const m of [shuttle, ...pods, raiderShip, spaceHawk]) faceCamera(m);
+    if (lostPod) faceCamera(lostPod);
+    fr.render(sscene, fcam);
+  }
+
+  function updateRaiders(dt, fight, b) {
+    const th = side.threat;
+    raiderShip.visible = spaceHawk.visible = raiderGlow.visible = false;
+    if (!th || (th.type !== 'raider' && th.type !== 'spacehawk')) return;
+    const m = th.type === 'raider' ? raiderShip : spaceHawk;
+    m.visible = true; raiderGlow.visible = b < BATTLE + 0.4;
+    // the fight happens right around the shuttle, where the camera is looking
+    // below and ahead of the shuttle: the open part of the screen, clear of the ticket and banner
+    const C = new THREE.Vector3(5.5, -3, 1.5);
+    if (b < 0) {
+      // closes in from ahead during the warning
+      const k = smooth(-th.warn, 0, b);
+      m.position.set(lerp(18, 7.5, k), lerp(-1, -2.5, k) + Math.sin(side.t * 2) * 0.4, 1);
+      m.userData.roll = 0.08;
+    } else if (b <= BATTLE) {
+      const P = C.clone().add(new THREE.Vector3(Math.sin(b * 1.9) * 3.8, Math.sin(b * 3.8) * 1.4, Math.cos(b * 1.9) * 1.5));
+      if (b > 4.3) P.lerp(th.ok ? C.clone().add(new THREE.Vector3(5, -2, 0)) : (pods.length ? pods[pods.length - 1].position.clone() : shuttle.position.clone()).add(new THREE.Vector3(1, 1, 0)), smooth(4.3, 4.9, b));
+      m.position.copy(P); th.rPos = P.clone();
+      m.userData.roll = Math.cos(b * 1.9) * 0.3;
+      // exchange fire: the raider misses every shot until the end; wingmates shoot back
+      const n = Math.floor(b / 0.45);
+      if (n !== th.lastHit) {
+        th.lastHit = n;
+        const targets = pods.length ? pods : [shuttle], tg = targets[n % targets.length].position;
+        fireLaser(P, tg.clone().add(new THREE.Vector3(1.5, (n % 2 ? 1.6 : -1.6), 0)), '#ff4d5e');
+        if (pods.length) fireLaser(pods[(n + 1) % pods.length].position, P.clone().add(new THREE.Vector3(n % 2 ? 0.8 : -0.8, 0.6, 0)), '#6fd2ff');
+        else fireLaser(shuttle.position, P.clone().add(new THREE.Vector3(0.9, -0.5, 0)), '#6fd2ff');
+        side.shake = Math.max(side.shake || 0, 0.12);
+      }
+    } else {
+      const a = b - BATTLE, P = th.pEnd || (th.pEnd = m.position.clone());
+      if (th.ok) { m.position.copy(P).add(new THREE.Vector3(a * 9, -a * a * 6, -a * 3)); m.userData.roll = a * 8; }
+      else { m.position.copy(P).add(new THREE.Vector3(a * 10, a * 5, -a * 2)); m.userData.roll = 0.3; }
+    }
+    raiderGlow.position.copy(m.position).add(new THREE.Vector3(0, 0, -0.5));
+    if (m === spaceHawk) setFrame(m, phaseFrame(side.t * (fight ? 9 : 5), BIRD_FRAMES)); else setFrame(m, Math.floor(side.t * 14) % 2);
+  }
+  // the result, shown as the banner announces it
+  function spaceOutcome(th, r) {
+    const m = th.type === 'raider' ? raiderShip : spaceHawk;
+    if (th.ok) { spaceBurst(m.position, '#ffb347', 6); return; }
+    if (r.lost === 'wingmate' && pods.length) {
+      lostPod = pods.pop(); lostPod.userData.fall = { v: 0 }; spaceBurst(lostPod.position, '#ff6b6b', 4);
+    } else spaceBurst(shuttle.position, '#b9b4a8', 5); // spilled moon rocks
+  }
+
+  // ---- zoomed out: the oval orbit around Earth and the Moon ----
+  const loopGeo = new THREE.BufferGeometry();
+  const moonOval = new THREE.LineLoop(loopGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 0.12, gapSize: 0.08, transparent: true, opacity: 0.85 }));
+  scene.add(moonOval); moonOval.visible = false;
+  const LOOP_D = 7, LOOP_A = LOOP_D / 2 + 1.1, LOOP_B = 1.7;
+  function loopPoint(theta, side3) {
+    const C = CHART_DIR.clone().multiplyScalar(LOOP_D / 2);
+    return C.addScaledVector(CHART_DIR, LOOP_A * Math.cos(theta)).addScaledVector(side3, LOOP_B * Math.sin(theta));
+  }
+  function updateLoopChart(dt) {
+    const sp = S.space;
+    setTarget(F.SPACE[0]);
+    const up = new THREE.Vector3(0, 1, 0), side3 = up.clone().cross(CHART_DIR).normalize(), tilt = side3.clone().applyAxisAngle(CHART_DIR, 0.5);
+    if (!loopGeo.attributes.position) { const pts = []; for (let k = 0; k < 160; k++) pts.push(loopPoint(k / 160 * Math.PI * 2, tilt)); loopGeo.setFromPoints(pts); moonOval.computeLineDistances(); }
+    const P = CHART_DIR.clone().multiplyScalar(LOOP_D);
+    chartBody.visible = true; chartBody.scale.setScalar(0.27); chartBody.position.copy(P); chartLine.visible = false; moonOval.visible = true;
+    moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
+    const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt);
+    birdSprite.position.copy(at);
+    // far enough back that the whole oval (Earth to past the Moon) fits the screen width
+    const q = clamp(Z / SIDE_B, 0, 1), dist = (LOOP_A + 0.8) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
+    birdSprite.scale.setScalar(0.05 + dist * 0.01);
+    const focus = P.clone().multiplyScalar(0.5).lerp(at, smooth(0.75, 1, q));
+    camera.position.copy(focus).addScaledVector(side3, -dist).add(new THREE.Vector3(0, dist * 0.45, 0));
+    camera.lookAt(focus);
+    sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
+    renderer.render(scene, camera);
+  }
+
   function leaveSpaceChart() {
-    chartBody.visible = chartLine.visible = false; moon.visible = true; routeGroup.visible = true; nextSprite.visible = true;
+    chartBody.visible = chartLine.visible = moonOval.visible = false; moon.visible = true; routeGroup.visible = true; nextSprite.visible = true;
   }
 
   // ======================================================================
@@ -1372,7 +1657,7 @@
   document.querySelectorAll('.mode button').forEach((b) => b.onclick = () => {
     buyMode = b.dataset.mode === 'max' ? 'max' : +b.dataset.mode;
     document.querySelectorAll('.mode button').forEach((x) => x.setAttribute('aria-pressed', x === b));
-    refreshUpgrades();
+    refreshUpgrades(); refreshShip();
   });
 
   let hudName = '', hudNameAt = 0, lapCache = null;
@@ -1401,7 +1686,7 @@
       // cities pass faster than anyone can read: show the lap, name cities at a readable pace
       const legs = F.lapLegs(S), now = performance.now(), left = lapKmLeft();
       if (now - hudNameAt > 900) { hudNameAt = now; hudName = to.name; }
-      $('fromCity').innerHTML = `Lap ${S.lapsFlown + 1}<small>${S.ri} of ${legs} cities</small>`;
+      $('fromCity').innerHTML = `${F.isOrbit(S) ? 'Orbit' : 'Lap'} ${S.lapsFlown + 1}<small>${S.ri} of ${legs} stops</small>`;
       $('toCity').innerHTML = `${hudName}<small>passing</small>`;
       $('legKm').textContent = `${fmt(left, 0)} km to go`;
       setTrack(clamp((S.ri + t) / legs, 0, 1));
@@ -1584,7 +1869,8 @@
       ['Bird', b.name], ['Distance flown', fmt(S.totalKm) + ' km'], ['Cities reached', fmt(S.arrivals, 0)],
       ['Migrations', S.laps], ['Golden feathers', `🪶 ${fmt(S.feathers, 0)} to spend`],
       ['Perks', `×${fmt(F.perkSpeed(S), 2)} speed · ×${fmt(F.perkSeeds(S), 2)} seeds`], ['Birds', `${S.birds.length} of ${BIRDS.length}`],
-      ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} cities`],
+      ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} stops`],
+      ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`], ['Moon rocks', `🌙 ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
@@ -1661,10 +1947,13 @@
     hawk: { icon: '🦅', name: 'hawk', ask: 'Hawk above! Tap FLAP fast to dodge' },
     owl: { icon: '🦉', name: 'owl', ask: 'Owl in the dark! Tap FLAP fast to dodge' },
     hunter: { icon: '🎯', name: 'hunter', ask: 'Hunter below! Hold FLAP to climb out of range' },
+    raider: { icon: '🛸', name: 'raider ship', ask: 'Raider ship! Tap FLAP fast to evade', space: true },
+    spacehawk: { icon: '🦅', name: 'space hawk', ask: 'A hawk in a space helmet! Tap FLAP fast to evade', space: true },
   };
   const anySheetOpen = () => !!document.querySelector('.sheet.on');
   function pickThreat() {
-    const g = currentGeo(), hour = localHour(g.lon), v = F.speed(S);
+    if (S.space) return Math.random() < 0.55 ? 'raider' : 'spacehawk';
+    const g = currentGeo(), hour = side.skyHour != null ? side.skyHour : localHour(g.lon), v = F.speed(S);
     const night = hour < 6 || hour > 19.5;
     if (night) return 'owl';
     // hunters only over open land: never over water, never right by a city
@@ -1694,7 +1983,7 @@
       }
       return;
     }
-    if (S.arrivals < 3 || side.bug || S.space || anySheetOpen() || (S.wx && S.wx.type === 'storm')) return;
+    if (S.arrivals < 3 || side.bug || (S.space && !S.space.loop) || anySheetOpen() || (!S.space && S.wx && S.wx.type === 'storm')) return;
     side.threatT -= dt;
     if (side.threatT > 0) return;
     side.threatT = F.THREAT.every(S);
@@ -1708,7 +1997,9 @@
     th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999;
     flapBtn.classList.remove('alarm'); banner.classList.add('fight');
     const name = THREATS[th.type].name, flockUp = S.levels.flock > 0;
-    $('threatText').textContent = th.type === 'hunter'
+    $('threatText').textContent = THREATS[th.type].space
+      ? (F.shipLv(S, 'wing') > 0 ? `Your wingmates are dogfighting the ${name}…` : `Dodging the ${name}'s lasers…`)
+      : th.type === 'hunter'
       ? (flockUp ? 'Under fire! The flock weaves through the shots…' : 'Under fire! Weaving through the shots…')
       : (flockUp ? `The flock is fighting the ${name}…` : `Your bird is fighting the ${name}…`);
   }
@@ -1716,6 +2007,17 @@
     th.phase = 'done';
     const name = THREATS[th.type].name;
     banner.classList.remove('fight');
+    if (THREATS[th.type].space) {
+      if (th.ok) {
+        const r = F.spaceMiss(S); banner.classList.add('ok'); meterEl.style.width = '100%';
+        $('threatText').textContent = `The ${name} is driven off! +${fmt(r, 0)} 🌙`;
+      } else {
+        const r = F.spaceHit(S); banner.classList.add('bad'); meterEl.style.width = '0%';
+        $('threatText').textContent = r.lost === 'wingmate' ? `The ${name} knocked out a wingmate. Slowed for ${F.THREAT.STUN}s.` : `The ${name} blasted loose ${fmt(r.rocks, 0)} 🌙. Slowed for ${F.THREAT.STUN}s.`;
+      }
+      spaceOutcome(th, th.ok ? null : { lost: F.shipLv(S, 'wing') < pods.length ? 'wingmate' : 'rocks' });
+      refreshShip(); return;
+    }
     if (th.ok) {
       const bonus = F.predatorMiss(S);
       banner.classList.add('ok'); meterEl.style.width = '100%';
@@ -1756,7 +2058,7 @@
   }
   function refreshWeatherChip() {
     const el = $('wx');
-    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🌙 Earth–Moon loop · ${fmt(S.moon.trips, 0)} round trips` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${w.note}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
@@ -1764,9 +2066,22 @@
 
   // ---------- space: HUD, arrivals, expedition panel ----------
   function refreshSpaceHud() {
-    const sp = S.space, b = F.SPACE[sp.dest], v = F.spaceSpeed(S);
+    const sp = S.space, b = F.SPACE[sp.dest], v = sp.loop ? F.loopSpeed(S) : F.spaceSpeed(S);
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(F.seedRate(S, false))}/s`;
+    if (sp.loop) {
+      const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.LOOP_KM;
+      $('fromCity').innerHTML = `${out ? 'Earth' : 'Moon'}<small>trip ${sp.trips + 1}</small>`;
+      $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} 🌙 on return`}</small>`;
+      $('legKm').textContent = `${fmt(left, 0)} km left`;
+      setTrack(clamp(sp.u, 0, 1));
+      $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = out ? 'Moon in' : 'Home in'; $('eta').textContent = fmtTime(left / v);
+      const cap = 1; $('ring').style.strokeDashoffset = 289 * (1 - Math.min(1, S.boost / 1.5)); $('boostPct').textContent = `+${Math.round(S.boost * 100)}%`;
+      $('stampCount').textContent = S.visited.length + S.cosmos.length;
+      $('stunChip').hidden = !(S.stun > 0); $('rushChip').hidden = true; refreshWeatherChip(); refreshRocks();
+      $('btnMigrate').classList.remove('on');
+      return;
+    }
     if (sp.arrived) {
       const nb = F.SPACE[sp.dest + 1];
       $('fromCity').innerHTML = `${b.short}<small>in orbit</small>`;
@@ -1794,7 +2109,7 @@
       <text font-family="Bricolage Grotesque, sans-serif" font-weight="800" font-size="${name.length > 11 ? 14 : 18}" fill="currentColor" letter-spacing="2"><textPath href="#pmArcS" startOffset="50%" text-anchor="middle">${name}</textPath></text>
       <text x="86" y="96" text-anchor="middle" font-size="34">${e.body.star ? '✨' : '🪐'}</text>
       <text x="86" y="124" text-anchor="middle" font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="12" fill="currentColor">${e.first ? 'FIRST LANDING' : 'FLYWAY'}</text>
-    </svg><div class="bonus">+${fmt(e.bonus)} 🌰</div>`;
+    </svg>${e.bonus > 0 ? `<div class="bonus">+${fmt(e.bonus)} 🌰</div>` : ''}`;
     pm.style.color = '#7a5bd0';
     pm.classList.remove('show'); void pm.offsetWidth; pm.classList.add('show');
     setTimeout(() => { pm.style.color = ''; }, 2700);
@@ -1807,21 +2122,34 @@
     const g = F.nextGear(S), nb = F.nextBody(S), sp = S.space;
     const show = S.lapsFlown >= 1 || S.laps > 0 || Object.keys(S.gear).length > 0 || S.cosmos.length > 0;
     box.hidden = !show; if (!show) return;
-    const key = [g && g.id, nb && nb.id, sp && sp.dest, sp && sp.arrived].join('|');
+    const key = [g && g.id, nb && nb.id, sp && sp.dest, sp && sp.arrived, sp && sp.loop, S.moon.rocks > 0, !!S.gear.shuttle].join('|');
     if (key !== expoKey) {
       expoKey = key;
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
-      if (sp && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
-      else if (nb) action = `<button class="expo-launch" id="btnLaunch">🚀 ${sp ? 'Fly on to' : 'Launch to'} ${nb.name}</button>`;
-      if (sp && sp.arrived) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
+      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button>`;
+      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home moon rocks.</p>`;
+      if (sp && !sp.loop && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
+      else if (nb && (!sp || sp.loop || sp.arrived)) action += `<button class="expo-launch" id="btnLaunch">🚀 Fly on to ${nb.name}</button>`;
+      if (sp && (sp.arrived || sp.loop)) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
+      if (S.moon.rocks > 0 || (sp && sp.loop)) action += `<div class="trade"><span>🌙 <b class="num" id="tradeRocks">0</b> moon rocks · 1 = <b class="num" id="tradeRate">0</b> seeds</span>
+        <span class="trade-btns"><button id="btnTrade1">Trade 1</button><button id="btnTradeAll">Trade all</button></span></div>`;
       box.innerHTML = `<div class="expo-head"><h3>Expedition</h3><span>${owned} of ${F.GEAR.length} gear · ${S.cosmos.length} of ${F.SPACE.length} worlds</span></div>
         ${action}
         ${g ? `<div class="up expo-gear"><div class="ic" aria-hidden="true">${g.icon}</div>
           <div><div class="nm">${g.name}</div><div class="fx">${g.blurb}</div></div>
           <button class="buy" id="btnGear"><b class="num">${fmt(g.cost)}</b><small>buy once</small></button></div>`
         : '<p class="expo-note">All gear owned. Every world is within reach.</p>'}`;
-      const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear');
+      const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear'), bo = $('btnLoop');
+      if (bo) bo.onclick = () => {
+        if (!F.launchLoop(S)) return;
+        side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
+        ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
+        toast('Liftoff! Loop the Moon and bring home moon rocks.');
+      };
+      const t1 = $('btnTrade1'), ta = $('btnTradeAll');
+      if (t1) t1.onclick = () => { const v = F.tradeRocks(S, 1); if (v) { toast(`Traded 1 🌙 for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
+      if (ta) ta.onclick = () => { const n = S.moon.rocks, v = F.tradeRocks(S, n); if (v) { toast(`Traded ${fmt(n, 0)} 🌙 for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
       if (bl) bl.onclick = () => {
         if (!F.launch(S)) return;
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm');
@@ -1829,12 +2157,58 @@
         toast(`Liftoff! Next stop: ${F.SPACE[S.space.dest].name}`);
       };
       if (bh) bh.onclick = () => {
-        F.returnToEarth(S); leaveSpaceChart(); resetSide(); rebuildRoute(); expoKey = ''; refreshExpo(); save();
+        F.returnToEarth(S); leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); save();
         toast(`Back on Earth over ${F.legFrom(S).name}.`);
       };
       if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
     }
     const bg = $('btnGear'); if (bg && g) bg.disabled = S.seeds < g.cost;
+    refreshRocks();
+  }
+  function refreshRocks() {
+    const show = S.moon.rocks > 0 || (S.space && S.space.loop) || S.moon.total > 0;
+    $('rocksChip').hidden = !show; $('rocksCount').textContent = fmt(S.moon.rocks, 0);
+    const tr = $('tradeRocks'); if (tr) { tr.textContent = fmt(S.moon.rocks, 0); $('tradeRate').textContent = fmt(F.rockValue(S)); $('btnTrade1').disabled = $('btnTradeAll').disabled = S.moon.rocks < 1; }
+  }
+  let lastTripToast = 0;
+  function tripDone(e) {
+    const now = performance.now();
+    if (now - lastTripToast > 3000) { lastTripToast = now; toast(`Round trip done: +${fmt(e.rocks, 0)} 🌙`); }
+    refreshRocks(); refreshShip();
+  }
+  function orbitUnlocked() {
+    toast(ORBIT_MSG);
+    if (!S.space) { S.route = F.genLap(S, F.legFrom(S).i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
+    save();
+  }
+  const ORBIT_MSG = 'Orbital speed! Your bird can circle the globe in under a minute, so it now flies like a satellite. Each orbit pays out every destination.';
+
+  // ---------- ship upgrades (shown in place of bird upgrades while looping the Moon) ----------
+  const shipRows = {};
+  function buildShip() {
+    const ul = $('shipUps'); ul.innerHTML = '';
+    for (const u of F.SHIP) {
+      const li = document.createElement('li'); li.className = 'up';
+      li.innerHTML = `<div class="ic ship-ic" aria-hidden="true">${u.icon}<span class="lv num">0</span></div>
+        <div><div class="nm">${u.name}</div><div class="fx"></div></div>
+        <button class="buy rock"><b class="num">0</b><small>buy</small></button>`;
+      const btn = li.querySelector('.buy');
+      btn.onclick = () => { if (F.buyShip(S, u.id, buyMode === 'max' ? 'max' : buyMode)) { refreshShip(); refreshRocks(); save(); } };
+      shipRows[u.id] = { lv: li.querySelector('.lv'), fx: li.querySelector('.fx'), btn, cost: btn.querySelector('b'), lab: btn.querySelector('small') };
+      ul.append(li);
+    }
+  }
+  function refreshShip() {
+    const looping = !!(S.space && S.space.loop);
+    $('ups').hidden = looping; $('shipUps').hidden = !looping;
+    $('drawerTitle').textContent = looping ? 'Ship upgrades' : 'Upgrades';
+    if (!looping) return;
+    for (const u of F.SHIP) {
+      const r = shipRows[u.id], L = F.shipLv(S, u.id);
+      const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.moon.rocks)) : buyMode, c = F.shipCostN(u, L, n);
+      r.lv.textContent = L; r.fx.textContent = `${u.blurb(L)}  →  ${u.blurb(L + n)}`;
+      r.cost.textContent = '🌙 ' + fmt(c, 0); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.moon.rocks;
+    }
   }
 
   // ---------- admin (testing) ----------
@@ -1859,9 +2233,12 @@
     if (a === 'x10') return adminSeeds(Math.max(S.seeds, 1) * 9);
     if (a === 'feathers') { S.feathers += 10; toast('+10 golden feathers.'); }
     if (a === 'lap' && !S.space) { S.ri = F.lapLegs(S) - 1; S.legKm = Math.max(0, F.legLen(S) - 1); rebuildRoute(); toast('Last leg of the lap.'); }
+    if (a === 'raider') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = S.space && S.space.loop ? 'raider' : null; side.threatT = 0; close('menuSheet'); }
     if (a === 'hawk' || a === 'hunter') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = a; side.threatT = 0; S.wx = { type: 'clear', left: 0 }; close('menuSheet'); }
     if (a === 'bug') { side.bug = { t: 0, caught: false }; close('menuSheet'); }
     if (a === 'storm' || a === 'tailwind') { S.wx = { type: a, left: 30 }; close('menuSheet'); }
+    if (a === 'orbit') { if (!S.orbitUnlocked) { S.orbitUnlocked = true; orbitUnlocked(); } }
+    if (a === 'rocks') { S.moon.rocks += 100; S.moon.total += 100; refreshRocks(); refreshShip(); toast('+100 moon rocks.'); }
     if (a === 'gear') { for (const g of F.GEAR) S.gear[g.id] = true; expoKey = ''; refreshExpo(); toast('All gear unlocked.'); }
     if (a === 'hide') { adminEl.hidden = true; try { localStorage.removeItem('flyway.admin'); } catch (e) {} }
     refreshHud(); refreshUpgrades(); save();
@@ -1877,7 +2254,7 @@
     rebuildRoute(); resetSide();
     const g = currentGeo(); camDir.copy(geoVec(g.lat, g.lon, 1));
     if (fresh) { Z = 0.02; ZT = 0.985; } // the opening move: orbit to wingtip
-    refreshUpgrades(); refreshHud(); save();
+    refreshUpgrades(); refreshHud(); refreshShip(); save();
   }
 
   function frame(now) {
@@ -1887,6 +2264,10 @@
       const events = F.step(S, dt, !isLand(g.lat, g.lon));
       for (const e of events) {
         if (e.type === 'space') { spaceArrival(e); continue; }
+        if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
+        if (e.type === 'trip') { tripDone(e); continue; }
+        if (e.type === 'orbit') { orbitUnlocked(); continue; }
+        if (e.orbitPay) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
         if (e.first) stamp(e.city, e.bonus, true); // only the first time the bird lands somewhere
         forecast(e);
         if (e.lapDone && lapShownFor !== S.leg) {
@@ -1907,14 +2288,17 @@
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
       sideCanvas.style.opacity = sa;
-      if (S.space) {
+      if (S.space && S.space.loop) {
+        if (sa < 1) updateLoopChart(dt);
+        if (sa > 0) updateLoop(dt);
+      } else if (S.space) {
         if (sa < 1) updateSpaceChart(dt);
         if (sa > 0) updateSpace(dt);
       } else {
         if (sa < 1) updateGlobe(dt);
         if (sa > 0) updateFlight(dt);
       }
-      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); }
+      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); }
       saveT += dt; if (saveT > 5) { saveT = 0; save(); }
     } else {
       // behind the start sheet: let the globe turn slowly
@@ -1942,7 +2326,7 @@
   $('btnAway').onclick = () => close('awaySheet');
 
   // boot
-  buildUpgrades(); sizeSide();
+  buildUpgrades(); buildShip(); sizeSide();
   camDir.set(0.3, 0.45, 1).normalize();
   const saved = load();
   if (saved) {

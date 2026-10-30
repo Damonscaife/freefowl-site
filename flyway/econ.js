@@ -251,7 +251,7 @@
   function newState(birdId, startIdx) {
     const s = {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0, ri: 0, route: null, lapsFlown: 0,
-      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
+      gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {} }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
       seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
@@ -266,6 +266,7 @@
   // has not been, so each trip around shows somewhere new.
   const BANDS = [40, 22, 52, -28, 32, 8, 60, -15, 45, 28, -35, 15];
   function genLap(s, startIdx) {
+    if (isOrbit(s)) return genOrbit(s, startIdx);
     const n = s.lapsFlown || 0, start = CITIES[startIdx];
     const band = n === 0 ? start.lat : BANDS[(n - 1) % BANDS.length] + (Math.random() - 0.5) * 8;
     const route = [startIdx], used = new Set([startIdx]), seen = new Set(s.visited || []);
@@ -291,6 +292,42 @@
   }
   const lapLegs = (s) => s.route.length - 1;
 
+  // ---- satellite orbits ----
+  // Once the bird's base speed reaches ORBIT_SPEED (it could circle the globe
+  // in under a minute), each lap is a near-perfect great circle through the
+  // current city, stopping only at cities lying close to it. A full orbit
+  // pays as if the bird had reached every destination. Unlocked for good.
+  const ORBIT_SPEED = 40075 / 60; // km/s: once around the equator per minute
+  const isOrbit = (s) => !!s.orbitUnlocked;
+  const v3 = (c) => { const a = rad(c.lat), o = rad(c.lon); return [Math.cos(a) * Math.cos(o), Math.cos(a) * Math.sin(o), Math.sin(a)]; };
+  const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm3 = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+  function genOrbit(s, startIdx) {
+    const c0 = CITIES[startIdx], u = v3(c0), o = rad(c0.lon), east = [-Math.sin(o), Math.cos(o), 0];
+    let best = null;
+    for (let tries = 0; tries < 24; tries++) {
+      // the orbit's axis is perpendicular to the start; tilt it at random, keep heading broadly east
+      let axis = norm3(cross3(u, norm3([Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5])));
+      let w = cross3(axis, u);
+      if (dot3(w, east) < 0) { axis = axis.map((x) => -x); w = w.map((x) => -x); }
+      const hits = [];
+      for (const c of CITIES) {
+        if (c.i === startIdx) continue;
+        const p = v3(c), off = Math.abs(Math.asin(Math.max(-1, Math.min(1, dot3(p, axis))))) * 180 / Math.PI;
+        if (off > 7) continue;
+        let ang = Math.atan2(dot3(p, w), dot3(p, u)) * 180 / Math.PI; if (ang < 0) ang += 360;
+        if (ang > 4 && ang < 356) hits.push({ i: c.i, ang });
+      }
+      hits.sort((a, b) => a.ang - b.ang);
+      const kept = []; let last = 0;
+      for (const h of hits) if (h.ang - last >= 7) { kept.push(h); last = h.ang; }
+      if (!best || kept.length > best.length) best = kept;
+      if (best.length >= 10) break;
+    }
+    return [startIdx, ...best.map((h) => h.i)];
+  }
+
   // older saves predate the bug catcher
   function upgradeSave(s) {
     for (const k of ['bugs', 'keen', 'camo']) s.levels[k] = s.levels[k] || 0;
@@ -299,6 +336,9 @@
       s.lapsFlown = Math.floor(s.leg / 48); s.route = genLap(s, cur); s.ri = 0; s.legKm = 0;
     }
     s.gear = s.gear || {}; s.space = s.space || null; s.cosmos = s.cosmos || []; s.perks = s.perks || {};
+    if (s.lapsTotal == null) s.lapsTotal = (s.laps || 0) + (s.lapsFlown || 0);
+    s.moon = s.moon || { rocks: 0, total: 0, trips: 0, lv: {} };
+    if (s.space && !s.space.loop && s.space.dest === 0) s.space = { loop: true, dest: 0, u: 0.5, trips: 0, from: 'Earth' };
     if (!s.birds) { // before feathers were spent: keep what the old lap-count unlocks gave
       const old = { tern: 1, albatross: 2, falcon: 4 };
       s.birds = BIRDS.filter((b) => b.cost === 0 || (old[b.id] && (s.laps || 0) >= old[b.id]) || b.id === s.bird).map((b) => b.id);
@@ -312,8 +352,8 @@
   // meter before it strikes. Escaping pays a bonus; getting caught costs one flock
   // follower (or 10% of seeds with no flock) and halves speed for a few seconds.
   const THREAT = {
-    warn: (s) => (2 + 0.4 * s.levels.keen) / (birdOf(s).prey || 1), // seconds of warning (the dodo gets half)
-    taps: (s) => Math.max(2, Math.ceil((8 - Math.min(5, s.levels.keen)) / (birdOf(s).fight || 1))), // flaps needed vs hawk/owl
+    warn: (s) => (s.space ? 2 + 0.5 * shipLv(s, 'shield') : 2 + 0.4 * s.levels.keen) / (birdOf(s).prey || 1), // seconds of warning (the dodo gets half)
+    taps: (s) => Math.max(2, Math.ceil((8 - Math.min(6, s.space ? shipLv(s, 'shield') : s.levels.keen)) / (birdOf(s).fight || 1))), // flaps needed vs hawk/owl
     climb: (s) => Math.max(0.6, 1.3 - 0.1 * s.levels.keen),// seconds of climbing vs hunter
     every: (s) => (75 + Math.random() * 45) * (1 + 0.3 * s.levels.camo) * (birdOf(s).camo || 1) / (birdOf(s).prey || 1),
     STUN: 4,
@@ -343,7 +383,7 @@
   function seedRate(s, overOcean) {
     const b = birdOf(s);
     const oc = overOcean && b.ocean ? b.ocean : 1;
-    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * perkSeeds(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s);
+    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * perkSeeds(s) * solarMult(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s);
   }
   // Payout for landing in the next city: worth T.arrive seconds of foraging,
   // growing with each city already reached this run.
@@ -366,6 +406,25 @@
     else if (s.wx && s.wx.calm > 0) s.wx.calm -= dt;
     const earned = seedRate(s, overOcean) * dt;
     s.seeds += earned; s.runSeeds += earned;
+    if (s.space && s.space.loop) {
+      const v = loopSpeed(s), before = s.space.u;
+      s.space.u += v * dt / LOOP_KM; s.totalKm += v * dt;
+      // rounding the Moon (half way); at high speed several laps can pass in one step
+      const passes = Math.floor(s.space.u + 0.5) - Math.floor(before + 0.5);
+      if (passes > 0) {
+        const first = !s.cosmos.includes('moon');
+        if (first) s.cosmos.push('moon');
+        s.spaceStage = Math.max(s.spaceStage, 0);
+        ev.push({ type: 'moonpass', first });
+      }
+      const trips = Math.floor(s.space.u);
+      if (trips > 0) {
+        s.space.u -= trips; s.space.trips += trips;
+        const r = rocksPerTrip(s) * trips; s.moon.rocks += r; s.moon.total += r; s.moon.trips += trips;
+        ev.push({ type: 'trip', rocks: r, trips });
+      }
+      return ev;
+    }
     if (s.space) {
       if (s.space.arrived) return ev; // in orbit: foraging only
       const body = SPACE[s.space.dest], v = spaceSpeed(s);
@@ -381,6 +440,7 @@
       }
       return ev;
     }
+    if (!s.orbitUnlocked && baseSpeed(s) >= ORBIT_SPEED) { s.orbitUnlocked = true; ev.push({ type: 'orbit' }); }
     let km = speed(s) * dt;
     let guard = 0;
     while (km > 0 && guard++ < 200) {
@@ -396,15 +456,17 @@
         if (first) s.visited.push(to.i);
         s.leg++; s.ri++; s.legKm = 0;
         let lapDone = false;
+        let orbitPay = 0;
         if (s.ri >= lapLegs(s)) {
-          lapDone = true; s.lapsFlown++;
+          if (isOrbit(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
+          lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
           s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
         if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather();
         // the rooster crows up a tailwind whenever the sky is calm
         if (birdOf(s).crow && s.wx.type === 'clear') s.wx = { type: 'tailwind', left: 12 };
-        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type });
+        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay });
       }
     }
     return ev;
@@ -463,9 +525,10 @@
     s.seeds -= g.cost; s.gear[id] = true; return true;
   }
   // the body the next launch goes to, if the gear for it is owned
+  // the next one-way trip beyond the Moon (Mars and on), once the gear is owned
   function nextBody(s) {
-    const b = SPACE[s.spaceStage + 1];
-    return b && s.gear[b.needs] ? b : null;
+    const b = SPACE[Math.max(1, s.spaceStage + 1)];
+    return b && s.gear[b.needs] && s.spaceStage >= 0 ? b : null;
   }
   function spaceSpeed(s) {
     const b = SPACE[s.space ? s.space.dest : s.spaceStage + 1];
@@ -474,12 +537,60 @@
     return b.km / b.secs * k;
   }
   function launch(s) {
-    const b = nextBody(s); if (!b || (s.space && !s.space.arrived)) return false;
-    const from = s.space && s.space.arrived ? SPACE[s.space.dest].short : 'Earth';
+    const b = nextBody(s); if (!b || (s.space && !s.space.arrived && !s.space.loop)) return false;
+    const from = s.space && s.space.loop ? 'the Moon' : s.space && s.space.arrived ? SPACE[s.space.dest].short : 'Earth';
     s.space = { dest: SPACE.indexOf(b), km: 0, arrived: false, from }; s.boost = 0; s.rush = 0; s.stun = 0;
     return true;
   }
   function returnToEarth(s) { s.space = null; }
+
+  // ---- the Earth–Moon loop ----
+  // With the shuttle, the bird flies an oval around Earth and the Moon. Each
+  // full round trip earns moon rocks: trade them for seeds, or spend them on
+  // ship upgrades. Rocks and ship upgrades last through every migration.
+  const LOOP_KM = 2 * 384400 * 1.15;
+  const SHIP = [
+    { id: 'thrust', name: 'Thrusters', icon: '🔥', base: 2, growth: 1.45, blurb: (L) => `×${fmt(1 + 0.3 * L, 1)} ship speed` },
+    { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt(1 + L, 0)} 🌙 base per round trip` },
+    { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} moon rocks` },
+    { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
+    { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
+  ];
+  const shipLv = (s, id) => (s.moon && s.moon.lv[id]) || 0;
+  const shipCost = (u, L) => Math.ceil(u.base * u.growth ** L);
+  const shipCostN = (u, L, n) => { let c = 0; for (let k = 0; k < n; k++) c += shipCost(u, L + k); return c; };
+  function shipMax(u, L, rocks) { let n = 0, c = 0; while (n < 500) { const nx = shipCost(u, L + n); if (c + nx > rocks) break; c += nx; n++; } return n; }
+  function buyShip(s, id, n) {
+    const u = SHIP.find((x) => x.id === id), L = shipLv(s, id);
+    if (n === 'max') n = shipMax(u, L, s.moon.rocks);
+    if (!n) return 0;
+    const c = shipCostN(u, L, n); if (c > s.moon.rocks) return 0;
+    s.moon.rocks -= c; s.moon.lv[id] = L + n; return n;
+  }
+  const rocksPerTrip = (s) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')));
+  const solarMult = (s) => (s.space ? 1 + 0.5 * shipLv(s, 'solar') : 1);
+  function loopSpeed(s) {
+    return 384400 / 60 * (1 + 0.6 * Math.log10(1 + baseSpeed(s))) * (1 + 0.3 * shipLv(s, 'thrust'))
+      * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1);
+  }
+  // one moon rock is worth about four minutes of foraging on Earth
+  const rockValue = (s) => forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * birdOf(s).seeds * perkSeeds(s) * cosmicMult(s) * 240;
+  function tradeRocks(s, n) {
+    n = Math.min(Math.floor(n), s.moon.rocks); if (n <= 0) return 0;
+    const v = n * rockValue(s); s.moon.rocks -= n; s.seeds += v; s.runSeeds += v; return v;
+  }
+  function launchLoop(s) {
+    if (!s.gear.shuttle || s.space) return false;
+    s.space = { loop: true, dest: 0, u: 0, trips: 0, from: 'Earth' }; s.boost = 0; s.rush = 0; s.stun = 0;
+    return true;
+  }
+  // raiders in space: lose an escort pod, or a tenth of the rocks
+  function spaceHit(s) {
+    s.stun = THREAT.STUN; s.caught = (s.caught || 0) + 1;
+    if (shipLv(s, 'wing') > 0) { s.moon.lv.wing--; return { lost: 'wingmate' }; }
+    const r = Math.floor(s.moon.rocks * 0.1); s.moon.rocks -= r; return { lost: 'rocks', rocks: r };
+  }
+  function spaceMiss(s) { const r = Math.max(1, Math.round(rocksPerTrip(s) * 0.3)); s.moon.rocks += r; s.moon.total += r; s.dodged = (s.dodged || 0) + 1; return r; }
 
   // A caught bug starts (or extends) the rush.
   function catchBug(s) { s.rush = Math.max(s.rush, 0) + bugRush(s.levels.bugs || 1) * (birdOf(s).rush || 1); return s.rush; }
@@ -499,7 +610,7 @@
   function migrateAgain(s, birdId, startIdx) {
     const gained = feathersFor(s.runSeeds);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
-      birds: s.birds, perks: s.perks };
+      birds: s.birds, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
@@ -531,7 +642,7 @@
 
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
-    GEAR, SPACE, cosmicMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
