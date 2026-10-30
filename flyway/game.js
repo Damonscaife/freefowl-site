@@ -497,23 +497,25 @@
   // Birds (and the hawk, owl and hunter) are painted once into flipbook atlases
   // and shown as camera-facing cutouts, so they always read as a clean side
   // profile while the world around them is 3D.
-  const FW = 384, FH = 240;
-  function makeAtlas(draw, frames, cols, rows) {
-    const c = document.createElement('canvas'); c.width = FW * cols; c.height = FH * rows;
+  // FW x FH is the box a bird is drawn in. A full wingbeat reaches above and
+  // below that box, so bird frames get PAD pixels of headroom on each side.
+  const FW = 384, FH = 240, PAD = 90;
+  function makeAtlas(draw, frames, cols, rows, fh = FH) {
+    const c = document.createElement('canvas'); c.width = FW * cols; c.height = fh * rows;
     const g = c.getContext('2d');
     for (let i = 0; i < frames; i++) {
-      g.save(); g.translate((i % cols) * FW, Math.floor(i / cols) * FH);
-      g.beginPath(); g.rect(0, 0, FW, FH); g.clip();
+      g.save(); g.translate((i % cols) * FW, Math.floor(i / cols) * fh);
+      g.beginPath(); g.rect(0, 0, FW, fh); g.clip();
       draw(g, i, frames); g.restore();
     }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
     t.repeat.set(1 / cols, 1 / rows);
-    return { tex: t, frames, cols, rows };
+    return { tex: t, frames, cols, rows, fh };
   }
   function cutout(atlas, width) {
     const tex = atlas.tex.clone(); // shares the uploaded image; only the offset differs
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.04, side: THREE.DoubleSide });
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(width, width * FH / FW), mat);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(width, width * atlas.fh / FW), mat);
     m.userData = { atlas, tex, roll: 0 };
     return m;
   }
@@ -633,7 +635,7 @@
   const BIRD_FRAMES = 12;
   function atlasFor(b, opt) {
     const key = b.id || JSON.stringify(b);
-    return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i, n) => drawBirdHD(g, (i / n) * Math.PI * 2, b, opt), BIRD_FRAMES, 4, 3));
+    return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i, n) => { g.translate(0, PAD); drawBirdHD(g, (i / n) * Math.PI * 2, b, opt); }, BIRD_FRAMES, 4, 3, FH + PAD * 2));
   }
   // the hunter: two frames, aiming and firing
   const hunterAtlas = makeAtlas((g, i) => {
@@ -856,7 +858,7 @@
     new THREE.PointsMaterial({ color: 0xffe08a, size: 0.35, transparent: true, opacity: 0, depthWrite: false }));
   fscene.add(sparks);
   const sparkV = Array.from({ length: 30 }, () => new THREE.Vector3());
-  const BEAK_TIP = new THREE.Vector3(1.55, 0.12, 0); // beak tip on the 2D cutout
+  const BEAK_TIP = new THREE.Vector3(1.55, -0.2, 0); // beak tip on the 2D cutout (frame has headroom above)
   // vertical offset of the hero during a dive episode
   function diveOffset(t) {
     if (t < DIVE) return DIP * smooth(0.2, DIVE, t);
@@ -1459,12 +1461,19 @@
   }));
 
   let pickBird = 'pigeon';
+  // scale a w x h canvas so a bird's whole wingbeat (its box plus headroom) fits, centred
+  // thumbnails use a level-wing glide pose, so they need only a little headroom
+  function fitBird(g, w, h, pad = 24) {
+    const k = Math.min(w / FW, h / (FH + pad * 2));
+    g.translate((w - FW * k) / 2, (h - (FH + pad * 2) * k) / 2 + pad * k); g.scale(k, k);
+  }
+  const THUMB_PH = 0.35;
   // an unowned secret bird shows only as a dark shape with a question mark
   function silhouette(b) { return Object.assign({}, b, { body: '#1a1a22', wing: '#121218', belly: '#24242e', beak: '#1a1a22', cap: '#1a1a22', head: null, eye: '#1a1a22' }); }
   function birdPreview(cv, b, hidden) {
     cv.width = 240; cv.height = 150;
-    const g = cv.getContext('2d'); g.scale(240 / FW, 150 / FH);
-    drawBirdHD(g, 0.9, hidden ? silhouette(b) : b);
+    const g = cv.getContext('2d'); fitBird(g, 240, 150);
+    drawBirdHD(g, THUMB_PH, hidden ? silhouette(b) : b);
     if (hidden) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#b9a8ff'; g.font = "800 54px 'Bricolage Grotesque', sans-serif"; g.textAlign = 'center'; g.fillText('?', 120, 92); }
   }
   const TIER = { starter: 'Starter', common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' };
@@ -1538,7 +1547,7 @@
       li.innerHTML = `<div class="ic bird-ic" aria-hidden="true"><canvas width="88" height="55"></canvas></div>
         <div><div class="nm">${b.name} <i class="tier tier-${b.tier}">${TIER[b.tier]}</i></div><div class="fx">${b.secret && !have ? 'Specs unknown until you own it' : b.trait}</div></div>
         <button class="buy feather"${have || S.feathers < b.cost ? ' disabled' : ''}><b class="num">${have ? 'Owned' : '🪶 ' + fmt(b.cost, 0)}</b><small>${have ? 'pick when you migrate' : 'unlock'}</small></button>`;
-      const cv = li.querySelector('canvas'), g = cv.getContext('2d'); g.scale(88 / FW, 55 / FH); drawBirdHD(g, 0.9, b.secret && !have ? silhouette(b) : b);
+      const cv = li.querySelector('canvas'), g = cv.getContext('2d'); fitBird(g, 88, 55); drawBirdHD(g, THUMB_PH, b.secret && !have ? silhouette(b) : b);
       li.querySelector('button').onclick = () => { if (F.buyBird(S, b.id)) { save(); toast(b.secret ? `${b.name} unlocked: ${b.trait}!` : `${b.name} unlocked. Pick it when you migrate.`); openShop(); } };
       birds.append(li);
     }
@@ -1953,5 +1962,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();
