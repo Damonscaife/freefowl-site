@@ -1556,10 +1556,31 @@
     side.camHead.lerp(h, 1 - Math.exp(-dt * 3)).addScaledVector(bv, -side.camHead.dot(bv)).normalize();
     const upV = new THREE.Vector3().crossVectors(bv, side.camHead).normalize(); // screen up; screen right = heading
     const tilt = 0.55 * smooth(0.55, 1, q);
-    camera.position.copy(camDir).multiplyScalar(dist).addScaledVector(upV, -tilt * (dist - 0.95));
-    camera.up.copy(upV);
-    const look = camDir.clone().multiplyScalar(smooth(0.35, 0.95, q));
-    camera.lookAt(look);
+    const lockPos = camDir.clone().multiplyScalar(dist).addScaledVector(upV, -tilt * (dist - 0.95));
+    const lockLook = camDir.clone().multiplyScalar(smooth(0.35, 0.95, q));
+    // Extreme speed (a lap in under ~20 s): the camera lets go of the bird.
+    // The whole globe stays in view, turning slowly, and the bird races around it.
+    // based on the bird's own speed (not weather or boosts), with some leeway so it doesn't flip back and forth
+    const lapSecs = 40075 / Math.max(F.baseSpeed(S), 1e-6);
+    if (lapSecs < 25) side.freeOn = true; else if (lapSecs > 32) side.freeOn = false;
+    side.freeK = lerp(side.freeK || 0, side.freeOn ? 1 : 0, 1 - Math.exp(-dt * 1.2));
+    const fk = side.freeK;
+    if (fk > 0.001) {
+      if (!side.freeDir || fk < 0.02) side.freeDir = camDir.clone().setY(0).normalize();
+      side.freeDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), dt * 0.06).normalize();
+      const fd = side.freeDir.clone().multiplyScalar(Math.cos(0.38)).add(new THREE.Vector3(0, Math.sin(0.38), 0));
+      // far enough back that the whole globe (and the bird's path) fits the screen
+      const vh = Math.tan(camera.fov * D2R / 2), fit = 2 / Math.min(vh, vh * camera.aspect);
+      const freePos = fd.multiplyScalar(Math.max(fit, dist));
+      camera.position.copy(lockPos.lerp(freePos, fk));
+      camera.up.copy(upV.clone().lerp(new THREE.Vector3(0, 1, 0), fk).normalize());
+      // aim a little above the globe's centre so it sits below the ticket
+      camera.lookAt(lockLook.lerp(new THREE.Vector3(0, 0.45, 0), fk));
+    } else {
+      camera.position.copy(lockPos); camera.up.copy(upV); camera.lookAt(lockLook);
+    }
+    // when the camera is free, the bird's dot hides behind the far side of the globe
+    birdSprite.material.depthTest = fk > 0.5;
     // light rides with the camera (a little up and left) so the day/night line stays off the visible face
     sun.position.copy(camera.position).add(new THREE.Vector3(-0.15, 0.25, 0).multiplyScalar(camera.position.length()));
     clouds.rotation.y += dt * 0.004;
@@ -1567,7 +1588,7 @@
     birdSprite.position.copy(geoVec(g.lat, g.lon, ROUTE_R + 0.004 + legLift(F.legFrom(S), F.legTo(S), legT)));
     updateTail(legT);
     const bs = 0.004 + (dist - 1) * 0.03; birdSprite.scale.set(bs, bs, 1);
-    const to = F.legTo(S); nextSprite.position.copy(geoVec(to.lat, to.lon, 1.007));
+    const to = F.isNonstop(S) ? CITIES[S.start] : F.legTo(S); nextSprite.position.copy(geoVec(to.lat, to.lon, 1.007));
     const ns = (0.008 + (dist - 1) * 0.02) * (1 + 0.25 * Math.sin(performance.now() / 250)); nextSprite.scale.set(ns, ns, 1);
     renderer.render(scene, camera);
     placeLabels();
@@ -1578,6 +1599,7 @@
   const labelA = document.createElement('div'), labelB = document.createElement('div');
   labelA.className = labelB.className = 'label3d'; labelsEl.append(labelA, labelB);
   function placeLabel(el, c) {
+    if (!c || c.v || !c.name) { el.style.display = 'none'; return; }
     const v = geoVec(c.lat, c.lon, 1.01);
     const facing = v.clone().normalize().dot(camera.position.clone().sub(v).normalize()) > 0.05;
     const p = v.project(camera);
@@ -1589,7 +1611,10 @@
     const on = Z < SIDE_A;
     labelsEl.style.display = on ? '' : 'none';
     if (!on) return;
-    placeLabel(labelA, F.legFrom(S)); placeLabel(labelB, F.legTo(S));
+    if (F.isNonstop(S)) {
+      const recent = overName && performance.now() - overAt < 4000;
+      placeLabel(labelA, CITIES[S.start]); placeLabel(labelB, recent ? CITIES.find((c) => c.name === overName) : null);
+    } else { placeLabel(labelA, F.legFrom(S)); placeLabel(labelB, F.legTo(S)); }
   }
 
   // ---------- input ----------
@@ -1786,6 +1811,13 @@
   });
 
   let hudName = '', hudNameAt = 0, lapCache = null;
+  let overName = '', overAt = 0, lastOverToast = 0;
+  // the bird just flew straight over a city on its nonstop circle
+  function overflight(e) {
+    overName = e.city.name; overAt = performance.now();
+    if (e.first) { stamp(e.city, 0, true); Sound.stamp(); dailyHit('cities'); }
+    else if (overAt - lastOverToast > 2500) { lastOverToast = overAt; toast(`Flying over ${e.city.name}`); }
+  }
   // km still to fly this lap, from the bird's position
   function lapKmLeft() {
     if (!lapCache || lapCache.route !== S.route) {
@@ -1807,13 +1839,20 @@
     $('rate').textContent = `+${fmt(rate)}/s`;
     const from = F.legFrom(S), to = F.legTo(S);
     $('speed').textContent = fmt(v, v < 10 ? 1 : 0);
-    if (len / v < 2.5) {
+    if (len / v < 2.5 || F.isNonstop(S)) {
       // cities pass faster than anyone can read: show the lap, name cities at a readable pace
       const legs = F.lapLegs(S), now = performance.now(), left = lapKmLeft();
-      if (now - hudNameAt > 900) { hudNameAt = now; hudName = to.name; }
-      $('fromCity').innerHTML = F.isNonstop(S) ? `Lap ${fmt(S.lapsTotal + 1, 0)}<small>nonstop around the globe</small>`
-        : `${F.isOrbit(S) ? 'Orbit' : 'Lap'} ${S.lapsFlown + 1}<small>${S.ri} of ${legs} stops</small>`;
-      $('toCity').innerHTML = `${hudName}<small>${F.isNonstop(S) ? 'passing over' : 'passing'}</small>`;
+      const ns = F.isNonstop(S), home = CITIES[S.start];
+      if (!ns && now - hudNameAt > 900) { hudNameAt = now; hudName = to.name; }
+      if (ns) {
+        // only real places: the home city, and cities the bird has just flown straight over
+        const recent = overName && now - overAt < 4000;
+        $('fromCity').innerHTML = S.homeward ? `Heading home<small>straight to ${home.name}</small>` : `Lap ${fmt(S.lapsTotal + 1, 0)}<small>from ${home.name}</small>`;
+        $('toCity').innerHTML = recent ? `${overName}<small>flying over</small>` : `${home.name}<small>${S.homeward ? 'home' : 'back home'}</small>`;
+      } else {
+        $('fromCity').innerHTML = `${F.isOrbit(S) ? 'Orbit' : 'Lap'} ${S.lapsFlown + 1}<small>${S.ri} of ${legs} stops</small>`;
+        $('toCity').innerHTML = `${hudName}<small>passing</small>`;
+      }
       $('legKm').textContent = `${fmt(left, 0)} km to go`;
       setTrack(clamp((S.ri + t) / legs, 0, 1));
       $('etaLabel').textContent = 'Lap done in'; $('eta').textContent = fmtTime(left / v);
@@ -1828,6 +1867,7 @@
     const cap = F.boostCap(S.levels.stamina), b = Math.max(S.boost, F.flockBoost(S));
     $('ring').style.strokeDashoffset = 289 * (1 - b / cap);
     $('boostPct').textContent = `+${Math.round(b * 100)}%`;
+    setFlapLabel('FLAP');
     $('stampCount').textContent = S.visited.length;
     $('btnShop').hidden = !(S.laps > 0 || S.feathers > 0); $('shopCount').textContent = fmt(S.feathers, 0);
     const rc = $('rushChip');
@@ -1860,7 +1900,7 @@
       <text x="86" y="92" text-anchor="middle" font-family="Bricolage Grotesque, sans-serif" font-weight="800" font-size="22" fill="currentColor">${date}</text>
       <text x="86" y="116" text-anchor="middle" font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="12" fill="currentColor">${first ? 'FIRST VISIT' : 'FLYWAY'}</text>
       <path d="M 40 136 q 12 -8 24 0 t 24 0 t 24 0 t 24 0" fill="none" stroke="currentColor" stroke-width="3"/>
-    </svg><div class="bonus">+${fmt(bonus)} 🌰</div>`;
+    </svg>${bonus > 0 ? `<div class="bonus">+${fmt(bonus)} 🌰</div>` : ''}`;
     pm.classList.remove('show'); void pm.offsetWidth; pm.classList.add('show');
   }
 
@@ -2079,8 +2119,8 @@
     hawk: { icon: '🦅', name: 'hawk', ask: 'Hawk above! Tap FLAP fast to dodge' },
     owl: { icon: '🦉', name: 'owl', ask: 'Owl in the dark! Tap FLAP fast to dodge' },
     hunter: { icon: '🎯', name: 'hunter', ask: 'Hunter below! Hold FLAP to climb out of range' },
-    raider: { icon: '🛸', name: 'raider ship', ask: 'Raider ship! Tap FLAP fast to evade', space: true },
-    spacehawk: { icon: '🦅', name: 'space hawk', ask: 'A hawk in a space helmet! Tap FLAP fast to evade', space: true },
+    raider: { icon: '🛸', name: 'raider ship', ask: 'Raider ship! Tap BOOST fast to evade', space: true },
+    spacehawk: { icon: '🦅', name: 'space hawk', ask: 'A hawk in a space helmet! Tap BOOST fast to evade', space: true },
   };
   const anySheetOpen = () => !!document.querySelector('.sheet.on');
   function pickThreat() {
@@ -2184,7 +2224,8 @@
     const legSecs = F.legLen(S) / Math.max(F.speed(S), 1e-6), now = performance.now();
     if (!w || e.wx === 'clear' || legSecs < 4 || now - lastForecastAt < 6000) return;
     lastForecastAt = now;
-    setTimeout(() => toast(`${w.icon} ${w.name} on the way to ${F.legTo(S).name}: ${w.note}`), 900);
+    const dest = F.legTo(S).v ? 'on this lap' : `on the way to ${F.legTo(S).name}`;
+    setTimeout(() => toast(`${w.icon} ${w.name} ${dest}: ${w.note}`), 900);
   }
   function tickWeather(dt) {
     if (S.space || !S.wx || S.wx.type !== 'storm') return;
@@ -2204,7 +2245,9 @@
   }
 
   // ---------- space: HUD, arrivals, expedition panel ----------
+  function setFlapLabel(t) { const el = $('flapLabel'); if (el.textContent !== t) { el.textContent = t; flapBtn.setAttribute('aria-label', t === 'BOOST' ? 'Boost the shuttle' : 'Flap for a speed boost'); } }
   function refreshSpaceHud() {
+    setFlapLabel('BOOST');
     const sp = S.space, b = F.SPACE[sp.dest], v = sp.loop ? F.loopSpeed(S) : F.spaceSpeed(S);
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(F.seedRate(S, false))}/s`;
@@ -2433,6 +2476,7 @@
       for (const e of events) {
         if (e.type === 'space') { spaceArrival(e); continue; }
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
+        if (e.type === 'over') { overflight(e); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }

@@ -324,7 +324,7 @@
     for (const c of CITIES) { const d = distKm({ lat, lon }, c); if (d < bd) { bd = d; best = c; } }
     return best;
   }
-  function skyPoint(lat, lon) { return { i: -1, v: true, lat, lon, name: 'near ' + nearestCity(lat, lon).name, region: 'Open sky' }; }
+  function skyPoint(lat, lon) { return { i: -1, v: true, lat, lon, name: '', region: '' }; }
   // Each nonstop lap is one near-perfect circle through the player's home city
   // (the city they chose when they started this migration). It leaves home
   // heading due east, the flattest circle around the globe that still passes
@@ -334,9 +334,20 @@
   const homeIdx = (s) => (typeof s.start === 'number' ? s.start : 5);
   function genFree(s, start) {
     const home = CITIES[homeIdx(s)];
-    if (distKm(start, home) > 50) { s.homeward = true; return [skyPoint(start.lat, start.lon), home.i]; }
+    if (distKm(start, home) > 50) { s.homeward = true; s.overs = []; s.overNext = 0; return [skyPoint(start.lat, start.lon), home.i]; }
     s.homeward = false;
     const u = v3(home), o = rad(home.lon), w = [-Math.sin(o), Math.cos(o), 0]; // due east at home
+    // cities the circle passes directly over (within ~130 km), in the order the bird reaches them
+    const axis = cross3(u, w);
+    s.overs = [];
+    for (const c of CITIES) {
+      if (c.i === home.i) continue;
+      const p = v3(c), off = Math.abs(Math.asin(Math.max(-1, Math.min(1, dot3(p, axis))))) * 180 / Math.PI;
+      if (off > 1.2) continue;
+      let ang = Math.atan2(dot3(p, w), dot3(p, u)) * 180 / Math.PI; if (ang < 0) ang += 360;
+      s.overs.push({ i: c.i, ang });
+    }
+    s.overs.sort((a, b) => a.ang - b.ang); s.overNext = 0;
     const pts = [home.i];
     for (let k = 1; k < 12; k++) {
       const a = k / 12 * Math.PI * 2, x = u.map((c, j) => c * Math.cos(a) + w[j] * Math.sin(a));
@@ -488,11 +499,21 @@
     if (!s.orbitUnlocked && baseSpeed(s) >= ORBIT_SPEED) { s.orbitUnlocked = true; ev.push({ type: 'orbit' }); }
     let km = speed(s) * dt;
     let guard = 0;
+    const overFire = () => {
+      if (!s.overs || !s.overs.length || s.homeward || typeof s.route[1] === 'number') return;
+      const ang = (s.ri + s.legKm / legLen(s)) * 360 / lapLegs(s);
+      while (s.overNext < s.overs.length && s.overs[s.overNext].ang <= ang) {
+        const c = CITIES[s.overs[s.overNext++].i], first = !s.visited.includes(c.i);
+        if (first) s.visited.push(c.i);
+        ev.push({ type: 'over', city: c, first });
+      }
+    };
     while (km > 0 && guard++ < 200) {
       const len = legLen(s);
       const left = len - s.legKm;
       const use = Math.min(km, left);
       s.legKm += use; s.totalKm += use; km -= use;
+      overFire();
       if (s.legKm >= len - 1e-6) {
         const to = legTo(s);
         const bonus = to.v ? 0 : arrivalBonus(s);
@@ -509,7 +530,7 @@
           if (isOrbit(s) || isNonstop(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
           lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
           s.feathers += FEATHERS_PER_LAP; s.runFeathers = (s.runFeathers || 0) + FEATHERS_PER_LAP;
-          s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0;
+          s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0; s.overNext = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
         if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather();

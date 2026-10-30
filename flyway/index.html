@@ -95,6 +95,7 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .flap svg circle { fill: none; stroke-width: 5; }
 .flap .ring-bg { stroke: rgba(255,255,255,.18); }
 .flap .ring { stroke: #fff; stroke-linecap: round; transition: stroke-dashoffset .1s linear; }
+.flap b { font: inherit; }
 .flap span { display: block; font-size: 11px; font-family: var(--text); font-weight: 700; opacity: .75; }
 .hint { position: absolute; left: 14px; bottom: 22px; color: #fff; font-size: 13px;
   background: rgba(6,12,31,.6); padding: 7px 14px; border-radius: 999px; pointer-events: none;
@@ -324,7 +325,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     </div>
     <button class="flap" id="flap" aria-label="Flap for a speed boost">
       <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="46"/><circle class="ring" id="ring" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289"/></svg>
-      FLAP<span id="boostPct">+0%</span>
+      <b id="flapLabel">FLAP</b><span id="boostPct">+0%</span>
     </button>
     <div class="hint" id="hint">Pinch or scroll to zoom out</div>
     <div class="postmark" id="postmark" aria-hidden="true"></div>
