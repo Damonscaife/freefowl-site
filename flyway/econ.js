@@ -325,24 +325,24 @@
     return best;
   }
   function skyPoint(lat, lon) { return { i: -1, v: true, lat, lon, name: 'near ' + nearestCity(lat, lon).name, region: 'Open sky' }; }
-  // Each nonstop lap is one straight circle hugging the equator (tilted at most
-  // 12 degrees, a fresh tilt each lap), heading east, so from the globe view it
-  // reads as a clean line around the world.
+  // Each nonstop lap is one near-perfect circle through the player's home city
+  // (the city they chose when they started this migration). It leaves home
+  // heading due east, the flattest circle around the globe that still passes
+  // over home, so the line on the globe is clean and every lap starts and ends
+  // over home, where the lap pays out. If the bird is somewhere else when it
+  // gets this fast, it first flies straight home (that leg is not a lap).
+  const homeIdx = (s) => (typeof s.start === 'number' ? s.start : 5);
   function genFree(s, start) {
-    const tilt = rad(Math.random() * 12), node = rad(start.lon + (Math.random() - 0.5) * 40);
-    const axis = norm3([Math.sin(tilt) * Math.sin(node), -Math.sin(tilt) * Math.cos(node), Math.cos(tilt)]);
-    // start where the circle crosses the bird's longitude
-    const o = rad(start.lon); let u = [Math.cos(o), Math.sin(o), 0];
-    u = norm3(u.map((c, j) => c - axis[j] * dot3(u, axis)));
-    let w = cross3(axis, u);
-    const east = [-Math.sin(o), Math.cos(o), 0];
-    if (dot3(w, east) < 0) w = w.map((x) => -x);
-    const p0 = { lat: Math.asin(Math.max(-1, Math.min(1, u[2]))) * 180 / Math.PI, lon: Math.atan2(u[1], u[0]) * 180 / Math.PI };
-    const pts = [skyPoint(p0.lat, p0.lon)];
-    for (let k = 1; k <= 8; k++) {
-      const a = k / 8 * Math.PI * 2, x = u.map((c, j) => c * Math.cos(a) + w[j] * Math.sin(a));
+    const home = CITIES[homeIdx(s)];
+    if (distKm(start, home) > 50) { s.homeward = true; return [skyPoint(start.lat, start.lon), home.i]; }
+    s.homeward = false;
+    const u = v3(home), o = rad(home.lon), w = [-Math.sin(o), Math.cos(o), 0]; // due east at home
+    const pts = [home.i];
+    for (let k = 1; k < 12; k++) {
+      const a = k / 12 * Math.PI * 2, x = u.map((c, j) => c * Math.cos(a) + w[j] * Math.sin(a));
       pts.push(skyPoint(Math.asin(Math.max(-1, Math.min(1, x[2]))) * 180 / Math.PI, Math.atan2(x[1], x[0]) * 180 / Math.PI));
     }
+    pts.push(home.i);
     return pts;
   }
   function genOrbit(s, startIdx) {
@@ -502,7 +502,10 @@
         s.leg++; s.ri++; s.legKm = 0;
         let lapDone = false;
         let orbitPay = 0;
-        if (s.ri >= lapLegs(s)) {
+        if (s.ri >= lapLegs(s) && s.homeward) {
+          // arrived home: from here every lap is the home circle
+          s.homeward = false; s.route = genLap(s, homeIdx(s)); s.ri = 0;
+        } else if (s.ri >= lapLegs(s)) {
           if (isOrbit(s) || isNonstop(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
           lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
           s.feathers += FEATHERS_PER_LAP; s.runFeathers = (s.runFeathers || 0) + FEATHERS_PER_LAP;

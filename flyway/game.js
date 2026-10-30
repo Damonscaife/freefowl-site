@@ -2405,7 +2405,8 @@
   let straightCheckT = 0;
   function checkStraight(dt) {
     straightCheckT += dt; if (straightCheckT < 1) return; straightCheckT = 0;
-    if (!S.space && F.isNonstop(S) && typeof S.route[0] === 'number') {
+    // switch only from a regular city route (nonstop routes always include open-sky points)
+    if (!S.space && F.isNonstop(S) && S.route.every((p) => typeof p === 'number')) {
       S.route = F.genLap(S, F.legFrom(S)); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide();
     }
   }
