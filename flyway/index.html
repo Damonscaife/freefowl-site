@@ -105,6 +105,15 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 [hidden] { display: none !important; }
 .check { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--ink-2); cursor: pointer; }
 .check input { width: 20px; height: 20px; accent-color: var(--blue); }
+.daily { margin: 0 14px 10px; padding: 10px 12px; border-radius: 12px; background: var(--paper-2); }
+.daily-head { display: flex; align-items: baseline; gap: 8px; }
+.daily-head strong { font-family: var(--display); font-size: 15px; }
+.daily-head small { margin-left: auto; font-size: 12px; color: var(--ink-2); }
+.daily p { font-size: 14px; margin: 4px 0 6px; }
+.daily-track { height: 6px; border-radius: 3px; background: #d5dce8; overflow: hidden; }
+.daily-track i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
+.daily.done { background: #e3f4ea; }
+.daily.done .daily-track i { background: #2b8a57; }
 .expo { margin: 0 14px 10px; padding: 12px 12px 4px; border-radius: 12px; background: linear-gradient(160deg, #0b1533, #1b1640); color: #fff; }
 .expo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .expo-head h3 { font-family: var(--display); font-size: 17px; font-weight: 800; }
@@ -284,8 +293,9 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <span class="chip rush" id="rushChip" hidden>🪲 Rush <strong class="num" id="rushLeft">0s</strong></span>
         <span class="chip stun" id="stunChip" hidden>Slowed</span>
         <span class="spacer"></span>
-        <span class="chip rocks" id="rocksChip" hidden>🌙 <span class="num" id="rocksCount">0</span></span>
+        <span class="chip rocks" id="rocksChip" hidden>☄️ <span class="num" id="rocksCount">0</span></span>
         <button class="chip" id="btnShop" aria-label="Open the feather shop" hidden>🪶 <span class="num" id="shopCount">0</span></button>
+        <button class="chip" id="btnSound" aria-label="Mute sound">🔊</button>
         <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
       </div>
@@ -334,6 +344,11 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
       <span style="font-size:24px">🪶</span>
       <span><strong id="migrateTitle">Migrate again</strong><small id="migrateSub"></small></span>
     </button>
+    <section class="daily" id="daily" aria-label="Daily migration challenge">
+      <div class="daily-head"><span aria-hidden="true">📅</span><strong>Daily challenge</strong><small id="dailyProg"></small></div>
+      <p id="dailyText"></p>
+      <div class="daily-track"><i id="dailyBar"></i></div>
+    </section>
     <section class="expo" id="expo" aria-label="Expedition" hidden></section>
     <ul class="ups" id="ups"></ul>
     <ul class="ups" id="shipUps" hidden></ul>
@@ -409,7 +424,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <button data-act="x10">Seeds ×10</button><button data-act="feathers">+10 feathers</button><button data-act="lap">Finish lap</button>
         <button data-act="gear">All gear</button><button data-act="hawk">Hawk now</button><button data-act="hunter">Hunter now</button>
         <button data-act="bug">Bug now</button><button data-act="storm">Storm</button><button data-act="tailwind">Tailwind</button>
-        <button data-act="orbit">Orbital speed now</button><button data-act="laps10">+10 lifetime laps</button><button data-act="birds">Unlock all birds</button><button data-act="rocks">+100 moon rocks</button><button data-act="raider">Raider now</button>
+        <button data-act="orbit">Orbital speed now</button><button data-act="laps10">+10 lifetime laps</button><button data-act="birds">Unlock all birds</button><button data-act="rocks">+100 space rocks</button><button data-act="raider">Raider now</button>
         <button data-act="hide">Hide admin</button>
       </div>
     </div>

@@ -315,19 +315,29 @@
   // unbroken circle around the globe in a fresh random direction, and pays
   // as if it had passed every destination.
   const NONSTOP_AT = 50;
-  const isNonstop = (s) => (s.lapsTotal || 0) >= NONSTOP_AT;
+  // Extremely fast (a lap in under 30 seconds) also means nonstop: stops would
+  // just make the path jitter across the map.
+  const STRAIGHT_SPEED = 40075 / 30;
+  const isNonstop = (s) => (s.lapsTotal || 0) >= NONSTOP_AT || baseSpeed(s) >= STRAIGHT_SPEED;
   function nearestCity(lat, lon) {
     let best = CITIES[0], bd = Infinity;
     for (const c of CITIES) { const d = distKm({ lat, lon }, c); if (d < bd) { bd = d; best = c; } }
     return best;
   }
   function skyPoint(lat, lon) { return { i: -1, v: true, lat, lon, name: 'near ' + nearestCity(lat, lon).name, region: 'Open sky' }; }
+  // Each nonstop lap is one straight circle hugging the equator (tilted at most
+  // 12 degrees, a fresh tilt each lap), heading east, so from the globe view it
+  // reads as a clean line around the world.
   function genFree(s, start) {
-    const p0 = { lat: start.lat, lon: start.lon };
-    const u = v3(p0), o = rad(p0.lon), east = [-Math.sin(o), Math.cos(o), 0];
-    let axis = norm3(cross3(u, norm3([Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5])));
+    const tilt = rad(Math.random() * 12), node = rad(start.lon + (Math.random() - 0.5) * 40);
+    const axis = norm3([Math.sin(tilt) * Math.sin(node), -Math.sin(tilt) * Math.cos(node), Math.cos(tilt)]);
+    // start where the circle crosses the bird's longitude
+    const o = rad(start.lon); let u = [Math.cos(o), Math.sin(o), 0];
+    u = norm3(u.map((c, j) => c - axis[j] * dot3(u, axis)));
     let w = cross3(axis, u);
+    const east = [-Math.sin(o), Math.cos(o), 0];
     if (dot3(w, east) < 0) w = w.map((x) => -x);
+    const p0 = { lat: Math.asin(Math.max(-1, Math.min(1, u[2]))) * 180 / Math.PI, lon: Math.atan2(u[1], u[0]) * 180 / Math.PI };
     const pts = [skyPoint(p0.lat, p0.lon)];
     for (let k = 1; k <= 8; k++) {
       const a = k / 8 * Math.PI * 2, x = u.map((c, j) => c * Math.cos(a) + w[j] * Math.sin(a));
@@ -592,8 +602,8 @@
   const LOOP_KM = 2 * 384400 * 1.15;
   const SHIP = [
     { id: 'thrust', name: 'Thrusters', icon: '🔥', base: 2, growth: 1.45, blurb: (L) => `×${fmt(1 + 0.3 * L, 1)} ship speed` },
-    { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt(1 + L, 0)} 🌙 base per round trip` },
-    { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} moon rocks` },
+    { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt(1 + L, 0)} ☄️ base per round trip` },
+    { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} space rocks` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
     { id: 'tank', name: 'Fuel Tanks', icon: '⛽', base: 6, growth: 1.8, blurb: (L) => `${fuelMaxL(L)} round trips per tank` },
@@ -609,7 +619,10 @@
     const c = shipCostN(u, L, n); if (c > s.moon.rocks) return 0;
     s.moon.rocks -= c; s.moon.lv[id] = L + n; return n;
   }
-  const rocksPerTrip = (s) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')));
+  // every planet reached beyond the Moon (ever) multiplies space rocks per trip by 1.5
+  const planetsReached = (s) => (s.cosmos || []).filter((id) => id !== 'moon').length;
+  const planetMult = (s) => 1.5 ** planetsReached(s);
+  const rocksPerTrip = (s) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s));
   const solarMult = (s) => (s.space ? 1 + 0.5 * shipLv(s, 'solar') : 1);
   function loopSpeed(s) {
     return 384400 / 60 * (1 + 0.6 * Math.log10(1 + baseSpeed(s))) * (1 + 0.3 * shipLv(s, 'thrust'))
@@ -639,6 +652,39 @@
     const r = Math.floor(s.moon.rocks * 0.1); s.moon.rocks -= r; return { lost: 'rocks', rocks: r };
   }
   function spaceMiss(s) { const r = Math.max(1, Math.round(rocksPerTrip(s) * 0.3)); s.moon.rocks += r; s.moon.total += r; s.dodged = (s.dodged || 0) + 1; return r; }
+
+  // ---- daily migration challenge ----
+  // One challenge per calendar day, the same for everyone that day. Progress
+  // is counted automatically; finishing it pays golden feathers.
+  const DAILY = [
+    { id: 'laps', text: (n) => `Fly ${n} laps around the globe`, n: [2, 3, 4] },
+    { id: 'cities', text: (n) => `Stamp ${n} cities you have never visited`, n: [4, 6, 8] },
+    { id: 'fights', text: (n) => `Win ${n} predator fights`, n: [2, 3, 4] },
+    { id: 'bugs', text: (n) => `Catch ${n} bugs`, n: [3, 5, 6] },
+    { id: 'trips', text: (n) => `Make ${n} round trips to the Moon`, n: [3, 5, 8] },
+    { id: 'storm', text: (n) => `Fly through ${n} storms`, n: [1, 2, 3] },
+  ];
+  function dayKey(d = new Date()) { return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
+  function dailyFor(s, key = dayKey()) {
+    let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    // only offer challenges the player can actually do yet
+    const pool = DAILY.filter((c) => !(c.id === 'bugs' && !s.levels.bugs) && !(c.id === 'trips' && !s.gear.shuttle));
+    const c = pool[h % pool.length], n = c.n[(h >> 8) % c.n.length];
+    return { key, id: c.id, n, have: 0, done: false, reward: 15 + 5 * n };
+  }
+  function dailyCheck(s) {
+    const key = dayKey();
+    if (!s.daily || s.daily.key !== key) s.daily = dailyFor(s, key);
+    return s.daily;
+  }
+  function dailyBump(s, id, by = 1) {
+    const d = dailyCheck(s);
+    if (d.done || d.id !== id) return null;
+    d.have = Math.min(d.n, d.have + by);
+    if (d.have >= d.n) { d.done = true; s.feathers += d.reward; return d; }
+    return null;
+  }
+  const dailyText = (d) => DAILY.find((c) => c.id === d.id).text(d.n);
 
   // A caught bug starts (or extends) the rush.
   function catchBug(s) { s.rush = Math.max(s.rush, 0) + bugRush(s.levels.bugs || 1) * (birdOf(s).rush || 1); return s.rush; }
@@ -690,7 +736,7 @@
 
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
-    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, fuelMax, REFUEL_SECS, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, cosmicMult, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, fuelMax, REFUEL_SECS, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };

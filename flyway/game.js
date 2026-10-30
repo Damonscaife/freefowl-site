@@ -790,7 +790,7 @@
     // a burst of feathers every so often while they fight
     const contact = (period, at) => {
       const n = Math.floor(b / period);
-      if (b > 0.4 && b < BATTLE && n !== th.lastHit) { th.lastHit = n; featherBurst(at, Math.random() < 0.5 ? '#f4ece0' : '#8a6a48'); side.shake = 0.25; }
+      if (b > 0.4 && b < BATTLE && n !== th.lastHit) { th.lastHit = n; featherBurst(at, Math.random() < 0.5 ? '#f4ece0' : '#8a6a48'); side.shake = 0.25; Sound.hit(); }
     };
     if (th.type === 'hunter') {
       // walks in, plants himself, fires a volley through the battle, then leaves
@@ -813,7 +813,7 @@
         const aim = hitNow ? (flock.length ? flock[flock.length - 1].position.clone() : hero.position.clone())
           : tgt.add(new THREE.Vector3(1.2 + Math.random() * 0.6, (k % 2 ? 1 : -1) * (1.2 + Math.random()), 0));
         tracerGeo.setFromPoints([muzzle, aim]); tracer.material.opacity = 1 - dtS / 0.32;
-        if (dtS < dt * 1.5) side.shake = 0.12;
+        if (dtS < dt * 1.5) { side.shake = 0.12; Sound.hit(); }
       });
       setFrame(hunterMesh, firing ? 1 : 0);
       return;
@@ -1489,7 +1489,7 @@
       if (n !== th.lastHit) {
         th.lastHit = n;
         const targets = pods.length ? pods : [shuttle], tg = targets[n % targets.length].position;
-        fireLaser(P, tg.clone().add(new THREE.Vector3(1.5, (n % 2 ? 1.6 : -1.6), 0)), '#ff4d5e');
+        fireLaser(P, tg.clone().add(new THREE.Vector3(1.5, (n % 2 ? 1.6 : -1.6), 0)), '#ff4d5e'); Sound.laser();
         if (pods.length) fireLaser(pods[(n + 1) % pods.length].position, P.clone().add(new THREE.Vector3(n % 2 ? 0.8 : -0.8, 0.6, 0)), '#6fd2ff');
         else fireLaser(shuttle.position, P.clone().add(new THREE.Vector3(0.9, -0.5, 0)), '#6fd2ff');
         side.shake = Math.max(side.shake || 0, 0.12);
@@ -1508,7 +1508,7 @@
     if (th.ok) { spaceBurst(m.position, '#ffb347', 6); return; }
     if (r.lost === 'wingmate' && pods.length) {
       lostPod = pods.pop(); lostPod.userData.fall = { v: 0 }; spaceBurst(lostPod.position, '#ff6b6b', 4);
-    } else spaceBurst(shuttle.position, '#b9b4a8', 5); // spilled moon rocks
+    } else spaceBurst(shuttle.position, '#b9b4a8', 5); // spilled space rocks
   }
 
   // ---- zoomed out: the oval orbit around Earth and the Moon ----
@@ -1642,7 +1642,7 @@
   // hawk; holding mostly helps you climb away from a hunter.
   function doFlap(fromHold) {
     if (!S || !running) return;
-    F.flap(S); side.flapRate += 3;
+    F.flap(S); side.flapRate += 3; Sound.flap();
     const th = side.threat;
     if (th && !th.resolved) th.meter += th.type === 'hunter' ? 0.12 : (fromHold ? 0.35 : 1) / F.THREAT.taps(S);
   }
@@ -1660,6 +1660,99 @@
     if (e.key === '-') ZT = clamp(ZT - 0.08, 0, 1);
   });
   addEventListener('keyup', (e) => { if (e.code === 'Space') flapBtn.classList.remove('down'); });
+
+  // ======================================================================
+  // Sound: everything is synthesized, so nothing to download. Audio starts
+  // on the player's first tap (browsers require it) and can be muted.
+  // ======================================================================
+  const Sound = (() => {
+    let ctx = null, master = null, padBus = null, windGain = null, windFilter = null, voices = [], chordI = 0, scene = 'earth', nextChordAt = 0;
+    let on = true;
+    try { on = localStorage.getItem('flyway.sound') !== 'off'; } catch (e) {}
+    const CHORDS = {
+      earth: [[0, 4, 7, 11], [5, 9, 12, 16], [-3, 0, 4, 7], [7, 11, 14, 19]],   // Cmaj7, Fmaj7, Am7, G
+      space: [[0, 3, 7, 10], [-4, 0, 3, 7], [5, 8, 12, 15], [-2, 2, 5, 9]],     // darker, drifting
+    };
+    const hz = (semi) => 196 * 2 ** (semi / 12); // around G3
+    function start() {
+      if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      ctx = new AC();
+      master = ctx.createGain(); master.gain.value = on ? 0.7 : 0; master.connect(ctx.destination);
+      // soft pad through a lowpass, slow chord changes
+      padBus = ctx.createGain(); padBus.gain.value = 0.05;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; padBus.connect(lp); lp.connect(master);
+      for (let i = 0; i < 4; i++) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = i % 2 ? 'triangle' : 'sine'; o.detune.value = (i - 1.5) * 4; g.gain.value = 0;
+        o.connect(g); g.connect(padBus); o.start(); voices.push({ o, g });
+      }
+      // wind: looping filtered noise, louder the faster the bird flies
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      windFilter = ctx.createBiquadFilter(); windFilter.type = 'bandpass'; windFilter.frequency.value = 500; windFilter.Q.value = 0.7;
+      windGain = ctx.createGain(); windGain.gain.value = 0;
+      src.connect(windFilter); windFilter.connect(windGain); windGain.connect(master); src.start();
+      nextChordAt = 0; tick();
+    }
+    function tick() {
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      if (t >= nextChordAt) {
+        const ch = CHORDS[scene][chordI++ % 4];
+        voices.forEach((v, i) => {
+          v.o.frequency.setTargetAtTime(hz(ch[i] - (i === 0 ? 12 : 0)), t, 0.6);
+          v.g.gain.setTargetAtTime(i === 0 ? 0.7 : 0.45, t, 1.2);
+        });
+        nextChordAt = t + 8;
+      }
+    }
+    function noise(dur, freq, gain, type = 'lowpass', at = 0) {
+      if (!ctx || !on) return;
+      const t = ctx.currentTime + at, len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      const s0 = ctx.createBufferSource(); s0.buffer = b;
+      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+      const g = ctx.createGain(); g.gain.value = gain;
+      s0.connect(f); f.connect(g); g.connect(master); s0.start(t);
+    }
+    function tone(freq, dur, gain, type = 'sine', at = 0, slideTo = null) {
+      if (!ctx || !on) return;
+      const t = ctx.currentTime + at, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+    }
+    let lastFlap = 0;
+    return {
+      start, tick,
+      get on() { return on; },
+      toggle() {
+        on = !on; try { localStorage.setItem('flyway.sound', on ? 'on' : 'off'); } catch (e) {}
+        if (!ctx && on) start();
+        if (master) master.gain.setTargetAtTime(on ? 0.7 : 0, ctx.currentTime, 0.05);
+        return on;
+      },
+      setScene(sc) { if (sc !== scene) { scene = sc; nextChordAt = 0; } },
+      setWind(level) { if (windGain) { windGain.gain.setTargetAtTime(0.06 * level, ctx.currentTime, 0.4); windFilter.frequency.setTargetAtTime(350 + 900 * level, ctx.currentTime, 0.4); } },
+      flap() { const n = performance.now(); if (n - lastFlap < 70) return; lastFlap = n; noise(0.07, 700, 0.12); },
+      stamp() { tone(150, 0.22, 0.35, 'sine', 0, 55); noise(0.03, 3000, 0.08, 'highpass'); tone(880, 0.5, 0.06, 'sine', 0.08); },
+      chime() { [784, 988, 1175].forEach((f, i) => tone(f, 0.6, 0.07, 'sine', i * 0.09)); },
+      coin() { tone(1319, 0.18, 0.06, 'square', 0); tone(1760, 0.25, 0.05, 'square', 0.06); },
+      alarm() { [0, 0.22, 0.44].forEach((a) => { tone(880, 0.14, 0.08, 'square', a); tone(660, 0.14, 0.06, 'square', a + 0.11); }); },
+      hit() { noise(0.09, 1500, 0.18, 'bandpass'); tone(220, 0.08, 0.08, 'triangle', 0, 110); },
+      laser() { tone(1400, 0.13, 0.05, 'square', 0, 280); },
+      win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.35, 0.08, 'triangle', i * 0.08)); },
+      lose() { [440, 349, 262].forEach((f, i) => tone(f, 0.45, 0.08, 'triangle', i * 0.14)); },
+      chirp() { tone(1800, 0.08, 0.06, 'sine', 0, 2600); tone(2200, 0.1, 0.05, 'sine', 0.09, 3000); },
+      launch() { noise(1.6, 220, 0.35); tone(60, 1.4, 0.2, 'sawtooth', 0, 30); },
+    };
+  })();
+  addEventListener('pointerdown', () => Sound.start(), { capture: true });
+  addEventListener('keydown', () => Sound.start(), { capture: true });
 
   // ======================================================================
   // UI
@@ -1887,6 +1980,10 @@
     open('shopSheet');
   }
   $('btnShop').onclick = openShop;
+  const soundBtn = $('btnSound');
+  const showSound = () => { soundBtn.textContent = Sound.on ? '🔊' : '🔇'; soundBtn.setAttribute('aria-label', Sound.on ? 'Mute sound' : 'Turn sound on'); };
+  soundBtn.onclick = () => { Sound.start(); Sound.toggle(); showSound(); };
+  showSound();
   $('btnShopMenu').onclick = () => { close('menuSheet'); openShop(); };
 
   $('btnMigrate').onclick = () => { buildStart('migrate'); open('startSheet'); };
@@ -1919,7 +2016,7 @@
       ['Perks', `×${fmt(F.perkSpeed(S), 2)} speed · ×${fmt(F.perkSeeds(S), 2)} seeds`], ['Birds', `${S.birds.length} of ${BIRDS.length}`],
       ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} stops`],
       ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`],
-      ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Moon rocks', `🌙 ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
+      ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Space rocks', `☄️ ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
@@ -1975,7 +2072,7 @@
       side.bug.t += dt;
       if (!side.bug.caught && side.bug.t >= DIVE) {
         side.bug.caught = true;
-        const rush = F.catchBug(S);
+        const rush = F.catchBug(S); dailyHit('bugs'); Sound.chirp();
         burstAtBeak();
         toast(`Caught a bug! 2× speed and 3× seeds for ${Math.ceil(rush)}s`);
       }
@@ -2012,8 +2109,15 @@
   }
   // The outcome is fixed the moment the warning ends (did the player fill the
   // meter?), but it is only announced after the 5-second battle.
+  function clearThreat() {
+    side.threat = null; side.bug = null; side.burst = 0; banner.hidden = true; banner.classList.remove('ok', 'bad', 'fight');
+    flapBtn.classList.remove('alarm'); dropCarried();
+    for (const m of [hawkMesh, owlMesh, hunterMesh]) m.visible = false;
+  }
   function tickThreats(dt) {
     const th = side.threat;
+    // safety net: a threat from the wrong place (Earth vs space) or one that has outlived its fight is dropped
+    if (th && ((!!THREATS[th.type].space) !== !!(S.space && S.space.loop) || th.t > th.warn + BATTLE + 6)) { clearThreat(); return; }
     if (th) {
       if (anySheetOpen() && th.phase === 'warn') return; // never strike behind a dialog
       th.t += dt;
@@ -2040,7 +2144,7 @@
     side.threat = { type, t: 0, warn: F.THREAT.warn(S), meter: 0, phase: 'warn', resolved: false, ok: false, lastHit: -1 };
     banner.hidden = false; banner.classList.remove('ok', 'bad', 'fight');
     $('threatIcon').textContent = THREATS[type].icon; $('threatText').textContent = THREATS[type].ask;
-    meterEl.style.width = '0%'; flapBtn.classList.add('alarm');
+    meterEl.style.width = '0%'; flapBtn.classList.add('alarm'); Sound.alarm();
   }
   function startBattle(th) {
     th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999;
@@ -2058,17 +2162,17 @@
     banner.classList.remove('fight');
     if (THREATS[th.type].space) {
       if (th.ok) {
-        const r = F.spaceMiss(S); banner.classList.add('ok'); meterEl.style.width = '100%';
-        $('threatText').textContent = `The ${name} is driven off! +${fmt(r, 0)} 🌙`;
+        const r = F.spaceMiss(S); banner.classList.add('ok'); meterEl.style.width = '100%'; dailyHit('fights'); Sound.win();
+        $('threatText').textContent = `The ${name} is driven off! +${fmt(r, 0)} ☄️`;
       } else {
-        const r = F.spaceHit(S); banner.classList.add('bad'); meterEl.style.width = '0%';
-        $('threatText').textContent = r.lost === 'wingmate' ? `The ${name} knocked out a wingmate. Slowed for ${F.THREAT.STUN}s.` : `The ${name} blasted loose ${fmt(r.rocks, 0)} 🌙. Slowed for ${F.THREAT.STUN}s.`;
+        const r = F.spaceHit(S); banner.classList.add('bad'); meterEl.style.width = '0%'; Sound.lose();
+        $('threatText').textContent = r.lost === 'wingmate' ? `The ${name} knocked out a wingmate. Slowed for ${F.THREAT.STUN}s.` : `The ${name} blasted loose ${fmt(r.rocks, 0)} ☄️. Slowed for ${F.THREAT.STUN}s.`;
       }
       spaceOutcome(th, th.ok ? null : { lost: F.shipLv(S, 'wing') < pods.length ? 'wingmate' : 'rocks' });
       refreshShip(); return;
     }
     if (th.ok) {
-      const bonus = F.predatorMiss(S);
+      const bonus = F.predatorMiss(S); dailyHit('fights'); Sound.win();
       banner.classList.add('ok'); meterEl.style.width = '100%';
       $('threatText').textContent = th.type === 'hunter'
         ? `Out of range! The hunter gave up. +${fmt(bonus)} seeds`
@@ -2076,7 +2180,7 @@
       if (!S.levels.flock && th.type !== 'hunter') $('threatText').textContent = `You fought off the ${name}! +${fmt(bonus)} seeds`;
       return;
     }
-    const r = F.predatorHit(S);
+    const r = F.predatorHit(S); Sound.lose();
     banner.classList.add('bad'); meterEl.style.width = '0%';
     $('threatText').textContent = r.lost === 'follower'
       ? (th.type === 'hunter' ? `The hunter hit one of your flock. Slowed for ${F.THREAT.STUN}s.` : `The ${name} carried off one of your flock. Slowed for ${F.THREAT.STUN}s.`)
@@ -2121,7 +2225,7 @@
     if (sp.loop) {
       const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.LOOP_KM;
       $('fromCity').innerHTML = `${out ? 'Earth' : 'Moon'}<small>trip ${sp.trips + 1}</small>`;
-      $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} 🌙 on return`}</small>`;
+      $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} ☄️ on return`}</small>`;
       $('wx').textContent = `⛽ Fuel for ${Math.ceil(S.moon.fuel)} more round trip${Math.ceil(S.moon.fuel) === 1 ? '' : 's'} · ${fmt(S.moon.trips, 0)} done`;
       $('legKm').textContent = `${fmt(left, 0)} km left`;
       setTrack(clamp(sp.u, 0, 1));
@@ -2163,7 +2267,7 @@
     pm.style.color = '#7a5bd0';
     pm.classList.remove('show'); void pm.offsetWidth; pm.classList.add('show');
     setTimeout(() => { pm.style.color = ''; }, 2700);
-    toast(`Reached ${e.body.name}!` + (e.first ? ' All seeds +25%, for good.' : ''));
+    toast(`Reached ${e.body.name}!` + (e.first ? (e.body.id === 'moon' ? ' All seeds +25%, for good.' : ' Space rocks per trip ×1.5 and all seeds +25%, for good.') : ''));
     expoKey = ''; refreshExpo(); save();
   }
   let expoKey = '';
@@ -2178,13 +2282,15 @@
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
       if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button><p class="expo-note" id="fuelNote"></p>`;
-      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home moon rocks.</p><p class="expo-note" id="fuelNote"></p>`;
+      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home space rocks.</p><p class="expo-note" id="fuelNote"></p>`;
       if (sp && !sp.loop && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
       else if (nb && (!sp || sp.loop || sp.arrived)) action += `<button class="expo-launch" id="btnLaunch">🚀 Fly on to ${nb.name}</button>`;
       if (sp && (sp.arrived || sp.loop)) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
-      if (S.moon.rocks > 0 || (sp && sp.loop)) action += `<div class="trade"><span>🌙 <b class="num" id="tradeRocks">0</b> moon rocks · 1 = <b class="num" id="tradeRate">0</b> seeds</span>
+      if (S.moon.rocks > 0 || (sp && sp.loop)) action += `<div class="trade"><span>☄️ <b class="num" id="tradeRocks">0</b> space rocks · 1 = <b class="num" id="tradeRate">0</b> seeds</span>
         <span class="trade-btns"><button id="btnTrade1">Trade 1</button><button id="btnTradeAll">Trade all</button></span></div>`;
+      const pm = F.planetsReached(S);
       box.innerHTML = `<div class="expo-head"><h3>Expedition</h3><span>${owned} of ${F.GEAR.length} gear · ${S.cosmos.length} of ${F.SPACE.length} worlds</span></div>
+        ${pm ? `<p class="expo-note">🪐 ${pm} planet${pm === 1 ? '' : 's'} reached: ×${fmt(F.planetMult(S), 2)} space rocks per trip</p>` : (S.cosmos.includes('moon') ? '<p class="expo-note">🪐 Each planet you reach multiplies space rocks per trip by 1.5, for good.</p>' : '')}
         ${action}
         ${g ? `<div class="up expo-gear"><div class="ic" aria-hidden="true">${g.icon}</div>
           <div><div class="nm">${g.name}</div><div class="fx">${g.blurb}</div></div>
@@ -2195,11 +2301,11 @@
         if (!F.launchLoop(S)) return;
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
-        toast('Liftoff! Loop the Moon and bring home moon rocks.');
+        toast('Liftoff! Loop the Moon and bring home space rocks.'); Sound.launch();
       };
       const t1 = $('btnTrade1'), ta = $('btnTradeAll');
-      if (t1) t1.onclick = () => { const v = F.tradeRocks(S, 1); if (v) { toast(`Traded 1 🌙 for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
-      if (ta) ta.onclick = () => { const n = S.moon.rocks, v = F.tradeRocks(S, n); if (v) { toast(`Traded ${fmt(n, 0)} 🌙 for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
+      if (t1) t1.onclick = () => { const v = F.tradeRocks(S, 1); if (v) { toast(`Traded 1 ☄️ for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
+      if (ta) ta.onclick = () => { const n = S.moon.rocks, v = F.tradeRocks(S, n); if (v) { toast(`Traded ${fmt(n, 0)} ☄️ for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
       if (bl) bl.onclick = () => {
         if (!F.launch(S)) return;
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm');
@@ -2227,7 +2333,7 @@
   let lastTripToast = 0;
   function tripDone(e) {
     const now = performance.now();
-    if (now - lastTripToast > 3000) { lastTripToast = now; toast(`Round trip done: +${fmt(e.rocks, 0)} 🌙`); }
+    if (now - lastTripToast > 3000) { lastTripToast = now; toast(`Round trip done: +${fmt(e.rocks, 0)} ☄️`); }
     refreshRocks(); refreshShip();
   }
   function orbitUnlocked() {
@@ -2261,7 +2367,7 @@
       const r = shipRows[u.id], L = F.shipLv(S, u.id);
       const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.moon.rocks)) : buyMode, c = F.shipCostN(u, L, n);
       r.lv.textContent = L; r.fx.textContent = `${u.blurb(L)}  →  ${u.blurb(L + n)}`;
-      r.cost.textContent = '🌙 ' + fmt(c, 0); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.moon.rocks;
+      r.cost.textContent = '☄️ ' + fmt(c, 0); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.moon.rocks;
     }
   }
 
@@ -2294,23 +2400,47 @@
     if (a === 'birds') { S.birds = BIRDS.map((b) => b.id); toast('Every bird unlocked. Pick one when you migrate.'); }
     if (a === 'laps10') { const was = F.isNonstop(S); S.lapsTotal += 10; toast(`Lifetime laps: ${S.lapsTotal}.`); if (!was && F.isNonstop(S) && !S.space) { S.route = F.genLap(S, F.legFrom(S)); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); } }
     if (a === 'orbit') { if (!S.orbitUnlocked) { S.orbitUnlocked = true; orbitUnlocked(); } }
-    if (a === 'rocks') { S.moon.rocks += 100; S.moon.total += 100; refreshRocks(); refreshShip(); toast('+100 moon rocks.'); }
+    if (a === 'rocks') { S.moon.rocks += 100; S.moon.total += 100; refreshRocks(); refreshShip(); toast('+100 space rocks.'); }
     if (a === 'gear') { for (const g of F.GEAR) S.gear[g.id] = true; expoKey = ''; refreshExpo(); toast('All gear unlocked.'); }
     if (a === 'hide') { adminEl.hidden = true; try { localStorage.removeItem('flyway.admin'); } catch (e) {} }
     refreshHud(); refreshUpgrades(); save();
   });
   $('optLapPrompt').onchange = (e) => { S.noLapPrompt = !e.target.checked; save(); };
 
+  // ---------- daily migration challenge ----------
+  function dailyHit(id, by = 1) {
+    const d = F.dailyBump(S, id, by);
+    if (d) { toast(`Daily challenge complete! +${d.reward} 🪶`); Sound.win(); save(); }
+    refreshDaily();
+  }
+  function refreshDaily() {
+    const d = F.dailyCheck(S), el = $('daily');
+    el.classList.toggle('done', d.done);
+    $('dailyText').textContent = F.dailyText(d);
+    $('dailyProg').textContent = d.done ? `Done · +${d.reward} 🪶 earned` : `${d.have} of ${d.n} · reward ${d.reward} 🪶`;
+    $('dailyBar').style.width = (d.have / d.n * 100) + '%';
+  }
+  // once the bird is fast enough for straight circles, switch right away rather than at the end of the lap
+  let straightCheckT = 0;
+  function checkStraight(dt) {
+    straightCheckT += dt; if (straightCheckT < 1) return; straightCheckT = 0;
+    if (!S.space && F.isNonstop(S) && typeof S.route[0] === 'number') {
+      S.route = F.genLap(S, F.legFrom(S)); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide();
+    }
+  }
+
   // ======================================================================
   // Main loop
   // ======================================================================
-  let lastT = performance.now(), acc = 0, saveT = 0, uiT = 0, lapShownFor = -1;
+  let lastT = performance.now(), acc = 0, saveT = 0, uiT = 0, dailyT = 0, lapShownFor = -1;
   function beginFlight(fresh) {
     running = true;
+    // a fight, bug dive or carried bird from the last run never carries over
+    clearThreat();
     rebuildRoute(); resetSide();
     const g = currentGeo(); camDir.copy(geoVec(g.lat, g.lon, 1));
     if (fresh) { Z = 0.02; ZT = 0.985; } // the opening move: orbit to wingtip
-    refreshUpgrades(); refreshHud(); refreshShip(); save();
+    refreshUpgrades(); refreshHud(); refreshShip(); refreshDaily(); save();
   }
 
   function frame(now) {
@@ -2321,12 +2451,14 @@
       for (const e of events) {
         if (e.type === 'space') { spaceArrival(e); continue; }
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
-        if (e.type === 'trip') { tripDone(e); continue; }
+        if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'outOfFuel') { leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); toast(`Out of fuel: back on Earth over ${F.legFrom(S).name}. The shuttle refuels while you fly here.`); save(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
-        if (e.first) stamp(e.city, e.bonus, true); // only the first time the bird lands somewhere
+        if (e.first) { stamp(e.city, e.bonus, true); Sound.stamp(); dailyHit('cities'); } // stamp only the first time the bird lands somewhere
+        if (e.lapDone) { dailyHit('laps'); if (S.lapsTotal <= 100) Sound.chime(); }
+        if (e.wx === 'storm' && S.wx.left >= 29) dailyHit('storm');
         forecast(e);
         // after 100 laps the ticket shows the lap count; no more pop-ups
         if (e.lapDone && lapShownFor !== S.leg && S.lapsTotal <= 100) {
@@ -2339,7 +2471,7 @@
         }
       }
       if (events.length) rebuildRoute();
-      tickBugs(dt); tickThreats(dt); tickWeather(dt);
+      tickBugs(dt); tickThreats(dt); tickWeather(dt); checkStraight(dt);
       // zoom easing (the take-off zoom is slower and more deliberate)
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
@@ -2355,6 +2487,9 @@
         if (sa > 0) updateFlight(dt);
       }
       uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); }
+      Sound.tick(); Sound.setScene(S.space ? 'space' : 'earth');
+      Sound.setWind(S.space ? 0.15 : Math.min(1, 0.25 + Math.log10(1 + F.speed(S)) / 4) * smooth(SIDE_A, SIDE_B, Z));
+      dailyT += dt; if (dailyT > 2) { dailyT = 0; refreshDaily(); }
       saveT += dt; if (saveT > 5) { saveT = 0; save(); }
     } else {
       // behind the start sheet: let the globe turn slowly
@@ -2402,5 +2537,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, dbgTrail: () => ({ n: trailGeo.drawRange.count, vis: trailMesh.visible, grp: routeGroup.visible, p0: Array.from(trailGeo.attributes.position.array.slice(0, 6)).map((x) => +x.toFixed(3)), c0: Array.from(trailGeo.attributes.color.array.slice(60, 68)).map((x) => +x.toFixed(2)) }), setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, dbgTrail: () => ({ n: trailGeo.drawRange.count, vis: trailMesh.visible, grp: routeGroup.visible, p0: Array.from(trailGeo.attributes.position.array.slice(0, 6)).map((x) => +x.toFixed(3)), c0: Array.from(trailGeo.attributes.color.array.slice(60, 68)).map((x) => +x.toFixed(2)) }), setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();
