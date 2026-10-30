@@ -204,45 +204,26 @@
     return pts;
   }
   let loopLine = null, doneLine = null;
-  // The bird's trail: a short gold ribbon that tapers and fades out behind it.
-  // (A ribbon, not a line, so it has width on every device.)
-  const TRAIL_N = 64, TRAIL_LEN = 0.45; // points, and length in globe radii
-  const trailGeo = new THREE.BufferGeometry();
-  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3));
-  trailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 4), 4));
-  {
-    const idx = [];
-    for (let k = 0; k < TRAIL_N - 1; k++) { const a0 = k * 2; idx.push(a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2); }
-    trailGeo.setIndex(idx);
-  }
-  const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
-  trailMesh.renderOrder = 4; trailMesh.frustumCulled = false;
-  routeGroup.add(trailMesh);
-  let trail = [];
-  function updateTrail(head, width) {
-    // 'trail' holds points laid down behind the bird; the head is added fresh each frame
-    const last = trail[trail.length - 1];
-    if (last && last.distanceTo(head) > 0.6) trail = []; // a jump (new route, back from space): start fresh
-    if (!trail.length || trail[trail.length - 1].distanceTo(head) > 0.004) trail.push(head.clone());
-    trail = trail.concat([head.clone()]); // temporary head point for drawing
-    let len = 0;
-    for (let k = trail.length - 1; k > 0; k--) { len += trail[k].distanceTo(trail[k - 1]); if (len > TRAIL_LEN) { trail = trail.slice(k); break; } }
-    if (trail.length > TRAIL_N) trail = trail.slice(trail.length - TRAIL_N);
-    const pa = trailGeo.attributes.position, ca = trailGeo.attributes.color, n = trail.length;
-    const side = new THREE.Vector3(), dir = new THREE.Vector3();
-    for (let k = 0; k < TRAIL_N; k++) {
-      if (k >= n || n < 2) { pa.setXYZ(k * 2, 0, 0, 0); pa.setXYZ(k * 2 + 1, 0, 0, 0); ca.setXYZW(k * 2, 0, 0, 0, 0); ca.setXYZW(k * 2 + 1, 0, 0, 0, 0); continue; }
-      const p = trail[k], q = trail[Math.min(n - 1, k + 1)], o = trail[Math.max(0, k - 1)];
-      dir.subVectors(q, o).normalize();
-      side.crossVectors(dir, p).normalize();           // across the path, flat on the globe
-      const t = k / (n - 1), w = width * (0.25 + 0.75 * t), a = t * t;
-      pa.setXYZ(k * 2, p.x + side.x * w, p.y + side.y * w, p.z + side.z * w);
-      pa.setXYZ(k * 2 + 1, p.x - side.x * w, p.y - side.y * w, p.z - side.z * w);
-      ca.setXYZW(k * 2, 1, 0.83, 0.42, a * 0.9); ca.setXYZW(k * 2 + 1, 1, 0.83, 0.42, a * 0.9);
+  // The bird's tail on the globe: one long gold line through everything flown
+  // this lap, ending at the bird. Only the oldest end fades out.
+  const TAIL_MAX = 6000;
+  const tailGeo = new THREE.BufferGeometry();
+  tailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TAIL_MAX * 3), 3));
+  tailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TAIL_MAX * 4), 4));
+  const tailLine = new THREE.Line(tailGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
+  tailLine.frustumCulled = false; routeGroup.add(tailLine);
+  let tailDone = []; // points for the legs already flown this lap (rebuilt at each stop)
+  function updateTail(t) {
+    const pts = tailDone.concat(arcPoints(F.legFrom(S), F.legTo(S), ROUTE_R + 0.001, Math.max(0.001, t)));
+    const n = Math.min(pts.length, TAIL_MAX), off = pts.length - n;
+    const pa = tailGeo.attributes.position, ca = tailGeo.attributes.color;
+    for (let k = 0; k < n; k++) {
+      const p = pts[off + k], u = n > 1 ? k / (n - 1) : 1;
+      // full strength along most of the line; the first quarter fades to nothing
+      const a = 0.95 * smooth(0, 0.25, u);
+      pa.setXYZ(k, p.x, p.y, p.z); ca.setXYZW(k, 1, 0.83, 0.42, a);
     }
-    pa.needsUpdate = true; ca.needsUpdate = true;
-    trailGeo.setDrawRange(0, Math.max(0, (n - 1) * 6));
-    trail.pop(); // drop the temporary head again
+    pa.needsUpdate = true; ca.needsUpdate = true; tailGeo.setDrawRange(0, n);
   }
   let cityPoints = null;
   const birdSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff3c9', 'rgba(227,165,43,.7)'), depthTest: false, transparent: true }));
@@ -258,7 +239,8 @@
       new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, dashSize: 0.012, gapSize: 0.01 }));
     loopLine.computeLineDistances(); loopLine.visible = false; // no dotted route ahead: the next stop's dot is enough
     routeGroup.add(loopLine);
-    // (no long gold line for legs already flown: the fading trail shows where the bird has been)
+    tailDone = [];
+    for (let k = 0; k < S.ri; k++) tailDone.push(...arcPoints(F.routePt(S, k), F.routePt(S, k + 1), ROUTE_R + 0.001));
     doneLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), new THREE.LineBasicMaterial({ visible: false }));
     routeGroup.add(doneLine);
     const pos = [], col = [];
@@ -1579,7 +1561,7 @@
     clouds.rotation.y += dt * 0.004;
     const legT = clamp(S.legKm / F.legLen(S), 0, 1);
     birdSprite.position.copy(geoVec(g.lat, g.lon, ROUTE_R + 0.004 + legLift(F.legFrom(S), F.legTo(S), legT)));
-    updateTrail(birdSprite.position, 0.006 + (dist - 1) * 0.0055);
+    updateTail(legT);
     const bs = 0.004 + (dist - 1) * 0.03; birdSprite.scale.set(bs, bs, 1);
     const to = F.legTo(S); nextSprite.position.copy(geoVec(to.lat, to.lon, 1.007));
     const ns = (0.008 + (dist - 1) * 0.02) * (1 + 0.25 * Math.sin(performance.now() / 250)); nextSprite.scale.set(ns, ns, 1);
@@ -2537,5 +2519,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, dbgTrail: () => ({ n: trailGeo.drawRange.count, vis: trailMesh.visible, grp: routeGroup.visible, p0: Array.from(trailGeo.attributes.position.array.slice(0, 6)).map((x) => +x.toFixed(3)), c0: Array.from(trailGeo.attributes.color.array.slice(60, 68)).map((x) => +x.toFixed(2)) }), setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();
