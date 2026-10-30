@@ -760,8 +760,16 @@
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     open('menuSheet');
   };
+  // two taps instead of confirm(), which webviews and app shells often block
+  let resetArmed = 0;
   $('btnReset').onclick = () => {
-    if (!confirm('Start over? This erases your bird, seeds, feathers and passport.')) return;
+    const btn = $('btnReset');
+    if (Date.now() - resetArmed > 4000) {
+      resetArmed = Date.now(); btn.textContent = 'Tap again to erase your bird, seeds, feathers and passport';
+      setTimeout(() => { if (Date.now() - resetArmed >= 4000) btn.textContent = 'Start over from scratch'; }, 4100);
+      return;
+    }
+    resetArmed = 0; btn.textContent = 'Start over from scratch';
     try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
     S = null; running = false; close('menuSheet'); buildStart('new'); open('startSheet');
   };
