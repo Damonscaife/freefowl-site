@@ -1815,8 +1815,11 @@
   // the bird just flew straight over a city on its nonstop circle
   function overflight(e) {
     overName = e.city.name; overAt = performance.now();
+    // the announcement shows the first two times over a city, then stays quiet
+    S.overCount = S.overCount || {};
+    const n = S.overCount[e.city.i] = (S.overCount[e.city.i] || 0) + 1;
     if (e.first) { stamp(e.city, 0, true); Sound.stamp(); dailyHit('cities'); }
-    else if (overAt - lastOverToast > 2500) { lastOverToast = overAt; toast(`Flying over ${e.city.name}`); }
+    else if (n <= 2 && overAt - lastOverToast > 2500) { lastOverToast = overAt; toast(`Flying over ${e.city.name}`); }
   }
   // km still to fly this lap, from the bird's position
   function lapKmLeft() {

@@ -718,7 +718,7 @@
   function migrateAgain(s, birdId, startIdx) {
     const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
-      birds: s.birds, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked };
+      birds: s.birds, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, overCount: s.overCount || {} };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
