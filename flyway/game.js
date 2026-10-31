@@ -379,6 +379,7 @@
     grp.add(new THREE.Mesh(g, landMat));
     if (kind === 'city') addCity(grp, name, wx0);
     if (kind !== 'sea') { addTrees(grp, b, wx0, kind); if (kind === 'land') addLake(grp, b, wx0); }
+    else addSea(grp, wx0);
     return { grp, kind, wx0 };
   }
   function addCity(grp, name, seed) {
@@ -547,6 +548,102 @@
       g.beginPath(); g.moveTo(X - 9, Y + d); g.quadraticCurveTo(X - 4, Y - 2, X, Y); g.quadraticCurveTo(X + 4, Y - 2, X + 9, Y + d); g.stroke();
     }
   }), { fog: false }));
+  // ---- the open sea: wave crests, ships, and the occasional leaping dolphin or whale ----
+  const WAVE_MAT = sceneryMat(paintTex(96, 32, (g, W, H) => {
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 4; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(6, H - 8); g.quadraticCurveTo(W * 0.35, 4, W * 0.62, H - 12); g.quadraticCurveTo(W * 0.8, H - 18, W - 6, H - 9); g.stroke();
+  }), { fog: true });
+  const hull = (g, x0, x1, top, bot, col) => { g.fillStyle = col; g.beginPath(); g.moveTo(x0, top); g.lineTo(x1, top); g.lineTo(x1 - (x1 - x0) * 0.08, bot); g.lineTo(x0 + (x1 - x0) * 0.04, bot); g.closePath(); g.fill(); };
+  const SHIPS = {
+    fishing: { w: 7, h: 4.2, tex: paintTex(160, 96, (g, W, H) => {
+      hull(g, W * 0.1, W * 0.9, H * 0.66, H * 0.92, '#c8322f'); g.fillStyle = '#ffffff'; g.fillRect(W * 0.1, H * 0.62, W * 0.8, H * 0.06);
+      g.fillStyle = '#f2efe6'; g.fillRect(W * 0.52, H * 0.4, W * 0.24, H * 0.22); g.fillStyle = '#2b3a55'; g.fillRect(W * 0.56, H * 0.45, W * 0.07, H * 0.07); g.fillRect(W * 0.66, H * 0.45, W * 0.07, H * 0.07);
+      g.strokeStyle = '#3a3a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(W * 0.3, H * 0.62); g.lineTo(W * 0.3, H * 0.1); g.lineTo(W * 0.1, H * 0.5); g.stroke();
+    }) },
+    cruise: { w: 30, h: 9, tex: paintTex(512, 160, (g, W, H) => {
+      hull(g, W * 0.03, W * 0.97, H * 0.62, H * 0.92, '#1f2f4f'); g.fillStyle = '#ffffff';
+      g.fillRect(W * 0.06, H * 0.3, W * 0.86, H * 0.32); g.fillRect(W * 0.14, H * 0.16, W * 0.62, H * 0.16);
+      g.fillStyle = '#7fb6e6'; for (let r = 0; r < 3; r++) for (let x = W * 0.08; x < W * 0.9; x += 14) if (r || (x > W * 0.15 && x < W * 0.74)) g.fillRect(x, H * (0.2 + r * 0.12), 8, 6);
+      g.fillStyle = '#cf2e3a'; g.fillRect(W * 0.6, H * 0.04, W * 0.06, H * 0.14);
+    }) },
+    warship: { w: 18, h: 7, tex: paintTex(384, 160, (g, W, H) => {
+      hull(g, W * 0.04, W * 0.98, H * 0.6, H * 0.9, '#6d7680'); g.fillStyle = '#7f8892';
+      g.beginPath(); g.moveTo(W * 0.32, H * 0.6); g.lineTo(W * 0.38, H * 0.3); g.lineTo(W * 0.6, H * 0.3); g.lineTo(W * 0.66, H * 0.6); g.fill();
+      g.fillRect(W * 0.46, H * 0.08, W * 0.03, H * 0.24); g.fillRect(W * 0.42, H * 0.14, W * 0.11, H * 0.03);
+      g.fillStyle = '#5c646d'; g.beginPath(); g.arc(W * 0.8, H * 0.56, H * 0.08, Math.PI, 0); g.fill(); g.fillRect(W * 0.8, H * 0.5, W * 0.12, H * 0.03);
+      g.beginPath(); g.arc(W * 0.2, H * 0.56, H * 0.07, Math.PI, 0); g.fill();
+      g.fillStyle = '#ffffff'; g.font = 'bold 20px sans-serif'; g.fillText('71', W * 0.12, H * 0.8);
+    }) },
+  };
+  for (const k in SHIPS) SHIPS[k].mat = sceneryMat(SHIPS[k].tex, { fog: true });
+  function addSea(grp, wx0) {
+    const y = GROUND + 0.7;
+    for (let i = 0; i < 26; i++) {
+      const sp = new THREE.Sprite(WAVE_MAT), w = 1.6 + hash(wx0, i) * 2.4;
+      sp.center.set(0.5, 0.1); sp.scale.set(w, w / 3, 1);
+      sp.position.set((hash(i, wx0) - 0.5) * CW, y, -4 - hash(wx0 + 1, i) * 200); grp.add(sp);
+    }
+    // ships are rare: fishing boats most often, cruise liners and warships now and then
+    const r = hash(wx0, 41);
+    const kind = r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.32 ? 'warship' : null;
+    if (kind) {
+      const sh = SHIPS[kind], sp = new THREE.Sprite(sh.mat);
+      sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1);
+      sp.position.set((hash(wx0, 42) - 0.5) * (CW - sh.w), y, -14 - hash(wx0, 43) * (kind === 'fishing' ? 60 : 140)); grp.add(sp);
+    }
+  }
+  const JUMPERS = {
+    dolphin: { w: 4.5, h: 2.2, secs: 1.5, height: 4, tex: paintTex(192, 96, (g, W, H) => {
+      g.fillStyle = '#7b8b9c'; g.beginPath(); g.moveTo(W * 0.06, H * 0.58);
+      g.quadraticCurveTo(W * 0.4, H * 0.18, W * 0.86, H * 0.5); g.lineTo(W * 0.98, H * 0.55); g.lineTo(W * 0.86, H * 0.6);
+      g.quadraticCurveTo(W * 0.45, H * 0.82, W * 0.06, H * 0.58); g.fill();
+      g.fillStyle = '#d9e1e8'; g.beginPath(); g.ellipse(W * 0.52, H * 0.64, W * 0.24, H * 0.07, 0.05, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#6a7a8a'; g.beginPath(); g.moveTo(W * 0.46, H * 0.32); g.lineTo(W * 0.38, H * 0.1); g.lineTo(W * 0.56, H * 0.3); g.fill();
+      g.beginPath(); g.moveTo(W * 0.08, H * 0.58); g.lineTo(W * 0.0, H * 0.4); g.lineTo(W * 0.03, H * 0.6); g.lineTo(W * 0.0, H * 0.78); g.fill();
+      g.fillStyle = '#111'; g.beginPath(); g.arc(W * 0.8, H * 0.47, 3, 0, Math.PI * 2); g.fill();
+    }) },
+    whale: { w: 16, h: 7, secs: 2.8, height: 7, tex: paintTex(384, 168, (g, W, H) => {
+      g.fillStyle = '#3c4c66'; g.beginPath(); g.moveTo(W * 0.12, H * 0.5);
+      g.quadraticCurveTo(W * 0.45, H * 0.12, W * 0.92, H * 0.42); g.quadraticCurveTo(W * 0.98, H * 0.55, W * 0.88, H * 0.66);
+      g.quadraticCurveTo(W * 0.45, H * 0.86, W * 0.12, H * 0.5); g.fill();
+      g.fillStyle = '#e8edf2'; g.beginPath(); g.ellipse(W * 0.6, H * 0.68, W * 0.26, H * 0.08, 0.05, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2; for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(W * (0.48 + k * 0.05), H * 0.62); g.lineTo(W * (0.46 + k * 0.05), H * 0.75); g.stroke(); }
+      g.fillStyle = '#34445c'; g.beginPath(); g.moveTo(W * 0.14, H * 0.5); g.lineTo(W * 0.02, H * 0.26); g.lineTo(W * 0.08, H * 0.48); g.lineTo(W * 0.0, H * 0.7); g.fill();
+      g.beginPath(); g.ellipse(W * 0.58, H * 0.74, W * 0.1, H * 0.04, 0.6, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#111'; g.beginPath(); g.arc(W * 0.86, H * 0.52, 4, 0, Math.PI * 2); g.fill();
+    }) },
+  };
+  for (const k in JUMPERS) JUMPERS[k].mat = sceneryMat(JUMPERS[k].tex, { fog: true });
+  const seaLife = { list: [], t: 8 };
+  function updateSeaLife(dt, dx) {
+    const under = chunkAtX(world.viewW ? world.viewW * 0.4 : 6);
+    seaLife.t -= dt;
+    if (under && under.kind === 'sea' && seaLife.t <= 0 && seaLife.list.length < 2) {
+      // dolphins are a nice surprise; whales are rare
+      const kind = Math.random() < 0.8 ? 'dolphin' : 'whale', J = JUMPERS[kind];
+      const sp = new THREE.Sprite(J.mat); sp.scale.set(J.w, J.h, 1);
+      const x = (world.viewW || 14) * (0.25 + Math.random() * 0.4), z = kind === 'whale' ? -30 - Math.random() * 30 : -8 - Math.random() * 20;
+      sp.position.set(x, GROUND, z); sp.userData = { J, t: 0, x, z, splashed: false };
+      fscene.add(sp); seaLife.list.push(sp);
+      seaLife.t = kind === 'whale' ? 30 + Math.random() * 30 : 12 + Math.random() * 18;
+      splash(new THREE.Vector3(x, GROUND + 0.8, z), kind === 'whale' ? 1.4 : 0.8);
+    }
+    for (let k = seaLife.list.length - 1; k >= 0; k--) {
+      const sp = seaLife.list[k], d = sp.userData, J = d.J;
+      d.t += dt; d.x -= dx;
+      const f = d.t / J.secs; // 0..1 along the leap
+      sp.position.set(d.x + f * J.w * 0.8, GROUND + 0.4 + Math.sin(Math.PI * clamp(f, 0, 1)) * J.height, d.z);
+      if (!d.splashed && f > 0.95) { d.splashed = true; splash(new THREE.Vector3(sp.position.x, GROUND + 0.8, d.z), J === JUMPERS.whale ? 1.6 : 0.9); }
+      if (f >= 1) { fscene.remove(sp); seaLife.list.splice(k, 1); }
+      else sp.material.rotation = (0.5 - f) * 1.3; // nose up on the way out, down on the way back in
+    }
+  }
+  function splash(at, size) {
+    const sp = sparks.geometry.attributes.position;
+    for (let i = 0; i < 30; i++) { sp.setXYZ(i, at.x + (Math.random() - 0.5) * size, at.y, at.z); sparkV[i].set((Math.random() - 0.5) * 3 * size, 3 + Math.random() * 4 * size, (Math.random() - 0.5) * size); }
+    sp.needsUpdate = true; side.burst = 1.1; side.burstG = 9; sparks.material.color.setStyle('#ffffff'); sparks.material.size = 0.45 * size;
+  }
+
   const sky = { plane: null, flock: null, planeT: 6, flockT: 3 };
   function updateSkyLife(dt, dx) {
     // airliner: one at a time, crossing slowly high up
@@ -1113,7 +1210,7 @@
     }
     world.clouds = world.clouds.filter((c) => !c.userData.recycle);
     while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
-    updateSkyLife(dt, dx);
+    updateSkyLife(dt, dx); updateSeaLife(dt, dx);
 
     // streaks show once things get fast
     const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
@@ -2796,5 +2893,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
 })();

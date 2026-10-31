@@ -220,9 +220,9 @@
       blurb: (L) => `flap boost up to +${Math.round(boostCap(L) * 100)}%` },
     // defences against hawks, owls and hunters
     { id: 'keen', name: 'Keen Eyes', icon: '👁️', base: 2000, growth: 2.4,
-      blurb: (L) => `warnings ${fmt(2 + 0.4 * L, 1)}s ahead · ${Math.max(3, 8 - L)} flaps to dodge` },
+      blurb: (L) => `warnings ${fmt(2 + 0.2 * L, 1)}s ahead · ${Math.max(2, 8 - Math.min(6, Math.floor(L * 0.5)))} flaps to dodge` },
     { id: 'camo', name: 'Camouflage', icon: '🍂', base: 5000, growth: 2.8,
-      blurb: (L) => L ? `predators ${Math.round((1 - 1 / (1 + 0.3 * L)) * 100)}% less often` : 'predators find you less often' },
+      blurb: (L) => L ? `predators ${Math.round((1 - 1 / (1 + 0.12 * L)) * 100)}% less often` : 'predators find you less often' },
     // the big-ticket item: the bird dips low to snatch a passing bug for a short rush
     { id: 'bugs', name: 'Bug Catcher', icon: '🪲', base: 25000, growth: 3.2,
       blurb: (L) => L ? `a bug every ~${Math.round(bugEvery(L))}s · ${bugRush(L)}s rush of 2× speed, 3× seeds` : 'dip low to catch bugs: 2× speed, 3× seeds' },
@@ -407,10 +407,10 @@
   // meter before it strikes. Escaping pays a bonus; getting caught costs one flock
   // follower (or 10% of seeds with no flock) and halves speed for a few seconds.
   const THREAT = {
-    warn: (s) => (s.space ? 2 + 0.5 * shipLv(s, 'shield') : 2 + 0.4 * s.levels.keen) / (birdOf(s).prey || 1), // seconds of warning (the dodo gets half)
-    taps: (s) => Math.max(2, Math.ceil((8 - Math.min(6, s.space ? shipLv(s, 'shield') : s.levels.keen)) / (birdOf(s).fight || 1))), // flaps needed vs hawk/owl
-    climb: (s) => Math.max(0.6, 1.3 - 0.1 * s.levels.keen),// seconds of climbing vs hunter
-    every: (s) => (s.space ? 40 + Math.random() * 30 : (75 + Math.random() * 45) * (1 + 0.3 * s.levels.camo) * (birdOf(s).camo || 1)) / (birdOf(s).prey || 1),
+    warn: (s) => (s.space ? 2 + 0.5 * shipLv(s, 'shield') : 2 + 0.2 * s.levels.keen) / (birdOf(s).prey || 1), // seconds of warning (the dodo gets half)
+    taps: (s) => Math.max(2, Math.ceil((8 - Math.min(6, s.space ? shipLv(s, 'shield') : Math.floor(s.levels.keen * 0.5))) / (birdOf(s).fight || 1))), // flaps needed vs hawk/owl
+    climb: (s) => Math.max(0.6, 1.3 - 0.05 * s.levels.keen),// seconds of climbing vs hunter
+    every: (s) => (s.space ? 40 + Math.random() * 30 : (75 + Math.random() * 45) * (1 + 0.12 * s.levels.camo) * (birdOf(s).camo || 1)) / (birdOf(s).prey || 1),
     STUN: 4,
   };
   function escapeBonus(s) { return seedRate(s, false) * 20; }
