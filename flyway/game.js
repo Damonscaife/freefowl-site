@@ -82,6 +82,10 @@
     ice: [233, 238, 243], tundra: [128, 132, 104], desert: [210, 178, 122], tropic: [56, 112, 58], boreal: [74, 104, 72], temperate: [104, 146, 74],
   };
 
+  // The globe's painted texture. Painting every land pixel's biome is the slowest thing at
+  // startup, so: draw the sea and a plain land fill instantly, paint the biomes at half size
+  // in small slices between frames, then remember the finished picture for next launch.
+  const EARTH_KEY = 'flyway.earth.v2';
   function buildEarthTexture() {
     const c = document.createElement('canvas'); c.width = TW; c.height = TH;
     const g = c.getContext('2d');
@@ -93,20 +97,43 @@
     g.save(); g.strokeStyle = 'rgba(120,200,230,.45)'; g.lineWidth = 7; g.lineJoin = 'round';
     for (const poly of unwrapped) { g.beginPath(); pathPolys(g, poly); g.stroke(); }
     g.restore();
-    const img = g.getImageData(0, 0, TW, TH), d = img.data;
-    for (let y = 0; y < TH; y++) {
-      const lat = 90 - (y + 0.5) / TH * 180;
-      for (let x = 0; x < TW; x++) {
-        const k = (y * TW + x) * 4;
-        if (maskData[k] < 128) continue;
-        const lon = (x + 0.5) / TW * 360 - 180;
-        const rgb = BIOME_RGB[biome(lat, lon)];
-        const n = 0.82 + fbm(x / 40, y / 40) * 0.36;
-        d[k] = rgb[0] * n; d[k + 1] = rgb[1] * n; d[k + 2] = rgb[2] * n;
-      }
-    }
-    g.putImageData(img, 0, 0);
+    g.fillStyle = '#6f8f55'; tracePolys(g); // plain land until the painted version is ready
     return c;
+  }
+  function refineEarth(c, tex) {
+    const g = c.getContext('2d');
+    const done = () => { tex.needsUpdate = true; };
+    // a picture from an earlier launch: use it straight away
+    let cached = null; try { cached = localStorage.getItem(EARTH_KEY); } catch (e) {}
+    if (cached) {
+      const img = new Image();
+      img.onload = () => { g.drawImage(img, 0, 0, TW, TH); done(); };
+      img.src = cached; return;
+    }
+    const W = TW / 2, H = TH / 2, small = document.createElement('canvas'); small.width = W; small.height = H;
+    const sg = small.getContext('2d'), img = sg.createImageData(W, H), d = img.data;
+    let y = 0;
+    const slice = () => {
+      const t0 = performance.now();
+      for (; y < H && performance.now() - t0 < 8; y++) {
+        const lat = 90 - (y + 0.5) / H * 180;
+        for (let x = 0; x < W; x++) {
+          const k = (y * W + x) * 4;
+          if (maskData[((y * 2) * TW + x * 2) * 4] < 128) continue;
+          const lon = (x + 0.5) / W * 360 - 180, rgb = BIOME_RGB[biome(lat, lon)], n = 0.82 + fbm(x / 20, y / 20) * 0.36;
+          d[k] = rgb[0] * n; d[k + 1] = rgb[1] * n; d[k + 2] = rgb[2] * n; d[k + 3] = 255;
+        }
+      }
+      if (y < H) { setTimeout(slice, 0); return; }
+      sg.putImageData(img, 0, 0);
+      // scale the painted land up and keep it inside the crisp full-size coastline
+      const land = document.createElement('canvas'); land.width = TW; land.height = TH;
+      const lg = land.getContext('2d'); lg.drawImage(small, 0, 0, TW, TH);
+      lg.globalCompositeOperation = 'destination-in'; lg.fillStyle = '#fff'; tracePolys(lg);
+      g.drawImage(land, 0, 0); done();
+      try { localStorage.setItem(EARTH_KEY, c.toDataURL('image/jpeg', 0.86)); } catch (e) {}
+    };
+    setTimeout(slice, 0);
   }
 
   function buildCloudTexture() {
@@ -145,8 +172,10 @@
     return new THREE.Vector3(-Math.cos(phi) * Math.cos(th) * r, Math.sin(th) * r, Math.sin(phi) * Math.cos(th) * r);
   }
 
-  const earthTex = new THREE.CanvasTexture(buildEarthTexture());
+  const earthCanvas = buildEarthTexture();
+  const earthTex = new THREE.CanvasTexture(earthCanvas);
   earthTex.anisotropy = 4; earthTex.colorSpace = THREE.SRGBColorSpace;
+  refineEarth(earthCanvas, earthTex);
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 80),
     new THREE.MeshPhongMaterial({ map: earthTex, shininess: 14, specular: 0x1a2a40 }));
   scene.add(earth);
@@ -456,6 +485,7 @@
   // so trees, lakes and clouds sit on (or above) the same surface the mesh draws
   // ---- roads and traffic ----
   let curRoad = null; // the road of the strip being built, so its trees and towers keep clear
+  let liteBuild = false; // true while building strips at extreme speed: far less scenery, since it flashes past
   const roadTex = (() => {
     const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
     g.fillStyle = '#4a4c52'; g.fillRect(0, 0, 64, 128);
@@ -551,9 +581,10 @@
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
     const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z);
+    liteBuild = world.u > 120; // a strip crosses the screen in well under a second
     // a paved road (a highway through cities) running away from you and curving off to the left
     const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
-    curRoad = kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hash(wx0, 70) < 0.3)
+    curRoad = !liteBuild && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hash(wx0, 70) < 0.3)
       ? addRoad(grp, wx0, hAt, kind === 'city') : null;
     if (kind === 'city') addCity(grp, name, wx0, hAt, prevKind === 'sea', nextKind === 'sea');
     // now and then the bird swoops right down between the towers of a city it passes
@@ -783,14 +814,55 @@
       rr(W * 0.66, H * 0.34, W * 0.12, H * 0.28); rr(W * 0.52, H * 0.56, W * 0.26, W * 0.12);
     },
   };
-  const TREE_MATS = {};
-  for (const k in TREE_KINDS) TREE_MATS[k] = sceneryMat(paintTex(128, 192, TREE_KINDS[k]), { fog: true });
+  // ---- batched billboards: many flat cutouts drawn as ONE mesh (one draw call) ----
+  // Each cutout is a quad whose four corners share its base point; the vertex shader pushes
+  // the corners out in view space, so every quad faces the camera like a sprite.
+  // Per-corner data: bb = (corner x, corner y, width, height); extra per-batch shader code can animate it.
+  function billboardMat(tex, { anim = '', uniforms = {}, alphaTest = 0.35, depthWrite = true } = {}) {
+    const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest, depthWrite, fog: true });
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, uniforms);
+      sh.vertexShader = 'attribute vec4 bb;\nattribute vec4 wv;\n' + Object.keys(uniforms).map((k) => `uniform float ${k};\n`).join('') +
+        sh.vertexShader.replace('#include <project_vertex>', `
+          vec2 bbSize = bb.zw; vec3 base = transformed;
+          ${anim}
+          vec4 mvPosition = modelViewMatrix * vec4(base, 1.0);
+          mvPosition.xy += bb.xy * bbSize;
+          gl_Position = projectionMatrix * mvPosition;`);
+    };
+    m.customProgramCacheKey = () => 'bb:' + anim + Object.keys(uniforms).join(); // each animation is its own program
+    m.userData.shared = true; sceneryMats.push(m);
+    return m;
+  }
+  // items: [{ x, y, z, w, h, u0, u1, cy, wv: [4 numbers] }] → one mesh. cy = how far below the base the quad starts (0..1).
+  function billboardMesh(items, mat) {
+    const n = items.length, pos = new Float32Array(n * 12), bb = new Float32Array(n * 16), wv = new Float32Array(n * 16), uv = new Float32Array(n * 8), idx = [];
+    items.forEach((it, i) => {
+      const cy = it.cy || 0, corners = [[-0.5, -cy, it.u0, 0], [0.5, -cy, it.u1, 0], [0.5, 1 - cy, it.u1, 1], [-0.5, 1 - cy, it.u0, 1]];
+      corners.forEach(([cx, cyy, u, v], k) => {
+        const j = i * 4 + k;
+        pos.set([it.x, it.y, it.z], j * 3); bb.set([cx, cyy, it.w, it.h], j * 4); uv.set([u, v], j * 2);
+        if (it.wv) wv.set(it.wv, j * 4);
+      });
+      const a = i * 4; idx.push(a, a + 1, a + 2, a, a + 2, a + 3);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('bb', new THREE.BufferAttribute(bb, 4));
+    g.setAttribute('wv', new THREE.BufferAttribute(wv, 4)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
+    const m = new THREE.Mesh(g, mat); m.frustumCulled = false; return m;
+  }
+  // all four tree kinds side by side in one texture, so a whole strip of trees is a single draw
+  const TREE_KEYS = Object.keys(TREE_KINDS);
+  const treeAtlas = paintTex(128 * TREE_KEYS.length, 192, (g) => TREE_KEYS.forEach((k, i) => { g.save(); g.translate(i * 128, 0); g.beginPath(); g.rect(0, 0, 128, 192); g.clip(); TREE_KINDS[k](g, 128, 192); g.restore(); }));
+  const treeMat = billboardMat(treeAtlas);
   const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine'], tundra: ['pine'], tropic: ['palm', 'round'], desert: ['cactus'] };
   function addTrees(grp, b, wx0, kind, hAt) {
     const kinds = TREES_FOR[b]; if (!kinds) return;
     // some stretches of land are proper forest: dense, and the trees grow bigger
     const forest = kind === 'land' && (b === 'temperate' || b === 'boreal' || b === 'tropic') && hash(wx0, 60) < 0.3;
-    const n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? 160 : 34;
+    let n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? 160 : 34;
+    if (liteBuild) n = Math.ceil(n / 4); // at extreme speed a tree is on screen for a blink: plant far fewer
+    const items = [];
     for (let i = 0; i < n; i++) {
       const lx = (hash(wx0, i) - 0.5) * (CW - 4), z = -6 - hash(i, wx0 + 3) * 170;
       if (kind === 'city' && z > -140) continue;
@@ -801,11 +873,11 @@
       const X0 = -CW / 2 + i0 * sx, Z0 = ZC + DEPTH / 2 - j0 * sz;
       const h = lerp(lerp(hAt(X0, Z0), hAt(X0 + sx, Z0), fx), lerp(hAt(X0, Z0 - sz), hAt(X0 + sx, Z0 - sz), fx), fz);
       if (h > 30 || h < 0.5 || nearRoad(lx, z, 3.5)) continue; // no trees on bare rock and snow, at the waterline or on the road
-      const sp = new THREE.Sprite(TREE_MATS[kinds[Math.floor(hash(i, wx0) * kinds.length)]]);
+      const ki = TREE_KEYS.indexOf(kinds[Math.floor(hash(i, wx0) * kinds.length)]);
       const size = (3 + hash(wx0 + i, 7) * 4) * (forest ? 1.25 : 1);
-      sp.center.set(0.5, 0.02); sp.scale.set(size * 0.67, size, 1);
-      sp.position.set(lx, GROUND + h - 0.25, z); grp.add(sp);
+      items.push({ x: lx, y: GROUND + h - 0.25, z, w: size * 0.67, h: size, cy: 0.02, u0: ki / TREE_KEYS.length + 0.002, u1: (ki + 1) / TREE_KEYS.length - 0.002 });
     }
+    if (items.length) { items.sort((a, b) => a.z - b.z); grp.add(billboardMesh(items, treeMat)); }
   }
   // lakes: flat water in a hollow, some land strips get one
   const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fc0, roughness: 0.25, metalness: 0.1 });
@@ -845,6 +917,14 @@
     g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 4; g.lineCap = 'round';
     g.beginPath(); g.moveTo(6, H - 8); g.quadraticCurveTo(W * 0.35, 4, W * 0.62, H - 12); g.quadraticCurveTo(W * 0.8, H - 18, W - 6, H - 9); g.stroke();
   }), { fog: true });
+  // wv = (phase, rate, drift, amp); uWT is the sea clock
+  const waveClock = { value: 0 };
+  const waveMat = billboardMat(WAVE_MAT.map, { uniforms: { uWT: waveClock }, alphaTest: 0.05, depthWrite: false, anim: `
+    float k = fract(uWT * wv.y + wv.x);
+    float rise = sin(3.14159 * k);
+    bbSize = vec2(bb.z * (0.7 + 0.5 * k), bb.w * (0.15 + 1.1 * rise));
+    base.x += mod(uWT * wv.z, 6.0) - 3.0 + k * 1.2;
+    base.y += 0.25 * wv.w * sin(uWT * 1.7 + wv.x * 3.0);` });
   const hull = (g, x0, x1, top, bot, col) => { g.fillStyle = col; g.beginPath(); g.moveTo(x0, top); g.lineTo(x1, top); g.lineTo(x1 - (x1 - x0) * 0.08, bot); g.lineTo(x0 + (x1 - x0) * 0.04, bot); g.closePath(); g.fill(); };
   const SHIPS = {
     fishing: { w: 7, h: 4.2, tex: paintTex(160, 96, (g, W, H) => {
@@ -885,22 +965,21 @@
   }), { fog: true });
   const fx = (mat, grp, x, y, z, w, h = w) => { const sp = new THREE.Sprite(mat); sp.scale.set(w, h, 1); sp.position.set(x, y, z); sp.userData.shared = true; grp.add(sp); return sp; };
   function addSea(grp, wx0) {
-    const y = GROUND + 0.7, waves = [];
+    const y = GROUND + 0.6, items = [];
     // some stretches of ocean are rough: more crests, taller and quicker
     const rough = hash(wx0, 50) < 0.3, amp = rough ? 2.2 : 1;
-    for (let i = 0; i < (rough ? 48 : 34); i++) {
-      const sp = new THREE.Sprite(WAVE_MAT), w = 1.6 + hash(wx0, i) * 2.4;
-      sp.center.set(0.5, 0.1); sp.scale.set(w, w / 3, 1);
-      const x = (hash(i, wx0) - 0.5) * CW;
-      sp.position.set(x, y, -4 - hash(wx0 + 1, i) * 200); grp.add(sp);
-      // each crest swells, breaks and drops on its own clock, rolling forward as it goes
-      sp.userData.wave = { x, w: w * (rough ? 1.3 : 1), amp, ph: hash(wx0 + 2, i) * 7, rate: (0.55 + hash(wx0 + 3, i) * 0.5) * (rough ? 1.4 : 1), drift: 0.6 + hash(wx0 + 4, i) * 0.8 };
-      waves.push(sp);
+    const count = (rough ? 48 : 34) >> (liteBuild ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      const w = (1.6 + hash(wx0, i) * 2.4) * (rough ? 1.3 : 1);
+      // each crest swells, breaks and drops on its own clock, rolling forward as it goes (animated in the shader)
+      items.push({ x: (hash(i, wx0) - 0.5) * CW, y, z: -4 - hash(wx0 + 1, i) * 200, w, h: w / 3 * amp, cy: 0.1, u0: 0, u1: 1,
+        wv: [hash(wx0 + 2, i) * 7, (0.55 + hash(wx0 + 3, i) * 0.5) * (rough ? 1.4 : 1), 0.6 + hash(wx0 + 4, i) * 0.8, amp] });
     }
-    grp.userData.waves = waves; grp.userData.rough = rough;
+    items.sort((a, b) => a.z - b.z);
+    grp.add(billboardMesh(items, waveMat)); grp.userData.rough = rough;
     // ships are rare: fishing boats most often, cruise liners now and then, warships seldom
     const r = hash(wx0, 41);
-    const kind = r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.285 ? 'warship' : null;
+    const kind = liteBuild ? null : r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.285 ? 'warship' : null;
     if (kind) {
       const sh = SHIPS[kind], sp = new THREE.Sprite(sh.mat);
       sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1);
@@ -1110,15 +1189,8 @@
     for (const c of world.chunks) {
       if (c.grp.userData.naval) updateNaval(c, c.grp.userData.naval, dt);
       if (c.road) updateTraffic(c.road, dt);
-      const ws = c.grp.userData.waves; if (!ws) continue;
-      for (const sp of ws) {
-        const d = sp.userData.wave, k = (t * d.rate + d.ph) % 1; // 0..1 through one swell
-        const rise = Math.sin(Math.PI * k);                       // up, crest, down
-        sp.scale.set(d.w * (0.7 + 0.5 * k), (d.w / 3) * (0.15 + 1.1 * rise) * d.amp, 1);
-        sp.position.x = d.x + ((t * d.drift) % 6) - 3 + k * 1.2;  // rolls ahead while it breaks
-        sp.position.y = GROUND + 0.6 + 0.25 * d.amp * Math.sin(t * 1.7 + d.ph * 3);
-      }
     }
+    waveClock.value = t; // every wave crest in every strip animates on the GPU from this one number
   }
   function splash(at, size) {
     const sp = sparks.geometry.attributes.position;
@@ -1427,9 +1499,11 @@
   function atlasFor(b, opt) {
     const key = b.id || JSON.stringify(b);
     // frames 0-11 are the wingbeat; 12-23 are the same wingbeat with the eyes shut, for blinking
+    // predators never blink on screen, so their atlases skip the closed-eye frames (half the memory)
+    const blinks = !(opt && (opt.talons || opt.owl));
     return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i) => {
       g.translate(0, PAD); drawBirdHD(g, ((i % BIRD_FRAMES) / BIRD_FRAMES) * Math.PI * 2, b, i >= BIRD_FRAMES ? { ...(opt || {}), blink: true } : opt);
-    }, BIRD_FRAMES * 2, 4, 6, FH + PAD * 2));
+    }, BIRD_FRAMES * (blinks ? 2 : 1), 4, blinks ? 6 : 3, FH + PAD * 2));
   }
   // the hunter: two frames, aiming and firing
   const hunterAtlas = makeAtlas((g, i) => {
@@ -1740,8 +1814,19 @@
     sp.needsUpdate = true; side.burst = 0.8; side.burstG = 0; sparks.material.color.setStyle('#ffe08a'); sparks.material.size = 0.35;
   }
 
+  // Resolution safety net: if frames run slow for a couple of seconds the drawing resolution
+  // steps down a notch (never below a floor), and steps back up once there's headroom again.
+  const QUALITY = [1, 0.85, 0.72, 0.6];
+  let qLevel = 0, qT = 0, qSlow = 0, qFast = 0;
+  function adaptQuality(dt) {
+    qT += dt; if (dt > 1 / 45) qSlow += dt; else if (dt < 1 / 55) qFast += dt;
+    if (qT < 2) return;
+    const slow = qSlow / qT, fast = qFast / qT; qT = qSlow = qFast = 0;
+    if (slow > 0.5 && qLevel < QUALITY.length - 1) { qLevel++; sizeSide(); }
+    else if (fast > 0.9 && qLevel > 0 && (side.qUpT = (side.qUpT || 0) + 1) >= 3) { side.qUpT = 0; qLevel--; sizeSide(); }
+  }
   function sizeSide() {
-    DPR = Math.min(2, window.devicePixelRatio || 1);
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1) * QUALITY[qLevel]); // floor: never below 1x
     const r = stage.getBoundingClientRect();
     SW = r.width; SH = r.height;
     renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
@@ -1802,8 +1887,11 @@
     // ground strips: slide back, recycle behind, add ahead
     for (const c of world.chunks) c.grp.position.x -= dx;
     while (world.chunks.length && world.chunks[0].grp.position.x < -CW * 3.5) disposeChunk(world.chunks.shift());
+    // build at most one new strip per frame (they're laid well ahead), so building never causes a hitch;
+    // only if the strips ahead are nearly used up does it catch up several at once
     let last = world.chunks[world.chunks.length - 1], guard = 0;
-    while (last.grp.position.x < 620 - CW && guard++ < 12) {
+    const maxBuilds = last.grp.position.x < (world.viewW || 14) * 1.5 + CW ? 12 : 1;
+    while (last.grp.position.x < 620 - CW && guard++ < maxBuilds) {
       const nx = last.grp.position.x + CW, sec = Math.max(0, nx / u);
       const left = (F.legLen(S) - S.legKm) / Math.max(v, 1e-6);
       // skip the skyline when legs fly by in a blink; the ticket shows lap progress instead
@@ -3581,6 +3669,7 @@
 
   function frame(now) {
     const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+    if (running && !document.hidden) adaptQuality(dt);
     if (running && S) {
       const g = currentGeo();
       const events = F.step(S, dt, !isLand(g.lat, g.lon));
@@ -3672,6 +3761,18 @@
   setTimeout(() => { if (!everZoomed) $('hint').style.opacity = 1; }, 6000);
   $('hint').style.opacity = 0;
   requestAnimationFrame(frame);
+  // Warm up the GPU programs for the close-up while the start screen is showing, so the
+  // first flight doesn't stall compiling them: build one land, city and sea strip off-screen,
+  // compile everything in the scene, then throw the strips away.
+  setTimeout(() => {
+    try {
+      const keep = world.cursor, tmp = [buildChunk('land', { lat: 45, lon: 10 }, 'land', 'sea'), buildChunk('city', { lat: 40, lon: -100 }, 'sea', 'land', ' '), buildChunk('sea', null, 'sea', 'sea')];
+      for (const c of tmp) { c.grp.position.set(0, 0, -2000); fscene.add(c.grp); }
+      const done = () => { for (const c of tmp) disposeChunk(c); world.cursor = keep; };
+      if (fr.compileAsync) fr.compileAsync(fscene, fcam).then(done, done); else { fr.compile(fscene, fcam); done(); }
+      if (renderer.compileAsync) renderer.compileAsync(scene, camera).catch(() => {});
+    } catch (e) {}
+  }, 50);
 
   // In the iOS app the page is local, so site-relative links need the full address.
   if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
@@ -3680,5 +3781,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world, kindAt, lookahead, chunkAtX };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world, kindAt, lookahead, chunkAtX, draws: () => fr.info.render.calls, quality: () => qLevel };
 })();
