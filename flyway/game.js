@@ -1377,8 +1377,8 @@
   }
 
   function updateLoop(dt) {
-    const sp = S.space;
-    setTarget(F.SPACE[0]); labelsEl.style.display = 'none';
+    const sp = S.space, body = F.SPACE[sp.dest];
+    setTarget(body); labelsEl.style.display = 'none';
     if (shuttleBird !== S.bird) {
       shuttleBird = S.bird; shuttleBirdDef = F.birdOf(S);
       const c = shuttleAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
@@ -1387,9 +1387,10 @@
     }
     side.t += dt;
     const fight = side.threat && side.threat.phase === 'battle';
-    ring.visible = false; starGlow.visible = false; spaceEarth.visible = true;
+    ring.visible = !!body.ring; starGlow.visible = !!body.star; spaceEarth.visible = true;
     bodyPlace(spaceEarth, sp.u % 1, 40);
-    bodyPlace(target, (sp.u + 0.5) % 1, 24);
+    bodyPlace(target, (sp.u + 0.5) % 1, body.star ? 14 : sp.dest === 0 ? 24 : 34);
+    updateAsteroids(dt);
     spaceEarth.rotation.y += dt * 0.03; target.rotation.y += dt * 0.02;
     // the shuttle, steady with a little bob
     const bob = Math.sin(side.t * 1.3) * 0.4, jink = fight ? Math.sin(side.t * 5.1) * 1.1 : 0;
@@ -1501,25 +1502,35 @@
   const loopGeo = new THREE.BufferGeometry();
   const moonOval = new THREE.LineLoop(loopGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 0.12, gapSize: 0.08, transparent: true, opacity: 0.85 }));
   scene.add(moonOval); moonOval.visible = false;
-  const LOOP_D = 7, LOOP_A = LOOP_D / 2 + 1.1, LOOP_B = 1.7;
-  function loopPoint(theta, side3) {
-    const C = CHART_DIR.clone().multiplyScalar(LOOP_D / 2);
-    return C.addScaledVector(CHART_DIR, LOOP_A * Math.cos(theta)).addScaledVector(side3, LOOP_B * Math.sin(theta));
+  // The oval runs from just behind Earth out to the far world, and its far
+  // end touches that world's surface, as if the shuttle skims or lands on it.
+  let moonOvalKey = '';
+  function ovalFor(dest) {
+    const D = dest === 0 ? 7 : 12, r = F.SPACE[dest].star ? 1.2 : dest === 0 ? 0.27 : 0.6;
+    const near = -1.3, far = D - r * 0.95; // the far end sits on the surface
+    return { D, r, A: (far - near) / 2, C: (far + near) / 2, B: dest === 0 ? 1.1 : 1.6 };
+  }
+  function loopPoint(theta, side3, o) {
+    return CHART_DIR.clone().multiplyScalar(o.C).addScaledVector(CHART_DIR, o.A * Math.cos(theta)).addScaledVector(side3, o.B * Math.sin(theta));
   }
   function updateLoopChart(dt) {
-    const sp = S.space;
-    setTarget(F.SPACE[0]);
+    const sp = S.space, o = ovalFor(sp.dest);
+    setTarget(F.SPACE[sp.dest]);
     const up = new THREE.Vector3(0, 1, 0), side3 = up.clone().cross(CHART_DIR).normalize(), tilt = side3.clone().applyAxisAngle(CHART_DIR, 0.5);
-    if (!loopGeo.attributes.position) { const pts = []; for (let k = 0; k < 160; k++) pts.push(loopPoint(k / 160 * Math.PI * 2, tilt)); loopGeo.setFromPoints(pts); moonOval.computeLineDistances(); }
-    const P = CHART_DIR.clone().multiplyScalar(LOOP_D);
-    chartBody.visible = true; chartBody.scale.setScalar(0.27); chartBody.position.copy(P); chartLine.visible = false; moonOval.visible = true;
+    if (moonOvalKey !== 'd' + sp.dest) {
+      moonOvalKey = 'd' + sp.dest;
+      const pts = []; for (let k = 0; k < 200; k++) pts.push(loopPoint(k / 200 * Math.PI * 2, tilt, o));
+      loopGeo.setFromPoints(pts); moonOval.computeLineDistances();
+    }
+    const P = CHART_DIR.clone().multiplyScalar(o.D);
+    chartBody.visible = true; chartBody.scale.setScalar(o.r); chartBody.position.copy(P); chartLine.visible = false; moonOval.visible = true;
     moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
-    const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt);
+    // theta = pi is the Earth end, 0 the far world: u = 0.5 is the swing past it
+    const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt, o);
     birdSprite.position.copy(at);
-    // far enough back that the whole oval (Earth to past the Moon) fits the screen width
-    const q = clamp(Z / SIDE_B, 0, 1), dist = (LOOP_A + 0.8) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
+    const q = clamp(Z / SIDE_B, 0, 1), dist = (o.A + 1) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
     birdSprite.scale.setScalar(0.05 + dist * 0.01);
-    const focus = P.clone().multiplyScalar(0.5).lerp(at, smooth(0.75, 1, q));
+    const focus = CHART_DIR.clone().multiplyScalar(o.C).lerp(at, smooth(0.75, 1, q));
     camera.position.copy(focus).addScaledVector(side3, -dist).add(new THREE.Vector3(0, dist * 0.45, 0));
     camera.lookAt(focus);
     sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
@@ -1654,6 +1665,7 @@
   function doFlap(fromHold) {
     if (!S || !running) return;
     F.flap(S); side.flapRate += 3; Sound.flap();
+    if (S.space && S.space.event && S.space.event.type === 'field') { const r = F.mine(S); if (r) { mineHit(r); } }
     const th = side.threat;
     if (th && !th.resolved) th.meter += th.type === 'hunter' ? 0.12 : (fromHold ? 0.35 : 1) / F.THREAT.taps(S);
   }
@@ -1832,8 +1844,20 @@
     return Math.max(0, km);
   }
   function setTrack(t) { $('trackFill').style.width = (t * 100) + '%'; $('trackDot').style.left = (t * 100) + '%'; }
+  // an amount of seeds, written in the current world's currency
+  function money(seeds) {
+    if (S.space && S.space.loop) { const k = S.space.dest; return `${fmt(seeds / F.unitValue(k))} ${F.CURRENCY[k].icon}`; }
+    return `${fmt(seeds)} 🌰`;
+  }
+  // the top-left counter: seeds on Earth, space rocks in space
+  function setPurse(kind) {
+    if (side.purse === kind) return; side.purse = kind;
+    $('purseSeed').toggleAttribute('hidden', kind !== 'seeds'); $('purseRock').toggleAttribute('hidden', kind !== 'rocks'); // (svg needs the attribute)
+    $('seeds').parentElement.setAttribute('aria-label', kind === 'rocks' ? 'Space rocks' : 'Seeds');
+  }
   function refreshHud() {
     if (S.space) return refreshSpaceHud();
+    setPurse('seeds');
     const v = F.speed(S), len = F.legLen(S), t = clamp(S.legKm / len, 0, 1);
     const g = currentGeo(), ocean = !isLand(g.lat, g.lon);
     const arrivalsPerSec = v / len;
@@ -1859,6 +1883,7 @@
       $('legKm').textContent = `${fmt(left, 0)} km to go`;
       setTrack(clamp((S.ri + t) / legs, 0, 1));
       $('etaLabel').textContent = 'Lap done in'; $('eta').textContent = fmtTime(left / v);
+      $('mini').textContent = `${$('fromCity').firstChild ? $('fromCity').firstChild.textContent : ''} · lap done in ${fmtTime(left / v)}`;
     } else {
       $('fromCity').innerHTML = `${from.name}<small>${S.lapsTotal >= 100 ? 'lap ' + fmt(S.lapsTotal + 1, 0) : from.region}</small>`;
       $('toCity').innerHTML = to.v ? `${to.name}<small>open sky</small>`
@@ -1866,6 +1891,7 @@
       $('legKm').textContent = `${fmt(len - S.legKm, 0)} km left`;
       setTrack(t);
       $('etaLabel').textContent = 'Arrive in'; $('eta').textContent = fmtTime((len - S.legKm) / v);
+      $('mini').textContent = `${from.name || 'Open sky'} → ${to.name || 'open sky'} · ${fmtTime((len - S.legKm) / v)}`;
     }
     const cap = F.boostCap(S.levels.stamina), b = Math.max(S.boost, F.flockBoost(S));
     $('ring').style.strokeDashoffset = 289 * (1 - b / cap);
@@ -2009,6 +2035,16 @@
     open('shopSheet');
   }
   $('btnShop').onclick = openShop;
+  // the trip meter can be minimized to a thin bar; the choice is remembered
+  const ticketEl = document.querySelector('.ticket');
+  function setTicketMini(on) {
+    ticketEl.classList.toggle('mini', on); $('btnTicket').setAttribute('aria-label', on ? 'Show the trip meter' : 'Minimize the trip meter');
+    $('btnTicket').textContent = on ? '▾' : '▴';
+    try { localStorage.setItem('flyway.ticketMini', on ? '1' : '0'); } catch (e) {}
+  }
+  $('btnTicket').onclick = (e) => { e.stopPropagation(); setTicketMini(!ticketEl.classList.contains('mini')); };
+  ticketEl.addEventListener('click', () => { if (ticketEl.classList.contains('mini')) setTicketMini(false); });
+  try { if (localStorage.getItem('flyway.ticketMini') === '1') setTicketMini(true); } catch (e) {}
   const soundBtn = $('btnSound');
   const showSound = () => { soundBtn.textContent = Sound.on ? '🔊' : '🔇'; soundBtn.setAttribute('aria-label', Sound.on ? 'Mute sound' : 'Turn sound on'); };
   soundBtn.onclick = () => { Sound.start(); Sound.toggle(); showSound(); };
@@ -2045,7 +2081,7 @@
       ['Perks', `×${fmt(F.perkSpeed(S), 2)} speed · ×${fmt(F.perkSeeds(S), 2)} seeds`], ['Birds', `${S.birds.length} of ${BIRDS.length}`],
       ['Laps this run', S.lapsFlown], ['This lap', `${S.ri} of ${F.lapLegs(S)} stops`],
       ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`],
-      ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Space rocks', `☄️ ${fmt(S.moon.rocks, 0)} · ${fmt(S.moon.trips, 0)} round trips`],
+      ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Space trips', `${fmt(S.moon.trips, 0)} round trips`],
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
@@ -2165,7 +2201,7 @@
       }
       return;
     }
-    if (S.arrivals < 3 || side.bug || (S.space && !S.space.loop) || anySheetOpen() || (!S.space && S.wx && S.wx.type === 'storm')) return;
+    if (S.arrivals < 3 || side.bug || (S.space && (!S.space.loop || S.space.event)) || anySheetOpen() || (!S.space && S.wx && S.wx.type === 'storm')) return;
     side.threatT -= dt;
     if (side.threatT > 0) return;
     side.threatT = F.THREAT.every(S);
@@ -2192,10 +2228,10 @@
     if (THREATS[th.type].space) {
       if (th.ok) {
         const r = F.spaceMiss(S); banner.classList.add('ok'); meterEl.style.width = '100%'; dailyHit('fights'); Sound.win();
-        $('threatText').textContent = `The ${name} is driven off! +${fmt(r, 0)} ☄️`;
+        $('threatText').textContent = `The ${name} is driven off! +${money(r)}`;
       } else {
         const r = F.spaceHit(S); banner.classList.add('bad'); meterEl.style.width = '0%'; Sound.lose();
-        $('threatText').textContent = r.lost === 'wingmate' ? `The ${name} knocked out a wingmate. Slowed for ${F.THREAT.STUN}s.` : `The ${name} blasted loose ${fmt(r.rocks, 0)} ☄️. Slowed for ${F.THREAT.STUN}s.`;
+        $('threatText').textContent = r.lost === 'wingmate' ? `The ${name} knocked out a wingmate. Slowed for ${F.THREAT.STUN}s.` : `The ${name} blasted loose ${money(r.seeds)}. Slowed for ${F.THREAT.STUN}s.`;
       }
       spaceOutcome(th, th.ok ? null : { lost: F.shipLv(S, 'wing') < pods.length ? 'wingmate' : 'rocks' });
       refreshShip(); return;
@@ -2241,7 +2277,7 @@
   }
   function refreshWeatherChip() {
     const el = $('wx');
-    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🌙 Earth–Moon loop · ${fmt(S.moon.trips, 0)} round trips` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${F.SPACE[S.space.dest].short} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · ${F.CURRENCY[S.space.dest].icon} ${F.CURRENCY[S.space.dest].name}` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${w.note}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
@@ -2255,12 +2291,20 @@
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(F.seedRate(S, false))}/s`;
     if (sp.loop) {
-      const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.LOOP_KM;
-      $('fromCity').innerHTML = `${out ? 'Earth' : 'Moon'}<small>trip ${sp.trips + 1}</small>`;
-      $('toCity').innerHTML = `${out ? 'Moon' : 'Earth'}<small>${out ? 'swing around it' : `+${fmt(F.rocksPerTrip(S), 0)} ☄️ on return`}</small>`;
+      const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.loopKm(sp.dest), name = b.short;
+      // in space the top-left counter shows space rocks instead of seeds
+      setPurse('rocks');
+      const unit = F.unitValue(sp.dest), cur = F.CURRENCY[sp.dest];
+      $('purseRock').textContent = cur.icon;
+      $('seeds').textContent = fmt(S.seeds / unit);
+      const perSec = (F.seedRate(S, false) + F.rocksPerTrip(S) * F.MOON_RATE * v / F.loopKm(sp.dest)) / unit;
+      $('rate').textContent = `+${fmt(perSec, perSec < 1 ? 2 : 1)}/s`;
+      $('fromCity').innerHTML = `${out ? 'Earth' : name}<small>trip ${sp.trips + 1}</small>`;
+      $('toCity').innerHTML = `${out ? name : 'Earth'}<small>${out ? 'swing around it' : `+${money(F.rocksPerTrip(S) * F.MOON_RATE)} on return`}</small>`;
       $('legKm').textContent = `${fmt(left, 0)} km left`;
       setTrack(clamp(sp.u, 0, 1));
-      $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = out ? 'Moon in' : 'Home in'; $('eta').textContent = fmtTime(left / v);
+      $('speed').textContent = fmt(v, 0); $('etaLabel').textContent = out ? `${name} in` : 'Home in'; $('eta').textContent = fmtTime(left / v);
+      $('mini').textContent = `${out ? 'Earth → ' + name : name + ' → Earth'} · ${fmtTime(left / v)}`;
       const cap = 1; $('ring').style.strokeDashoffset = 289 * (1 - Math.min(1, S.boost / 1.5)); $('boostPct').textContent = `+${Math.round(S.boost * 100)}%`;
       $('stampCount').textContent = S.visited.length + S.cosmos.length;
       $('stunChip').hidden = !(S.stun > 0); $('rushChip').hidden = true; refreshWeatherChip(); refreshRocks();
@@ -2307,36 +2351,37 @@
     const g = F.nextGear(S), nb = F.nextBody(S), sp = S.space;
     const show = S.lapsFlown >= 1 || S.laps > 0 || Object.keys(S.gear).length > 0 || S.cosmos.length > 0;
     box.hidden = !show; if (!show) return;
-    const key = [g && g.id, nb && nb.id, sp && sp.dest, sp && sp.arrived, sp && sp.loop, S.moon.rocks > 0, !!S.gear.shuttle].join('|');
+    const key = [g && g.id, nb && nb.id, sp && sp.dest, sp && sp.arrived, sp && sp.loop, Math.round(Math.log10(1 + S.seeds)), F.loopTargets(S).length, S.cosmos.length, Math.round(F.rocksPerTrip(S, 0))].join('|');
     if (key !== expoKey) {
       expoKey = key;
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
-      if (!sp && S.gear.shuttle) action = `<button class="expo-launch" id="btnLoop">🚀 Launch: Earth–Moon loop</button>`;
-      if (sp && sp.loop) action = `<p class="expo-note">🌙 Looping Earth and the Moon. Every round trip brings home space rocks.</p>`;
-      if (sp && !sp.loop && !sp.arrived) action = `<p class="expo-note">🚀 On the way to ${F.SPACE[sp.dest].name}</p>`;
-      else if (nb && (!sp || sp.loop || sp.arrived)) action += `<button class="expo-launch" id="btnLaunch">🚀 Fly on to ${nb.name}</button>`;
-      if (sp && (sp.arrived || sp.loop)) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
-      if (S.moon.rocks > 0 || (sp && sp.loop)) action += `<div class="trade"><span>☄️ <b class="num" id="tradeRocks">0</b> space rocks · 1 = <b class="num" id="tradeRate">0</b> seeds</span>
-        <span class="trade-btns"><button id="btnTrade1">Trade 1</button><button id="btnTradeAll">Trade all</button></span></div>`;
+      const targets = F.loopTargets(S);
+      if (sp && sp.loop) action = `<p class="expo-note">🚀 Looping Earth and ${F.SPACE[sp.dest].name}. Every round trip brings home space rocks.</p>`;
+      if (targets.length) action += `<div class="loops">${targets.map((b) => {
+        const k = F.SPACE.indexOf(b), here = sp && sp.loop && sp.dest === k;
+        return `<button class="loop-btn${here ? ' here' : ''}" data-loop="${k}"${here ? ' disabled' : ''}><b>${b.short}</b><small>${here ? 'looping now' : `${fmt(F.rocksPerTrip(S, k) * F.MOON_RATE / F.unitValue(k))} ${F.CURRENCY[k].icon} / trip`}</small></button>`;
+      }).join('')}</div>`;
+      if (sp) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
+      action += `<p class="expo-note rates">💱 1 🌑 Moon rock = ${fmt(F.MOON_RATE)} 🌰 seeds · each world farther out: 10 of its rocks = 1 of the one before</p>`;
       const pm = F.planetsReached(S);
       box.innerHTML = `<div class="expo-head"><h3>Expedition</h3><span>${owned} of ${F.GEAR.length} gear · ${S.cosmos.length} of ${F.SPACE.length} worlds</span></div>
         ${pm ? `<p class="expo-note">🪐 ${pm} planet${pm === 1 ? '' : 's'} reached: ×${fmt(F.planetMult(S), 2)} space rocks per trip</p>` : (S.cosmos.includes('moon') ? '<p class="expo-note">🪐 Each planet you reach multiplies space rocks per trip by 1.5, for good.</p>' : '')}
         ${action}
         ${g ? `<div class="up expo-gear"><div class="ic" aria-hidden="true">${g.icon}</div>
           <div><div class="nm">${g.name}</div><div class="fx">${g.blurb}</div></div>
-          <button class="buy" id="btnGear"><b class="num">${fmt(g.cost)}</b><small>buy once</small></button></div>`
+          <button class="buy" id="btnGear"><b class="num">${money(g.cost)}</b><small>buy once</small></button></div>`
         : '<p class="expo-note">All gear owned. Every world is within reach.</p>'}`;
-      const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear'), bo = $('btnLoop');
-      if (bo) bo.onclick = () => {
-        if (!F.launchLoop(S)) return;
+      const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear');
+      box.querySelectorAll('[data-loop]').forEach((bt) => bt.onclick = () => {
+        const k = +bt.dataset.loop, switching = !!S.space;
+        if (!F.launchLoop(S, k)) return;
+        moonOvalKey = '';
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
-        toast('Liftoff! Loop the Moon and bring home space rocks.'); Sound.launch();
-      };
+        toast(`${switching ? 'Course set' : 'Liftoff'}: ${F.SPACE[k].name} and back. Every round trip brings home space rocks.`); Sound.launch();
+      });
       const t1 = $('btnTrade1'), ta = $('btnTradeAll');
-      if (t1) t1.onclick = () => { const v = F.tradeRocks(S, 1); if (v) { toast(`Traded 1 ☄️ for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
-      if (ta) ta.onclick = () => { const n = S.moon.rocks, v = F.tradeRocks(S, n); if (v) { toast(`Traded ${fmt(n, 0)} ☄️ for ${fmt(v)} seeds.`); refreshRocks(); refreshShip(); save(); } };
       if (bl) bl.onclick = () => {
         if (!F.launch(S)) return;
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm');
@@ -2344,7 +2389,7 @@
         toast(`Liftoff! Next stop: ${F.SPACE[S.space.dest].name}`);
       };
       if (bh) bh.onclick = () => {
-        F.returnToEarth(S); leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); save();
+        F.returnToEarth(S); $('eventChip').hidden = true; flapBtn.classList.remove('alarm'); for (const m of rocks) sscene.remove(m); rocks.length = 0; leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); save();
         toast(`Back on Earth over ${F.legFrom(S).name}.`);
       };
       if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
@@ -2353,14 +2398,11 @@
     refreshRocks();
   }
   function refreshRocks() {
-    const show = S.moon.rocks > 0 || (S.space && S.space.loop) || S.moon.total > 0;
-    $('rocksChip').hidden = !show; $('rocksCount').textContent = fmt(S.moon.rocks, 0);
-    const tr = $('tradeRocks'); if (tr) { tr.textContent = fmt(S.moon.rocks, 0); $('tradeRate').textContent = fmt(F.rockValue(S)); $('btnTrade1').disabled = $('btnTradeAll').disabled = S.moon.rocks < 1; }
+    $('rocksChip').hidden = true; // one balance now: the purse shows it in local currency
   }
   let lastTripToast = 0;
   function tripDone(e) {
     const now = performance.now();
-    if (now - lastTripToast > 3000) { lastTripToast = now; toast(`Round trip done: +${fmt(e.rocks, 0)} ☄️`); }
     refreshRocks(); refreshShip();
   }
   function orbitUnlocked() {
@@ -2392,9 +2434,9 @@
     if (!looping) return;
     for (const u of F.SHIP) {
       const r = shipRows[u.id], L = F.shipLv(S, u.id);
-      const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.moon.rocks)) : buyMode, c = F.shipCostN(u, L, n);
+      const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.seeds)) : buyMode, c = F.shipCostN(u, L, n) * F.MOON_RATE;
       r.lv.textContent = L; r.fx.textContent = `${u.blurb(L)}  →  ${u.blurb(L + n)}`;
-      r.cost.textContent = '☄️ ' + fmt(c, 0); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.moon.rocks;
+      r.cost.textContent = money(c); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.seeds;
     }
   }
 
@@ -2427,7 +2469,7 @@
     if (a === 'birds') { S.birds = BIRDS.map((b) => b.id); toast('Every bird unlocked. Pick one when you migrate.'); }
     if (a === 'laps10') { const was = F.isNonstop(S); S.lapsTotal += 10; toast(`Lifetime laps: ${S.lapsTotal}.`); if (!was && F.isNonstop(S) && !S.space) { S.route = F.genLap(S, F.legFrom(S)); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); } }
     if (a === 'orbit') { if (!S.orbitUnlocked) { S.orbitUnlocked = true; orbitUnlocked(); } }
-    if (a === 'rocks') { S.moon.rocks += 100; S.moon.total += 100; refreshRocks(); refreshShip(); toast('+100 space rocks.'); }
+    if (a === 'rocks') { const k = S.space && S.space.loop ? S.space.dest : 0; S.seeds += 100 * F.unitValue(k); refreshShip(); toast(`+100 ${F.CURRENCY[k].name}.`); }
     if (a === 'gear') { for (const g of F.GEAR) S.gear[g.id] = true; expoKey = ''; refreshExpo(); toast('All gear unlocked.'); }
     if (a === 'hide') { adminEl.hidden = true; try { localStorage.removeItem('flyway.admin'); } catch (e) {} }
     refreshHud(); refreshUpgrades(); save();
@@ -2457,6 +2499,64 @@
     }
   }
 
+  // ---------- space events: asteroids, asteroid fields, solar wind ----------
+  const ROCK_GEO = new THREE.IcosahedronGeometry(1, 0);
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8078, roughness: 1, flatShading: true });
+  const rocks = [];
+  function spawnRock(field) {
+    const m = new THREE.Mesh(ROCK_GEO, rockMat), sc = field ? 0.4 + Math.random() * 1.6 : 0.8 + Math.random() * 2.6;
+    m.scale.set(sc, sc * (0.6 + Math.random() * 0.5), sc * (0.7 + Math.random() * 0.4));
+    // keep clear of the shuttle's lane so asteroids pass around it, never through it
+    let y = (Math.random() - 0.5) * 30; if (Math.abs(y) < 2.5) y += y < 0 ? -3 : 3;
+    m.position.set(60 + Math.random() * 60, y, -4 - Math.random() * (field ? 40 : 120));
+    m.userData = { spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(1.5), v: (field ? 30 : 18) + Math.random() * 25 };
+    sscene.add(m); rocks.push(m);
+  }
+  function updateAsteroids(dt) {
+    const e = S.space && S.space.event, field = e && e.type === 'field';
+    const want = field ? 46 : 5;
+    if (rocks.length < want && Math.random() < (field ? 0.6 : 0.03)) spawnRock(field);
+    for (let k = rocks.length - 1; k >= 0; k--) {
+      const m = rocks[k]; m.position.x -= m.userData.v * dt;
+      m.rotation.x += m.userData.spin.x * dt; m.rotation.y += m.userData.spin.y * dt;
+      if (m.position.x < -70) { sscene.remove(m); rocks.splice(k, 1); }
+    }
+    // solar wind: a warm glow and golden streaks
+    const solar = e && e.type === 'solar';
+    side.solarK = lerp(side.solarK || 0, solar ? 1 : 0, 1 - Math.exp(-dt * 2));
+    ssun.intensity = 2.4 + side.solarK * 2.5;
+    sunGlow.scale.setScalar(160 + side.solarK * 220);
+    sstreaks.material.color.setStyle(solar ? '#ffc86b' : '#cfe3ff');
+  }
+  let spaceEventT = 30;
+  function tickSpaceEvents(dt) {
+    if (!S.space || !S.space.loop || S.space.event || side.threat) return;
+    spaceEventT -= dt; if (spaceEventT > 0) return;
+    spaceEventT = 45 + Math.random() * 40;
+    const type = Math.random() < 0.55 ? 'field' : 'solar', ev2 = F.startEvent(S, type), info = F.EVENTS[type];
+    $('eventChip').hidden = false;
+    if (type === 'field') { toast('🪨 Asteroid field! Tap BOOST to mine space rocks'); flapBtn.classList.add('alarm'); Sound.alarm(); }
+    else { toast('🌞 Solar wind! Ship speed ×2'); Sound.chime(); }
+    side.eventName = `${info.icon} ${info.name}`;
+  }
+  function mineHit(r) {
+    const e = S.space.event;
+    side.minedTotal = (side.minedTotal || 0) + r;
+    if (rocks.length) spaceBurst(shuttle.position.clone().add(new THREE.Vector3(3, -1, 0)), '#c9bfb4', 3);
+    Sound.hit();
+    if (e.mined >= 15) flapBtn.classList.remove('alarm');
+  }
+  function endSpaceEvent(e) {
+    $('eventChip').hidden = true; flapBtn.classList.remove('alarm');
+    if (e.type === 'field' && side.minedTotal) toast(`Mined ${money(side.minedTotal)} from the asteroid field`);
+    side.minedTotal = 0;
+  }
+  function refreshEventChip() {
+    const e = S.space && S.space.event;
+    $('eventChip').hidden = !e;
+    if (e) $('eventChip').textContent = e.type === 'field' ? `🪨 ${15 - e.mined} left · ${Math.ceil(e.left)}s` : `🌞 ×2 · ${Math.ceil(e.left)}s`;
+  }
+
   // ======================================================================
   // Main loop
   // ======================================================================
@@ -2478,7 +2578,8 @@
       const events = F.step(S, dt, !isLand(g.lat, g.lon));
       for (const e of events) {
         if (e.type === 'space') { spaceArrival(e); continue; }
-        if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: F.SPACE[0], bonus: 0, first: true }); continue; }
+        if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: e.body, bonus: 0, first: true }); continue; }
+        if (e.type === 'eventEnd') { endSpaceEvent(e.event); continue; }
         if (e.type === 'over') { overflight(e); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
@@ -2499,7 +2600,7 @@
         }
       }
       if (events.length) rebuildRoute();
-      tickBugs(dt); tickThreats(dt); tickWeather(dt); checkStraight(dt);
+      tickBugs(dt); tickThreats(dt); tickWeather(dt); checkStraight(dt); tickSpaceEvents(dt);
       // zoom easing (the take-off zoom is slower and more deliberate)
       Z = lerp(Z, ZT, 1 - Math.exp(-dt * (Math.abs(ZT - Z) > 0.3 ? 1.6 : 7)));
       const sa = smooth(SIDE_A, SIDE_B, Z);
@@ -2514,7 +2615,7 @@
         if (sa < 1) updateGlobe(dt);
         if (sa > 0) updateFlight(dt);
       }
-      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); }
+      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); refreshEventChip(); }
       Sound.tick(); Sound.setScene(S.space ? 'space' : 'earth');
       Sound.setWind(S.space ? 0.15 : Math.min(1, 0.25 + Math.log10(1 + F.speed(S)) / 4) * smooth(SIDE_A, SIDE_B, Z));
       dailyT += dt; if (dailyT > 2) { dailyT = 0; refreshDaily(); }

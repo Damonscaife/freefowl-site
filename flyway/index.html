@@ -104,6 +104,21 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
 [hidden] { display: none !important; }
+.rockico { font-size: 22px; line-height: 1; width: auto !important; height: auto !important; }
+.chip.event { background: #5b3d8a; border-color: transparent; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.tmin { position: absolute; right: 6px; top: 4px; width: 28px; height: 22px; border-radius: 6px; color: var(--ink-2); font-size: 13px; z-index: 2; }
+.tmin:hover { background: var(--paper-2); }
+.leg { padding-right: 26px; }
+.mini-line { display: none; font-size: 13px; font-weight: 700; padding: 0 30px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticket.mini { padding-top: 7px; padding-bottom: 7px; cursor: pointer; }
+.ticket.mini .leg, .ticket.mini .legstats, .ticket.mini .wx { display: none; }
+.ticket.mini .mini-line { display: block; }
+.ticket.mini .track { margin-top: 6px; margin-bottom: 0; }
+.loops { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; margin-top: 10px; }
+.loop-btn { padding: 8px 6px; border-radius: 10px; background: var(--gold); color: var(--ink); text-align: center; line-height: 1.15; box-shadow: 0 3px 0 #9b6c12; }
+.loop-btn b { display: block; font-family: var(--display); font-size: 14px; }
+.loop-btn small { font-size: 11px; }
+.loop-btn.here { background: rgba(255,255,255,.18); color: #fff; box-shadow: none; }
 .check { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--ink-2); cursor: pointer; }
 .check input { width: 20px; height: 20px; accent-color: var(--blue); }
 .daily { margin: 0 14px 10px; padding: 10px 12px; border-radius: 12px; background: var(--paper-2); }
@@ -287,12 +302,14 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <div class="hud">
       <div class="bar">
         <div class="purse" aria-live="off">
-          <svg class="seed" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="7" ry="9" fill="#e3a52b"/><path d="M12 4c-2 3-2 15 0 18" stroke="#9b6c12" stroke-width="1.6" fill="none"/></svg>
+          <span class="seed rockico" id="purseRock" aria-hidden="true" hidden>🌑</span>
+          <svg class="seed" id="purseSeed" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="7" ry="9" fill="#e3a52b"/><path d="M12 4c-2 3-2 15 0 18" stroke="#9b6c12" stroke-width="1.6" fill="none"/></svg>
           <span class="amt num" id="seeds">0</span>
           <span class="rate num" id="rate">+0/s</span>
         </div>
         <span class="chip rush" id="rushChip" hidden>🪲 Rush <strong class="num" id="rushLeft">0s</strong></span>
         <span class="chip stun" id="stunChip" hidden>Slowed</span>
+        <span class="chip event" id="eventChip" hidden></span>
         <span class="spacer"></span>
         <span class="chip rocks" id="rocksChip" hidden>☄️ <span class="num" id="rocksCount">0</span></span>
         <button class="chip" id="btnShop" aria-label="Open the feather shop" hidden>🪶 <span class="num" id="shopCount">0</span></button>
@@ -301,6 +318,8 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
       </div>
       <div class="ticket">
+        <button class="tmin" id="btnTicket" aria-label="Minimize the trip meter">▴</button>
+        <div class="mini-line" id="mini"></div>
         <div class="leg">
           <div class="city" id="fromCity">—<small>from</small></div>
           <div class="mid" id="legKm">— km</div>
@@ -425,7 +444,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <button data-act="x10">Seeds ×10</button><button data-act="feathers">+10 feathers</button><button data-act="lap">Finish lap</button>
         <button data-act="gear">All gear</button><button data-act="hawk">Hawk now</button><button data-act="hunter">Hunter now</button>
         <button data-act="bug">Bug now</button><button data-act="storm">Storm</button><button data-act="tailwind">Tailwind</button>
-        <button data-act="orbit">Orbital speed now</button><button data-act="laps10">+10 lifetime laps</button><button data-act="birds">Unlock all birds</button><button data-act="rocks">+100 space rocks</button><button data-act="raider">Raider now</button>
+        <button data-act="orbit">Orbital speed now</button><button data-act="laps10">+10 lifetime laps</button><button data-act="birds">Unlock all birds</button><button data-act="rocks">+100 local rocks</button><button data-act="raider">Raider now</button>
         <button data-act="hide">Hide admin</button>
       </div>
     </div>
