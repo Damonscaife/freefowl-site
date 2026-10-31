@@ -378,6 +378,7 @@
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
     if (kind === 'city') addCity(grp, name, wx0);
+    if (kind !== 'sea') { addTrees(grp, b, wx0, kind); if (kind === 'land') addLake(grp, b, wx0); }
     return { grp, kind, wx0 };
   }
   function addCity(grp, name, seed) {
@@ -403,7 +404,10 @@
     }
   }
   function disposeChunk(c) {
-    c.grp.traverse((o) => { if (o.isMesh || o.isSprite) { if (o.geometry && o.geometry !== towerGeo) o.geometry.dispose(); if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } } });
+    c.grp.traverse((o) => {
+      if (o.userData.shared || (o.material && o.material.userData && o.material.userData.shared)) return; // shared scenery stays loaded
+      if (o.isMesh || o.isSprite) { if (o.geometry && o.geometry !== towerGeo && o.geometry !== lakeGeo) o.geometry.dispose(); if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } }
+    });
     fscene.remove(c.grp);
   }
 
@@ -421,29 +425,153 @@
     c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
 
-  function makeCloud(x) {
-    const grp = new THREE.Group();
-    // self-lit so undersides stay cloud-white instead of picking up the ground's green
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xc9d3de, emissiveIntensity: 0.55, flatShading: true, transparent: true, opacity: 0.94 });
-    const n = 5 + Math.floor(Math.random() * 6), s = 3 + Math.random() * 6;
-    for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(cloudGeo, mat);
-      const r = s * (0.6 + Math.random() * 0.7);
-      m.scale.set(r * 1.3, r * 0.8, r);
-      m.position.set((i - n / 2) * s * 0.9 + Math.random() * s, Math.random() * s * 0.5, (Math.random() - 0.5) * s);
-      grp.add(m);
-    }
-    // keep clouds off the camera's lens: either well behind the bird or below/above it
-    const far = Math.random() < 0.9;
-    if (!far) grp.scale.setScalar(0.45);
-    const z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
-    // near clouds stay well below or above the bird's line so they never swallow the shot
-    const y = far ? -8 + Math.random() * 38 : -15 + Math.random() * 5;
-    grp.position.set(x, y, z);
-    grp.userData.mat = mat;
-    fscene.add(grp); world.clouds.push(grp);
+  // ---------- painted 2D scenery: clouds, trees, lakes, planes, distant birds ----------
+  // Everything here is a flat painted cutout (a sprite that always faces the
+  // camera), the same style as the birds, sitting in the 3D world.
+  function paintTex(w, h, draw) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
   }
-  const cloudGeo = new THREE.IcosahedronGeometry(1, 1);
+  const sceneryMats = []; // shared materials, dimmed together at night
+  function sceneryMat(tex, opts) {
+    const m = new THREE.SpriteMaterial(Object.assign({ map: tex, transparent: true, alphaTest: 0.03, depthWrite: false }, opts));
+    m.userData.shared = true; sceneryMats.push(m); return m;
+  }
+  // clouds: soft cartoon puffs, white on top, cool grey underneath
+  const CLOUD_MATS = [0, 1, 2, 3].map((v) => sceneryMat(paintTex(512, 256, (g, W, H) => {
+    let seed = 11 + v * 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const puffs = [], n = 5 + Math.floor(rnd() * 4);
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1), r = H * (0.18 + Math.sin(t * Math.PI) * 0.17 + rnd() * 0.06);
+      puffs.push([W * (0.14 + t * 0.72), H * 0.66 - r * 0.55 - rnd() * H * 0.05, r]);
+    }
+    const base = H * 0.72;
+    const fill = () => { g.beginPath(); for (const [x, y, r] of puffs) { g.moveTo(x + r, y); g.arc(x, y, r, 0, Math.PI * 2); } g.rect(W * 0.14, base - H * 0.12, W * 0.72, H * 0.12); g.fill(); };
+    g.save(); g.beginPath(); g.rect(0, 0, W, base); g.clip();
+    const grd = g.createLinearGradient(0, H * 0.1, 0, base);
+    grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.65, '#f4f7fb'); grd.addColorStop(1, '#c9d4e2');
+    g.fillStyle = grd; fill();
+    // sunlit highlights on the upper puffs
+    g.globalAlpha = 0.6; g.fillStyle = '#ffffff';
+    for (const [x, y, r] of puffs) { g.beginPath(); g.arc(x - r * 0.2, y - r * 0.25, r * 0.55, 0, Math.PI * 2); g.fill(); }
+    g.restore();
+  }), { fog: true, opacity: 0.96 }));
+  function makeCloud(x) {
+    const far = Math.random() < 0.9;
+    const sp = new THREE.Sprite(CLOUD_MATS[Math.floor(Math.random() * CLOUD_MATS.length)]);
+    const w = far ? 22 + Math.random() * 34 : 8 + Math.random() * 6;
+    sp.scale.set(w, w / 2, 1);
+    // keep clouds off the camera's lens: well behind the bird, or small and low
+    const z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
+    const y = far ? -6 + Math.random() * 36 : -15 + Math.random() * 5;
+    sp.position.set(x, y, z);
+    fscene.add(sp); world.clouds.push(sp);
+  }
+  // trees for each kind of land
+  const TREE_KINDS = {
+    pine: (g, W, H) => {
+      g.fillStyle = '#5a3d24'; g.fillRect(W * 0.46, H * 0.78, W * 0.08, H * 0.22);
+      for (let k = 0; k < 4; k++) {
+        const y0 = H * (0.08 + k * 0.19), w = W * (0.22 + k * 0.08);
+        g.fillStyle = k % 2 ? '#2f5d3a' : '#3a6e44';
+        g.beginPath(); g.moveTo(W / 2, y0); g.lineTo(W / 2 + w, y0 + H * 0.3); g.lineTo(W / 2 - w, y0 + H * 0.3); g.closePath(); g.fill();
+      }
+    },
+    round: (g, W, H) => {
+      g.fillStyle = '#6b4a2e'; g.fillRect(W * 0.45, H * 0.6, W * 0.1, H * 0.4);
+      const blob = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+      blob(W * 0.36, H * 0.48, W * 0.24, '#4e8a3e'); blob(W * 0.64, H * 0.46, W * 0.24, '#4e8a3e'); blob(W * 0.5, H * 0.3, W * 0.28, '#5c9a48');
+      blob(W * 0.44, H * 0.24, W * 0.12, 'rgba(255,255,255,.18)');
+    },
+    palm: (g, W, H) => {
+      g.strokeStyle = '#8a6a44'; g.lineWidth = W * 0.07; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(W * 0.5, H); g.quadraticCurveTo(W * 0.62, H * 0.55, W * 0.52, H * 0.22); g.stroke();
+      g.fillStyle = '#3f8a46';
+      for (let k = 0; k < 6; k++) {
+        const a = -Math.PI / 2 + (k - 2.5) * 0.55;
+        g.save(); g.translate(W * 0.52, H * 0.22); g.rotate(a); g.beginPath(); g.ellipse(W * 0.2, 0, W * 0.22, H * 0.035, 0.35, 0, Math.PI * 2); g.fill(); g.restore();
+      }
+    },
+    cactus: (g, W, H) => {
+      g.fillStyle = '#5b8f4a'; const rr = (x, y, w, h) => { g.beginPath(); g.roundRect(x, y, w, h, w / 2); g.fill(); };
+      rr(W * 0.42, H * 0.2, W * 0.16, H * 0.8); rr(W * 0.22, H * 0.42, W * 0.12, H * 0.3); rr(W * 0.22, H * 0.62, W * 0.26, W * 0.12);
+      rr(W * 0.66, H * 0.34, W * 0.12, H * 0.28); rr(W * 0.52, H * 0.56, W * 0.26, W * 0.12);
+    },
+  };
+  const TREE_MATS = {};
+  for (const k in TREE_KINDS) TREE_MATS[k] = sceneryMat(paintTex(128, 192, TREE_KINDS[k]), { fog: true });
+  const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine'], tundra: ['pine'], tropic: ['palm', 'round'], desert: ['cactus'] };
+  function addTrees(grp, b, wx0, kind) {
+    const kinds = TREES_FOR[b]; if (!kinds) return;
+    const n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : 34;
+    for (let i = 0; i < n; i++) {
+      const lx = (hash(wx0, i) - 0.5) * (CW - 4), z = -6 - hash(i, wx0 + 3) * 170;
+      if (kind === 'city' && z > -140) continue;
+      const h = landHeight(wx0 + lx + CW / 2, z);
+      if (h > 30) continue; // no trees on bare rock and snow
+      const sp = new THREE.Sprite(TREE_MATS[kinds[Math.floor(hash(i, wx0) * kinds.length)]]);
+      const size = 3 + hash(wx0 + i, 7) * 4;
+      sp.center.set(0.5, 0.02); sp.scale.set(size * 0.67, size, 1);
+      sp.position.set(lx, GROUND + h, z); grp.add(sp);
+    }
+  }
+  // lakes: flat water in a hollow, some land strips get one
+  const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fc0, roughness: 0.25, metalness: 0.1 });
+  const lakeGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
+  function addLake(grp, b, wx0) {
+    if (b === 'desert' || b === 'ice' || hash(wx0, 99) > 0.4) return;
+    const lx = (hash(wx0, 5) - 0.5) * (CW - 30), z = -40 - hash(wx0, 6) * 90, r = 6 + hash(wx0, 7) * 8;
+    let lo = Infinity;
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; lo = Math.min(lo, landHeight(wx0 + lx + CW / 2 + Math.cos(a) * r, z + Math.sin(a) * r * 0.6)); }
+    const m = new THREE.Mesh(lakeGeo, lakeMat); m.scale.set(r, 1, r * 0.6);
+    m.position.set(lx, GROUND + lo + 0.4, z); m.userData.shared = true; grp.add(m);
+  }
+  // an airliner crossing far in the background, with a fading contrail
+  const planeMat = sceneryMat(paintTex(512, 96, (g, W, H) => {
+    const cy = H * 0.5, x1 = W * 0.86;
+    const tr = g.createLinearGradient(0, 0, x1 - W * 0.12, 0);
+    tr.addColorStop(0, 'rgba(255,255,255,0)'); tr.addColorStop(1, 'rgba(255,255,255,.85)');
+    g.fillStyle = tr; g.fillRect(0, cy - 3, x1 - W * 0.12, 6);
+    g.fillStyle = '#f2f4f7'; g.beginPath(); g.ellipse(x1 - W * 0.06, cy, W * 0.08, H * 0.09, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#c9d1dc'; g.beginPath(); g.moveTo(x1 - W * 0.07, cy); g.lineTo(x1 - W * 0.11, cy + H * 0.3); g.lineTo(x1 - W * 0.05, cy); g.fill();
+    g.beginPath(); g.moveTo(x1 - W * 0.13, cy); g.lineTo(x1 - W * 0.145, cy - H * 0.28); g.lineTo(x1 - W * 0.12, cy - H * 0.04); g.fill();
+    g.fillStyle = '#2557a7'; g.fillRect(x1 - W * 0.12, cy - 1, W * 0.12, 3);
+  }), { fog: false });
+  // a distant flock: a loose V of tiny birds, two wing poses
+  const flockMats = [0, 1].map((f) => sceneryMat(paintTex(256, 128, (g, W, H) => {
+    g.strokeStyle = '#2b2f3a'; g.lineWidth = 3; g.lineCap = 'round';
+    const pts = [[0.5, 0.5], [0.4, 0.38], [0.6, 0.38], [0.3, 0.28], [0.7, 0.3], [0.2, 0.2], [0.82, 0.18]];
+    for (const [x, y] of pts) {
+      const X = x * W, Y = y * H + 30, d = f ? 7 : -5;
+      g.beginPath(); g.moveTo(X - 9, Y + d); g.quadraticCurveTo(X - 4, Y - 2, X, Y); g.quadraticCurveTo(X + 4, Y - 2, X + 9, Y + d); g.stroke();
+    }
+  }), { fog: false }));
+  const sky = { plane: null, flock: null, planeT: 6, flockT: 3 };
+  function updateSkyLife(dt, dx) {
+    // airliner: one at a time, crossing slowly high up
+    sky.planeT -= dt;
+    if (!sky.plane && sky.planeT <= 0) {
+      const sp = new THREE.Sprite(planeMat); sp.scale.set(40, 7.5, 1);
+      sp.position.set(220, 24 + Math.random() * 14, -240 - Math.random() * 60); sp.userData.v = 14 + Math.random() * 10;
+      fscene.add(sp); sky.plane = sp;
+    }
+    if (sky.plane) {
+      sky.plane.position.x -= dx * 0.25 + sky.plane.userData.v * dt;
+      if (sky.plane.position.x < -260) { fscene.remove(sky.plane); sky.plane = null; sky.planeT = 18 + Math.random() * 20; }
+    }
+    // a distant flock drifting the same way the bird flies
+    sky.flockT -= dt;
+    if (!sky.flock && sky.flockT <= 0) {
+      const sp = new THREE.Sprite(flockMats[0]); sp.scale.set(12, 6, 1);
+      sp.position.set(160, 6 + Math.random() * 16, -90 - Math.random() * 80); fscene.add(sp); sky.flock = sp;
+    }
+    if (sky.flock) {
+      sky.flock.position.x -= dx * 0.35;
+      sky.flock.material = flockMats[Math.floor(side.t * 3) % 2];
+      if (sky.flock.position.x < -180) { fscene.remove(sky.flock); sky.flock = null; sky.flockT = 8 + Math.random() * 14; }
+    }
+  }
 
   // speed streaks
   const STREAKS = 48;
@@ -985,6 +1113,7 @@
     }
     world.clouds = world.clouds.filter((c) => !c.userData.recycle);
     while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
+    updateSkyLife(dt, dx);
 
     // streaks show once things get fast
     const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
@@ -1047,7 +1176,7 @@
     towerMat.emissive.setStyle(night > 0.4 ? '#b8862e' : '#000000');
     towerMat.emissiveIntensity = night * 0.55;
     updateWeather(dt, v, cur, (S.wx && S.wx.type) || 'clear');
-    for (const c of world.clouds) c.userData.mat.color.copy(cloudTint);
+    for (const m of CLOUD_MATS) m.color.copy(cloudTint);
 
     // camera: raised and off to the near side, framed so the bird sits left of centre
     const f = smooth(SIDE_A, 1, Z);
@@ -1067,6 +1196,7 @@
     fcam.lookAt(wantW * 0.14 - side.fightK * 2.4, 0.4 + hero.position.y * 0.7 + side.fightK * 0.6, 0);
     // cutouts dim a little at night, like everything else
     const lit = lerp(1, 0.6, night);
+    for (const m of sceneryMats) if (!CLOUD_MATS.includes(m)) m.color.setScalar(lerp(1, 0.45, night));
     for (const m of [hero, ...flock, hawkMesh, owlMesh, hunterMesh]) { faceCamera(m); m.material.color.setScalar(lit); }
     fr.render(fscene, fcam);
   }
