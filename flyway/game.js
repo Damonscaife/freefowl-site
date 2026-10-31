@@ -163,6 +163,59 @@
   }));
   scene.add(atmo);
 
+  // ---- globe beauty: shiny seas, cloud shadows, an inner rim glow, and city lights in the real night ----
+  {
+    // oceans catch the light; land stays matte
+    const sc = document.createElement('canvas'); sc.width = TW / 2; sc.height = TH / 2;
+    const sg = sc.getContext('2d'), si = sg.createImageData(sc.width, sc.height);
+    for (let y = 0; y < sc.height; y++) for (let x = 0; x < sc.width; x++) {
+      const v = maskData[((y * 2) * TW + x * 2) * 4] < 128 ? 255 : 18, k = (y * sc.width + x) * 4;
+      si.data[k] = si.data[k + 1] = si.data[k + 2] = v; si.data[k + 3] = 255;
+    }
+    sg.putImageData(si, 0, 0);
+    earth.material.specularMap = new THREE.CanvasTexture(sc);
+    earth.material.specular = new THREE.Color(0x6f8fb0); earth.material.shininess = 38; earth.material.needsUpdate = true;
+  }
+  const cloudShadow = new THREE.Mesh(new THREE.SphereGeometry(1.004, 96, 64),
+    new THREE.MeshBasicMaterial({ color: 0x0a1a30, alphaMap: cloudTex, transparent: true, opacity: 0.28, depthWrite: false }));
+  scene.add(cloudShadow);
+  const rimGlow = new THREE.Mesh(new THREE.SphereGeometry(1.003, 64, 48), new THREE.ShaderMaterial({
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+    vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vN; void main(){ float f = pow(1.0 - clamp(dot(vN, vec3(0.0,0.0,1.0)), 0.0, 1.0), 2.6); gl_FragColor = vec4(0.45,0.75,1.0,1.0) * f * 0.75; }',
+  }));
+  scene.add(rimGlow);
+  // City lights glow where it is really night right now on Earth (from the actual time and the sun's real position)
+  const lightsTex = (() => {
+    const W = 2048, H = 1024, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'); let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const land = (x, y) => maskData[((Math.floor(y) * TW) + Math.floor(x)) * 4] >= 128;
+    const dot = (x, y, r, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(255,214,140,${a})`); gr.addColorStop(1, 'rgba(255,170,80,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); };
+    for (const ct of CITIES) {
+      const cx = (ct.lon + 180) / 360 * W, cy = (90 - ct.lat) / 180 * H;
+      dot(cx, cy, 7, 0.95);
+      for (let i = 0; i < 40; i++) { const x = cx + (rnd() - 0.5) * 60 * rnd(), y = cy + (rnd() - 0.5) * 40 * rnd(); if (land(x, y)) dot(x, y, 1.5 + rnd() * 2.5, 0.5 + rnd() * 0.4); }
+    }
+    for (let i = 0; i < 9000; i++) { const x = rnd() * W, y = H * (0.15 + rnd() * 0.55); if (land(x, y) && rnd() < 0.5) dot(x, y, 1 + rnd() * 1.4, 0.25 + rnd() * 0.35); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const nightU = { map: { value: lightsTex }, sunDir: { value: new THREE.Vector3(1, 0, 0) }, k: { value: 1 } };
+  const cityLights = new THREE.Mesh(new THREE.SphereGeometry(1.0015, 128, 64), new THREE.ShaderMaterial({
+    uniforms: nightU, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+    vertexShader: 'varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vW = normalize((modelMatrix * vec4(position,1.0)).xyz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform sampler2D map; uniform vec3 sunDir; uniform float k; varying vec2 vUv; varying vec3 vW; void main(){ float night = smoothstep(0.05, -0.15, dot(vW, sunDir)); vec4 c = texture2D(map, vUv); gl_FragColor = vec4(c.rgb * c.a * night * 0.9 * k, 1.0); }',
+  }));
+  scene.add(cityLights);
+  // where the real sun is overhead right now (good to a degree or two)
+  function realSunDir() {
+    const now = new Date(), day = (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - Date.UTC(now.getUTCFullYear(), 0, 0)) / 864e5;
+    const decl = -23.44 * Math.cos((2 * Math.PI / 365) * (day + 10));
+    const lon = -((now.getUTCHours() + now.getUTCMinutes() / 60) - 12) * 15;
+    return geoVec(decl, lon, 1);
+  }
+  nightU.sunDir.value.copy(realSunDir());
+  setInterval(() => nightU.sunDir.value.copy(realSunDir()), 60000);
+
   scene.add(new THREE.AmbientLight(0xffffff, 0.75));
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.7); scene.add(sun);
 
@@ -274,8 +327,9 @@
   const side = { flap: 0, flapRate: 2, t: 0, cityLeg: -1, bug: null, burst: 0, bugT: 20, threat: null, threatT: 45 };
 
   const SKY = [ // hour, top, bottom
-    [0, '#0a1332', '#1c2a55'], [4.5, '#141c46', '#3a3a6e'], [6, '#33407a', '#f09a73'], [7.5, '#4f8fd6', '#cfe7f7'],
-    [12, '#3a86d9', '#b4e2ff'], [16.5, '#4a7fc9', '#f6d3a1'], [18.5, '#3b3474', '#f28a5c'], [20, '#18204c', '#3a3768'],
+    [0, '#0a1332', '#1c2a55'], [4.5, '#141c46', '#3a3a6e'], [5.6, '#2c3470', '#d9787a'], [6.4, '#4a5296', '#ffae6b'],
+    [7.2, '#5a8fd0', '#ffd9a8'], [8.5, '#4f8fd6', '#cfe7f7'], [12, '#3a86d9', '#b4e2ff'], [16.2, '#4a7fc9', '#f6dcb0'],
+    [17.4, '#5468b4', '#ffc27a'], [18.4, '#463a86', '#ff8e5a'], [19.2, '#2a2662', '#d9607a'], [20.2, '#18204c', '#3a3768'],
     [24, '#0a1332', '#1c2a55'],
   ];
   const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -291,6 +345,7 @@
   // under two minutes it settles on the player's own time of day instead.
   let skyH = null;
   function skyHour(dt, cur) {
+    if (side.forceHour != null) return (side.skyHour = side.forceHour); // debug/photo: pin the time of day
     const v = F.speed(S), lapSecs = (F.lapLegs(S) * F.legLen(S)) / Math.max(v, 1e-6);
     const now = new Date(), mine = now.getHours() + now.getMinutes() / 60;
     const want = lapSecs < 120 ? mine : localHour(cur.lon);
@@ -326,6 +381,19 @@
   }
   const sunDisc = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff6dc', 'rgba(255,226,160,.35)'), fog: false, depthWrite: false, transparent: true }));
   sunDisc.scale.set(120, 120, 1); fscene.add(sunDisc);
+  // golden hour: a wide warm halo round the low sun, and its path of light across the sea
+  const goldHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,214,150,.9)', 'rgba(255,160,90,.25)'), fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
+  goldHalo.scale.set(600, 600, 1); fscene.add(goldHalo);
+  const glintTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 256; const g = c.getContext('2d');
+    for (let i = 0; i < 260; i++) {
+      const y = Math.random() * 256, w = 6 + Math.random() * 30 * (1 - y / 300), a = 0.25 + Math.random() * 0.6;
+      g.fillStyle = `rgba(255,${200 + Math.floor(Math.random() * 40)},150,${a * (0.3 + 0.7 * (1 - y / 256))})`; g.fillRect(32 - w / 2 + (Math.random() - 0.5) * 8, y, w, 1.5);
+    }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const sunPath = new THREE.Mesh(new THREE.PlaneGeometry(70, 560), new THREE.MeshBasicMaterial({ map: glintTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
+  sunPath.rotation.x = -Math.PI / 2; fscene.add(sunPath);
 
   const GROUND = -24, CW = 80, DEPTH = 420, ZC = -150; // strip width, depth and centre z
   const water = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000),
@@ -336,6 +404,39 @@
   const towerMat = new THREE.MeshStandardMaterial({ color: 0x8a97ad, roughness: 0.7, emissive: 0x000000 });
   const towerGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
   const world = { chunks: [], cursor: 0, nextType: null, clouds: [], u: 10, viewW: 14 };
+  // ---- depth: far mountain ranges in layers, each hazier and slower than the one in front ----
+  const RANGES = [
+    { z: -560, h: 130, col: '#4f6884', haze: 0.45, par: 0.05, seed: 3 },
+    { z: -760, h: 180, col: '#6f88a6', haze: 0.62, par: 0.03, seed: 7 },
+    { z: -980, h: 250, col: '#93a9c2', haze: 0.78, par: 0.018, seed: 11 },
+  ].map((r) => {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const g = c.getContext('2d');
+    // a tileable ridge line from whole-number harmonics, sharpened into peaks
+    const ridge = (x) => { let y = 0; for (const [f, a, p] of [[2, 0.35, r.seed], [5, 0.22, r.seed * 2], [11, 0.12, r.seed * 3], [23, 0.06, r.seed * 5], [47, 0.03, r.seed]]) y += a * Math.sin((x / 1024) * Math.PI * 2 * f + p); return y; };
+    const gr = g.createLinearGradient(0, 40, 0, 256); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#d8e2ec');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(0, 256);
+    for (let x = 0; x <= 1024; x += 4) { const v = ridge(x); g.lineTo(x, 150 - Math.sign(v) * Math.pow(Math.abs(v), 0.8) * 110); }
+    g.lineTo(1024, 256); g.closePath(); g.fill();
+    // snow on the higher peaks of the far ranges
+    if (r.haze > 0.6) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,255,255,.55)'; g.fillRect(0, 0, 1024, 70); g.globalCompositeOperation = 'source-over'; }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.x = 3;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(3600, r.h), new THREE.MeshBasicMaterial({ map: t, transparent: true, fog: false, depthWrite: false }));
+    m.position.set(0, GROUND - 14 + r.h / 2, r.z); m.renderOrder = -2; fscene.add(m);
+    return { ...r, m, t, base: new THREE.Color(r.col) };
+  });
+  side.landK = 1;
+  function updateRanges(dx, fogCol, night) {
+    // the ranges only belong over land: they fade out over open ocean
+    const ahead = world.chunks.filter((c) => c.grp.position.x > -CW);
+    const land = ahead.length ? ahead.filter((c) => c.kind !== 'sea').length / ahead.length : 1;
+    side.landK = lerp(side.landK, land, 0.02);
+    for (const r of RANGES) {
+      r.t.offset.x = (r.t.offset.x + dx * r.par / 1200) % 1;
+      r.m.material.color.copy(r.base).lerp(fogCol, r.haze).multiplyScalar(lerp(1, 0.45, night));
+      r.m.material.opacity = smooth(0.15, 0.6, side.landK);
+      r.m.visible = r.m.material.opacity > 0.01;
+    }
+  }
 
   // land height at a world position; heights are continuous across strips
   function landHeight(wx, z) {
@@ -371,7 +472,7 @@
     const xs = (hash(seed, 71) - 0.5) * (CW - 30), bend = 30 + hash(seed, 72) * 25, width = highway ? 7 : 4;
     // from just in front of the camera, away into the distance, bending off to the left
     const pts = [];
-    for (let i = 0; i <= 48; i++) { const s = i / 48; pts.push(new THREE.Vector3(xs - bend * Math.pow(s, 1.6), 0, 10 - 250 * s)); }
+    for (let i = 0; i <= 56; i++) { const s = i / 56; pts.push(new THREE.Vector3(xs - bend * Math.pow(s, 1.6), 0, 45 - 285 * s)); } // starts behind the camera, so it never ends at the bottom of the screen
     let len = 0; const lens = [0];
     for (let i = 1; i < pts.length; i++) { len += pts[i].distanceTo(pts[i - 1]); lens.push(len); }
     const pos = [], uv = [], idx = [];
@@ -839,38 +940,84 @@
   };
   for (const k in JUMPERS) JUMPERS[k].mat = sceneryMat(JUMPERS[k].tex, { fog: true });
   const seaLife = { list: [], t: 8, rogue: null, rogueT: 14 };
-  // a giant wave: a dark wall of water with a curling white crest
-  const ROGUE_MAT = sceneryMat(paintTex(512, 256, (g, W, H) => {
-    const gr = g.createLinearGradient(0, H * 0.15, 0, H); gr.addColorStop(0, '#2f7fbf'); gr.addColorStop(1, '#174a7c');
-    g.fillStyle = gr; g.beginPath(); g.moveTo(0, H);
-    g.bezierCurveTo(W * 0.15, H * 0.9, W * 0.35, H * 0.2, W * 0.62, H * 0.12);   // the face rising to the lip
-    g.bezierCurveTo(W * 0.8, H * 0.06, W * 0.9, H * 0.22, W * 0.8, H * 0.36);    // curling over
-    g.bezierCurveTo(W * 0.74, H * 0.3, W * 0.7, H * 0.42, W * 0.78, H * 0.5);
-    g.bezierCurveTo(W * 0.9, H * 0.8, W * 0.96, H * 0.95, W, H); g.closePath(); g.fill();
-    g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 14; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(W * 0.42, H * 0.22); g.bezierCurveTo(W * 0.62, H * 0.06, W * 0.86, H * 0.08, W * 0.8, H * 0.34); g.stroke();
-    g.fillStyle = 'rgba(255,255,255,.85)';
-    for (let k = 0; k < 14; k++) { g.beginPath(); g.arc(W * (0.66 + Math.random() * 0.22), H * (0.08 + Math.random() * 0.3), 6 + Math.random() * 10, 0, Math.PI * 2); g.fill(); }
-    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 4;
-    for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(W * (0.15 + k * 0.1), H * 0.98); g.quadraticCurveTo(W * (0.3 + k * 0.08), H * (0.6 - k * 0.05), W * (0.5 + k * 0.05), H * (0.4 - k * 0.03)); g.stroke(); }
-  }), { fog: true });
+  // A giant wave, built as real geometry: a long wall of water rolling toward you that rises,
+  // then breaks from one end to the other (the lip curling over a hollow face), throws spray,
+  // and collapses into whitewash. Two ribbons share the shape: the back and curling lip, and
+  // the concave face under it.
+  const RW = { NX: 56, NB: 26, NF: 10, L: 64 };
+  const rogueMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.35, metalness: 0.05 });
+  function makeRogue() {
+    const n = (RW.NX + 1) * (RW.NB + RW.NF), g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    const idx = [];
+    // each column holds the back-and-lip points, then the face points
+    const S = RW.NB + RW.NF;
+    const strip = (off, rows) => { for (let i = 0; i < RW.NX; i++) for (let j = 0; j < rows - 1; j++) {
+      const a = i * S + off + j, b = a + S; idx.push(a, b, a + 1, b, b + 1, a + 1); } };
+    strip(0, RW.NB); strip(RW.NB, RW.NF);
+    g.setIndex(idx);
+    const m = new THREE.Mesh(g, rogueMat); m.frustumCulled = false; m.userData.shared = true;
+    return m;
+  }
+  const C_DEEP = new THREE.Color('#123f6e'), C_TEAL = new THREE.Color('#2f8fb0'), C_GLASS = new THREE.Color('#6fd0d8'), C_FOAM = new THREE.Color('#f4fbff');
+  function shapeRogue(m, d) {
+    const pos = m.geometry.attributes.position, col = m.geometry.attributes.color, c = new THREE.Color();
+    const k = d.t / d.T, rise = smooth(0, 0.3, k), fall = smooth(0.72, 1, k);
+    const peel = (k - 0.28) / 0.42; // how far along the wall the break has travelled
+    let v = 0;
+    const put = (x, y, z, cl) => { pos.setXYZ(v, x, y, z); col.setXYZ(v, cl.r, cl.g, cl.b); v++; };
+    const crestAt = [];
+    for (let i = 0; i <= RW.NX; i++) {
+      const u = i / RW.NX, x = (u - 0.5) * RW.L;
+      const hump = Math.sin(Math.PI * u) ** 0.6 * (0.85 + 0.15 * Math.sin(u * 9 + d.seed));
+      const H = Math.max(0.05, d.H * hump * rise * (1 - 0.97 * fall)); // collapses into the sea at the end
+      const curl = clamp(peel * 1.5 - (1 - u) * 1.1, 0, 1) * (1 - fall * 0.6);   // breaks from the right end toward the left
+      const R = H * 0.34, foam = clamp(curl * 1.4 + fall, 0, 1);
+      crestAt.push([x, H, curl]);
+      // back slope, crest, then the lip curling forward and down
+      for (let j = 0; j < RW.NB; j++) {
+        const t = j / (RW.NB - 1);
+        let y, z;
+        if (t < 0.6) { const q = t / 0.6; z = -12 + 12 * q; y = H * (q * q * (3 - 2 * q)); }
+        else { const th = (t - 0.6) / 0.4 * Math.PI * 1.15 * curl; z = R * Math.sin(th); y = H - R + R * Math.cos(th); }
+        const tip = smooth(0.55, 1, t);
+        c.copy(C_DEEP).lerp(C_TEAL, t).lerp(C_FOAM, Math.max(tip * foam, fall * 0.8));
+        put(x, y, z, c);
+      }
+      // the face: from the water in front up into the hollow under the lip
+      for (let j = 0; j < RW.NF; j++) {
+        const t = j / (RW.NF - 1), zf = R * (0.9 - 0.9 * curl) + 2.2;
+        const z = lerp(zf, -R * 0.15 * curl, t) + Math.sin(t * Math.PI) * R * 0.35 * curl, y = H * (t * t) * (0.98 - 0.25 * curl);
+        c.copy(C_GLASS).lerp(C_TEAL, 1 - t).lerp(C_FOAM, fall * 0.8 + (t > 0.85 ? 0.3 * curl : 0));
+        put(x, y, z, c);
+      }
+    }
+    pos.needsUpdate = true; col.needsUpdate = true; m.geometry.computeVertexNormals();
+    return crestAt;
+  }
   function updateRogue(dt, dx, under) {
     seaLife.rogueT -= dt * (under && under.grp.userData.rough ? 2.5 : 1);
     if (!seaLife.rogue && under && under.kind === 'sea' && seaLife.rogueT <= 0) {
-      const sp = new THREE.Sprite(ROGUE_MAT); sp.center.set(0.5, 0.04);
-      const W = world.viewW || 14, w = 22 + Math.random() * 14;
-      sp.userData = { t: 0, T: 6.5, x: W * (0.9 + Math.random() * 0.5), z: -14 - Math.random() * 22, w };
-      fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
+      const m = seaLife.rogueMesh || (seaLife.rogueMesh = makeRogue());
+      const W = world.viewW || 14;
+      m.userData.d = { t: 0, T: 8, x: W * (0.7 + Math.random() * 0.3), z: -40 - Math.random() * 8, H: 10 + Math.random() * 4, seed: Math.random() * 9, sprayT: 0 };
+      fscene.add(m); seaLife.rogue = m; seaLife.rogueT = 30 + Math.random() * 40;
     }
-    const sp = seaLife.rogue; if (!sp) return;
-    const d = sp.userData; d.t += dt; d.x -= dx * 0.75;     // it rolls along with you, a little slower
-    const k = d.t / d.T, rise = smooth(0, 0.3, k) * (1 - smooth(0.78, 1, k));
-    sp.scale.set(d.w * (0.8 + 0.3 * k), d.w * 0.45 * rise + 0.01, 1);
-    sp.position.set(d.x, GROUND + 0.2, d.z);
-    // it crashes down in a burst of spray
-    if (!d.crashed && k > 0.8) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.2, GROUND + d.w * 0.25, d.z), 2.2); side.shake = Math.max(side.shake, 0.15); }
-    if (k >= 1) { fscene.remove(sp); seaLife.rogue = null; }
+    const m = seaLife.rogue; if (!m) return;
+    const d = m.userData.d; d.t += dt; d.x -= dx * 0.3; d.z += dt * 1.4; // keeps pace beside you and rolls toward you
+    m.position.set(d.x, GROUND + 0.5, d.z);
+    const crest = shapeRogue(m, d), k = d.t / d.T;
+    // spray thrown up where the lip is crashing down right now
+    d.sprayT -= dt;
+    if (d.sprayT <= 0 && k > 0.35 && k < 0.85) {
+      d.sprayT = 0.35;
+      const hit = crest.find((c) => c[2] > 0.85 && c[2] < 0.99) || crest[Math.floor(crest.length * (1 - (k - 0.35) * 1.6))];
+      if (hit) splash(new THREE.Vector3(d.x + hit[0], GROUND + 0.5 + hit[1] * 0.7, d.z + 2), 1.6);
+    }
+    if (k >= 1) { fscene.remove(m); seaLife.rogue = null; }
   }
+
   function updateSeaLife(dt, dx) {
     const under = chunkAtX(world.viewW ? world.viewW * 0.4 : 6);
     updateRogue(dt, dx, under);
@@ -1038,11 +1185,52 @@
     for (let i = 0; i < 10; i++) { p.setXYZ(i, x, y, z0); x += (Math.random() - 0.5) * 18; y -= (90 - GROUND) / 9; }
     p.needsUpdate = true; wxK.flash = 1;
   }
+  // ---- sky spectacle: auroras on polar nights, a rainbow when rain clears in daylight ----
+  const auroraU = { t: { value: 0 }, k: { value: 0 } };
+  const aurora = new THREE.Mesh(new THREE.PlaneGeometry(1400, 260, 1, 1), new THREE.ShaderMaterial({
+    uniforms: auroraU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `uniform float t; uniform float k; varying vec2 vUv;
+      float n(float x){ return sin(x) * 0.5 + sin(x * 2.3 + 1.7) * 0.3 + sin(x * 5.1 + 0.4) * 0.2; }
+      void main(){
+        float x = vUv.x * 14.0, wave = n(x + t * 0.25) * 0.12 + n(x * 0.5 - t * 0.12) * 0.1;
+        float base = 0.25 + wave, y = vUv.y - base;
+        float curtain = smoothstep(0.0, 0.06, y) * exp(-y * 3.2) * (0.55 + 0.45 * n(x * 3.0 + t * 0.6));
+        float rays = 0.6 + 0.4 * sin(vUv.x * 220.0 + n(x) * 6.0 + t);
+        vec3 c = mix(vec3(0.2, 1.0, 0.55), vec3(0.65, 0.3, 1.0), smoothstep(0.15, 0.55, y));
+        gl_FragColor = vec4(c * curtain * rays * k, 1.0);
+      }`,
+  }));
+  aurora.position.set(0, 120, -620); aurora.renderOrder = -3; fscene.add(aurora);
+  const rainbow = new THREE.Sprite(new THREE.SpriteMaterial({ map: (() => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256; const g = c.getContext('2d');
+    const cols = ['#ff3b3b', '#ff9a2e', '#ffe14a', '#4fd36b', '#3ea0ff', '#6a5bff', '#b04cff'];
+    g.lineWidth = 9; g.globalAlpha = 0.55;
+    cols.forEach((col, i) => { g.strokeStyle = col; g.beginPath(); g.arc(256, 256, 230 - i * 9, Math.PI, 0); g.stroke(); });
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })(), transparent: true, depthWrite: false, fog: false, opacity: 0 }));
+  rainbow.scale.set(700, 350, 1); rainbow.position.set(120, 40, -650); fscene.add(rainbow);
+  function updateSkyFx(dt, night, cur, wx, isDay) {
+    // aurora: high latitudes, after dark, clear-ish skies
+    const polar = smooth(52, 64, Math.abs(cur.lat));
+    auroraU.t.value += dt; auroraU.k.value = lerp(auroraU.k.value, polar * smooth(0.5, 0.9, night) * (1 - wxK.storm) * 1.4, 1 - Math.exp(-dt));
+    aurora.visible = auroraU.k.value > 0.01;
+    // rainbow: shows up for a while when rain or a storm gives way to clear skies in daylight
+    const wet = wx === 'rain' || wx === 'storm';
+    if (side.wasWet && !wet && isDay) side.rainbowT = 28;
+    side.wasWet = wet;
+    side.rainbowT = Math.max(0, (side.rainbowT || 0) - dt);
+    const want = side.rainbowT > 0 ? Math.min(1, side.rainbowT / 4, (28 - side.rainbowT) / 3) : 0;
+    rainbow.material.opacity = lerp(rainbow.material.opacity, want * 0.8, 1 - Math.exp(-dt * 2));
+    rainbow.visible = rainbow.material.opacity > 0.01;
+  }
   function updateWeather(dt, v, cur, wx) {
     const ease = (k, t) => lerp(k, t, 1 - Math.exp(-dt * 1.5));
     const cold = ['ice', 'boreal', 'tundra'].includes(biome(cur.lat, cur.lon));
     const wet = wx === 'rain' ? 0.55 : wx === 'storm' ? 1 : 0;
-    wxK.rain = ease(wxK.rain, cold ? 0 : wet); wxK.snow = ease(wxK.snow, cold ? wet : 0);
+    // over the ice caps a light snow drifts down even on a clear day
+    const icy = biome(cur.lat, cur.lon) === 'ice' ? 0.3 : 0;
+    wxK.rain = ease(wxK.rain, cold ? 0 : wet); wxK.snow = ease(wxK.snow, cold ? Math.max(wet, icy) : 0);
     wxK.storm = ease(wxK.storm, wx === 'storm' ? 1 : wx === 'rain' ? 0.35 : 0);
     wxK.wind = ease(wxK.wind, wx === 'tailwind' || wx === 'headwind' ? 1 : wx === 'storm' ? 0.5 : 0);
     if (wx === 'tailwind') wxK.dir = 1; else if (wx === 'headwind' || wx === 'storm') wxK.dir = -1;
@@ -1212,6 +1400,12 @@
     g.fillStyle = opt.eye || (opt.owl || opt.talons || opt.hook ? '#f2c230' : '#ffffff'); g.beginPath(); g.arc(ex, ey, er, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#111'; g.beginPath(); g.arc(ex + er * 0.15, ey, er * 0.62, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + er * 0.35, ey - er * 0.3, er * 0.22, 0, Math.PI * 2); g.fill();
+    if (opt.blink) {
+      // eyelid shut: feathers over the eye and a soft lash line
+      g.fillStyle = opt.head || b.cap; g.beginPath(); g.arc(ex, ey, er * 1.12, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = Math.max(1.5, er * 0.28); g.lineCap = 'round';
+      g.beginPath(); g.arc(ex, ey - er * 0.35, er * 0.95, Math.PI * 0.2, Math.PI * 0.8); g.stroke();
+    }
     // beak (hooked for raptors)
     const bx = hx + hr * 0.9, by = hy + hr * 0.02;
     g.fillStyle = b.beak; g.beginPath(); g.moveTo(bx, by - hr * 0.22);
@@ -1232,7 +1426,10 @@
   const BIRD_FRAMES = 12;
   function atlasFor(b, opt) {
     const key = b.id || JSON.stringify(b);
-    return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i, n) => { g.translate(0, PAD); drawBirdHD(g, (i / n) * Math.PI * 2, b, opt); }, BIRD_FRAMES, 4, 3, FH + PAD * 2));
+    // frames 0-11 are the wingbeat; 12-23 are the same wingbeat with the eyes shut, for blinking
+    return birdAtlases[key] || (birdAtlases[key] = makeAtlas((g, i) => {
+      g.translate(0, PAD); drawBirdHD(g, ((i % BIRD_FRAMES) / BIRD_FRAMES) * Math.PI * 2, b, i >= BIRD_FRAMES ? { ...(opt || {}), blink: true } : opt);
+    }, BIRD_FRAMES * 2, 4, 6, FH + PAD * 2));
   }
   // the hunter: two frames, aiming and firing
   const hunterAtlas = makeAtlas((g, i) => {
@@ -1399,10 +1596,13 @@
     const m = th.type === 'owl' ? owlMesh : hawkMesh;
     m.visible = true;
     const C = flockCentre();
+    m.material.opacity = 1;
     if (b < 0) {
-      // circles high and ahead during the warning, then stoops at the flock
-      const k = smooth(-0.55, 0, b);
+      // flies in from far off in the distance, circles high and ahead during the warning, then stoops at the flock
+      const k = smooth(-0.55, 0, b), arrive = smooth(0, 1.6, t);
       const high = new THREE.Vector3(W * 0.3 + Math.sin(t * 1.3) * 1.2, 2.8 + Math.sin(t * 2.1) * 0.6, -4);
+      high.lerp(new THREE.Vector3(W * 1.1, 14, -90), 1 - arrive);
+      m.material.opacity = smooth(0, 0.5, t);
       m.position.copy(high.lerp(C.clone().add(new THREE.Vector3(1.5, 1.5, 0)), k));
       m.userData.roll = -0.55 * k;
       setFrame(m, b < -0.55 ? phaseFrame(t * 5, BIRD_FRAMES) : 3);
@@ -1431,15 +1631,20 @@
       contact(0.7, P.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, 0.3)));
     } else {
       const a = b - BATTLE, P = th.pEnd || (th.pEnd = m.position.clone());
+      // either way it leaves the whole way: off into the distance, fading as it goes
+      m.material.opacity = 1 - smooth(1.4, 2.8, a);
       if (th.ok) {
-        // beaten: tumbles away down and to the left
-        m.position.copy(P).add(new THREE.Vector3(-a * 7, -a * a * 5, 0));
-        m.userData.roll = a * 9; setFrame(m, 3);
+        // beaten: tumbles, recovers, then flees low and far off to the left
+        const tumble = new THREE.Vector3(-a * 5, -Math.min(a, 0.8) * 3, 0);
+        const flee = new THREE.Vector3(-a * 6, 1.5 * Math.max(0, a - 0.8), -40 * smooth(0.8, 2.8, a));
+        m.position.copy(P).add(tumble).add(flee.multiplyScalar(smooth(0.6, 1.2, a)));
+        m.userData.roll = a < 0.8 ? a * 9 : lerp(0.8 * 9, Math.PI * 2 * 3, smooth(0.8, 1.2, a)); setFrame(m, a < 0.9 ? 3 : phaseFrame(t * 9, BIRD_FRAMES));
       } else {
-        // wins: climbs away up and to the right, with a follower in its talons
-        m.position.copy(P).add(new THREE.Vector3(a * 4.5, a * 2.4, -a * 0.6));
+        // wins: climbs away up and to the right and off into the distance, with a follower in its talons
+        m.position.copy(P).add(new THREE.Vector3(a * 4.5, a * 2.6, -a * a * 9));
         m.userData.roll = -0.35; setFrame(m, phaseFrame(t * 7, BIRD_FRAMES));
         if (carried) {
+          carried.material.opacity = m.material.opacity;
           carried.position.copy(m.position).add(new THREE.Vector3(0.3, -1.6, 0.2));
           carried.userData.roll = Math.sin(t * 9) * 0.5; setFrame(carried, phaseFrame(t * 14, BIRD_FRAMES));
         }
@@ -1542,6 +1747,7 @@
     renderer.setPixelRatio(DPR); renderer.setSize(SW, SH, false);
     camera.aspect = SW / SH; camera.updateProjectionMatrix();
     fr.setPixelRatio(DPR); fr.setSize(SW, SH, false);
+    if (side.pipOn) { side.pipOn = false; setPip(true); } // keep the inset's own size and shape
     fcam.aspect = SW / SH; fcam.updateProjectionMatrix();
   }
 
@@ -1643,6 +1849,13 @@
     // nose down into the dive, up on the climb
     const pitch = side.bug ? (side.bug.t < DIVE ? -0.28 * Math.sin(Math.PI * clamp(side.bug.t / DIVE, 0, 1)) : 0.22 * Math.sin(Math.PI * clamp((side.bug.t - DIVE) / CLIMB, 0, 1))) : 0;
     hero.userData.roll = 0.04 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch + wobble * 0.3;
+    // blinks now and then, and squashes and stretches with each wingbeat
+    side.blinkT = (side.blinkT ?? 3) - dt;
+    if (side.blinkT < -0.13) side.blinkT = 2.2 + Math.random() * 3.5;
+    const blink = side.blinkT < 0 ? BIRD_FRAMES : 0;
+    if (blink) setFrame(hero, phaseFrame(heroPh, BIRD_FRAMES) + blink);
+    const st = glide > 0.55 ? 0 : Math.sin(side.flap) * Math.min(1, 0.35 + S.boost * 0.9);
+    hero.scale.set(1 - 0.045 * st, 1 + 0.07 * st, 1);
     const dh = duelHero(hero.position, hero.userData.roll);
     if (dh) { hero.position.copy(dh.pos); hero.userData.roll = dh.roll; setFrame(hero, phaseFrame(side.t * 11, BIRD_FRAMES)); }
     updateBug(dt);
@@ -1664,6 +1877,7 @@
     const [top, bot] = skyAt(hour);
     skyU.top.value.setStyle(top); skyU.bottom.value.setStyle(bot);
     fscene.fog.color.setStyle(bot);
+    updateRanges(dx, fscene.fog.color, night);
     starMat.opacity = night * 0.9;
     const dayT = clamp((hour - 6) / 12, 0, 1), elev = Math.sin(dayT * Math.PI);
     const isDay = hour > 6 && hour < 18;
@@ -1674,13 +1888,26 @@
     fsun.intensity = isDay ? 1.1 + elev * 1.4 : 0.45;
     hemi.intensity = lerp(1.1, 0.4, night);
     sunDisc.position.set(fsun.position.x, fsun.position.y * 0.5, -fsun.position.z).normalize().multiplyScalar(1000);
-    sunDisc.material.color.setStyle(isDay ? '#ffffff' : '#c9d4f5');
-    sunDisc.scale.setScalar(isDay ? 130 : 70);
+    sunDisc.material.color.setStyle(isDay ? (elev < 0.3 ? '#ffd9a0' : '#ffffff') : '#c9d4f5');
+    sunDisc.scale.setScalar(isDay ? 130 + (1 - elev) * 40 : 70);
+    // golden hour: strongest when the sun is low, fading out by mid-morning and back in late afternoon
+    const golden = isDay ? 1 - smooth(0.12, 0.55, elev) : 0;
+    side.golden = golden;
+    goldHalo.position.copy(sunDisc.position).multiplyScalar(0.98);
+    goldHalo.material.opacity = 0.15 + golden * 0.75; goldHalo.scale.setScalar(420 + golden * 380);
+    // the sun's road on the water, running from under the sun toward you
+    const sx = sunDisc.position.x / Math.max(1, -sunDisc.position.z) * 600;
+    sunPath.position.set(clamp(sx, -400, 400) * 0.5, GROUND + 0.65, -330);
+    sunPath.material.opacity = golden * 0.85 * (1 - (wxK.storm || 0));
+    hemi.color.setStyle(golden > 0.3 ? '#ffe2c4' : '#ffffff');
+    fsun.intensity *= 1 + golden * 0.25;
     water.material.color.setStyle(night > 0.5 ? '#183461' : '#2468a6');
     towerMat.emissive.setStyle(night > 0.4 ? '#b8862e' : '#000000');
     towerMat.emissiveIntensity = night * 0.55;
     canyonMat.emissive.setStyle(night > 0.4 ? '#8a6420' : '#000000'); canyonMat.emissiveIntensity = night * 0.7;
     updateWeather(dt, v, cur, (S.wx && S.wx.type) || 'clear');
+    updateSkyFx(dt, night, cur, (S.wx && S.wx.type) || 'clear', isDay);
+    if (side.golden > 0) cloudTint.lerp(new THREE.Color('#ffc99a'), side.golden * 0.55); // sunlit pink-gold clouds
     for (const m of CLOUD_MATS) m.color.copy(cloudTint);
 
     // camera: raised and off to the near side, framed so the bird sits left of centre
@@ -1691,9 +1918,12 @@
     const fightOn = th && tb > -0.6 && tb < BATTLE + 1.6 ? 1 : 0;
     side.fightK = lerp(side.fightK || 0, fightOn, 1 - Math.exp(-dt * 2.5));
     const wantW = lerp(60, 10, f) * Math.max(1, fcam.aspect * 1.25) * (1 + 0.45 * side.fightK); world.viewW = wantW;
-    const d = (wantW / 2) / Math.tan(hfov / 2);
+    // a milestone moment: the camera eases back and up for a wide shot, then settles again
+    let ck = 0;
+    if (side.cine) { side.cine.t += dt; ck = Math.sin(Math.PI * clamp(side.cine.t / side.cine.T, 0, 1)); if (side.cine.t > side.cine.T) side.cine = null; }
+    const d = (wantW / 2) / Math.tan(hfov / 2) * (1 + 0.7 * ck);
     // ~12° above the bird keeps the horizon in the upper third of the frame
-    const elevA = lerp(22, 12, f) * D2R, sway = Math.sin(side.t * 0.12) * 0.12;
+    const elevA = (lerp(22, 12, f) + 9 * ck) * D2R, sway = Math.sin(side.t * 0.12) * 0.12 + ck * 0.35;
     fcam.position.set(d * 0.18 + Math.sin(sway) * d * 0.15, Math.sin(elevA) * d, Math.cos(elevA) * d);
     // follow the bird part-way down into a bug dive
     fcam.position.y += hero.position.y * 0.6;
@@ -2184,8 +2414,9 @@
   const camDir = new THREE.Vector3(0, 0, 1);
   function currentGeo() { return F.lerpGeo(F.legFrom(S), F.legTo(S), clamp(S.legKm / F.legLen(S), 0, 1)); }
 
-  function updateGlobe(dt) {
-    const q = clamp(Z / SIDE_B, 0, 1);
+  function updateGlobe(dt, pip) {
+    // in the inset the globe is shown from a fixed middle distance, whatever the main zoom is
+    const q = pip ? 0.5 : clamp(Z / SIDE_B, 0, 1);
     const dist = 1.05 + 11 * Math.pow(1 - q, 2.2);
     const g = currentGeo();
     const bv = geoVec(g.lat, g.lon, 1);
@@ -2229,7 +2460,9 @@
     birdSprite.material.depthTest = fk > 0.5;
     // light rides with the camera (a little up and left) so the day/night line stays off the visible face
     sun.position.copy(camera.position).add(new THREE.Vector3(-0.15, 0.25, 0).multiplyScalar(camera.position.length()));
-    clouds.rotation.y += dt * 0.004;
+    // city lights read from far out; up close they would just be blurry blobs, so they fade away
+    nightU.k.value = pip ? 0.8 : smooth(2.2, 5, dist);
+    clouds.rotation.y += dt * 0.004; cloudShadow.rotation.y = clouds.rotation.y - 0.006; // shadows sit just off the clouds, away from the light
     const legT = clamp(S.legKm / F.legLen(S), 0, 1);
     birdSprite.position.copy(geoVec(g.lat, g.lon, ROUTE_R + 0.004 + legLift(F.legFrom(S), F.legTo(S), legT)));
     updateTail(legT);
@@ -2237,8 +2470,16 @@
     const to = F.isNonstop(S) ? CITIES[S.start] : F.legTo(S); nextSprite.position.copy(geoVec(to.lat, to.lon, 1.007));
     const ns = (0.008 + (dist - 1) * 0.02) * (1 + 0.25 * Math.sin(performance.now() / 250)); nextSprite.scale.set(ns, ns, 1);
     renderer.render(scene, camera);
-    placeLabels();
+    if (pip) labelsEl.style.visibility = 'hidden'; else { labelsEl.style.visibility = ''; placeLabels(); }
   }
+  // the round globe inset on iPad-size and wide screens, shown while you're in the close-up
+  function setPip(on) {
+    if (side.pipOn === on) return;
+    side.pipOn = on; glCanvas.classList.toggle('pip', on);
+    if (on) { const r = glCanvas.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = 1; camera.updateProjectionMatrix(); glCanvas.style.opacity = 1; }
+    else sizeSide();
+  }
+  glCanvas.addEventListener('pointerdown', (e) => { if (side.pipOn) { e.stopPropagation(); ZT = 0.25; } });
 
   // City labels: the leg's two ends, when they are on the visible side.
   const labelsEl = $('labels');
@@ -2298,7 +2539,7 @@
   // fromHold: auto-repeat while the button or Space is held. Hammering beats a
   // hawk; holding mostly helps you climb away from a hunter.
   function doFlap(fromHold) {
-    if (!S || !running) return;
+    if (!S || !running || side.photo) return;
     F.flap(S); side.flapRate += 3; Sound.flap();
     if (S.space && S.space.event && S.space.event.type === 'field') { const r = F.mine(S); if (r) { mineHit(r); } }
     const th = side.threat;
@@ -2412,6 +2653,107 @@
     };
   })();
   addEventListener('pointerdown', () => Sound.start(), { capture: true });
+
+  // ---------- haptics ----------
+  // The iPhone's Taptic Engine through Capacitor's Haptics plugin in the app; a short vibration
+  // on browsers that have one. Hooked to the same moments as the sound effects.
+  const Haptic = (() => {
+    const plug = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics;
+    let last = 0, on = true;
+    try { on = localStorage.getItem('flyway.haptics') !== 'off'; } catch (e) {}
+    const buzz = (ms) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} };
+    return {
+      get on() { return on; },
+      set on(v) { on = v; try { localStorage.setItem('flyway.haptics', v ? 'on' : 'off'); } catch (e) {} },
+      impact(style) {
+        const now = performance.now(); if (!on || now - last < 45) return; last = now;
+        const h = plug(); if (h) h.impact({ style }).catch(() => {}); else buzz(style === 'HEAVY' ? 28 : style === 'MEDIUM' ? 14 : 6);
+      },
+      notify(type) {
+        if (!on) return; const h = plug();
+        if (h) h.notification({ type }).catch(() => {}); else buzz(type === 'ERROR' ? [30, 40, 30] : [10, 30, 14]);
+      },
+    };
+  })();
+  for (const [k, fx] of Object.entries({ flap: () => Haptic.impact('LIGHT'), hit: () => Haptic.impact('MEDIUM'), stamp: () => Haptic.impact('MEDIUM'),
+    coin: () => Haptic.impact('LIGHT'), launch: () => Haptic.impact('HEAVY'), win: () => Haptic.notify('SUCCESS'), lose: () => Haptic.notify('ERROR') })) {
+    const orig = Sound[k]; if (typeof orig === 'function') Sound[k] = (...a) => { fx(); return orig(...a); };
+  }
+
+  // ---------- milestone moments ----------
+  const cineEl = $('cine');
+  let cineTimer = 0;
+  function cinematic(title, sub, secs = 3.2) {
+    $('cineTitle').innerHTML = `${title}${sub ? `<small>${sub}</small>` : ''}`;
+    cineEl.classList.add('on'); side.cine = { t: 0, T: secs + 0.6 };
+    clearTimeout(cineTimer); cineTimer = setTimeout(() => cineEl.classList.remove('on'), secs * 1000);
+  }
+
+  // ---------- photo mode ----------
+  // Hides the HUD so the world fills the screen; the shutter saves (or shares) a framed snapshot.
+  const photoBar = $('photoBar');
+  function photoMode(on) {
+    side.photo = on; document.body.classList.toggle('photo', on); photoBar.hidden = !on;
+    if (on) Haptic.impact('LIGHT');
+  }
+  function snapPhoto() {
+    const close = +sideCanvas.style.opacity > 0.5, src = close ? sideCanvas : glCanvas;
+    // draw a fresh frame and read it straight back, before the browser clears the buffer
+    if (close) fr.render(S.space ? sscene : fscene, fcam); else renderer.render(scene, camera);
+    const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    const g = c.getContext('2d'); g.drawImage(src, 0, 0);
+    const u = c.height / 900, pad = 26 * u;
+    g.font = `800 ${34 * u}px 'Bricolage Grotesque', sans-serif`; g.textBaseline = 'bottom';
+    g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = 12 * u; g.fillStyle = '#fff';
+    const where = S.space ? (F.SPACE[S.space.loop ? S.space.dest || 0 : 0] || {}).name || 'Space' : (F.legTo(S).name ? `${F.birdOf(S).name} · over ${currentPlace()}` : F.birdOf(S).name);
+    g.textAlign = 'left'; g.fillText(where, pad, c.height - pad);
+    g.font = `700 ${22 * u}px 'Bricolage Grotesque', sans-serif`; g.textAlign = 'right'; g.globalAlpha = 0.9;
+    g.fillText('Flyway · freefowl.com', c.width - pad, c.height - pad);
+    $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
+    Sound.stamp && Sound.stamp();
+    c.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `flyway-${Date.now()}.png`, { type: 'image/png' });
+      try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Flyway' }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      toast('Photo saved');
+    }, 'image/png');
+  }
+  function currentPlace() {
+    const a = F.legFrom(S), b = F.legTo(S), t = S.legKm / Math.max(1, F.legLen(S));
+    return (t < 0.5 ? a : b).name || 'the open sky';
+  }
+  $('btnPhoto').onclick = () => photoMode(true);
+  $('btnPhotoDone').onclick = () => photoMode(false);
+  $('btnSnap').onclick = (e) => { e.stopPropagation(); snapPhoto(); };
+  photoBar.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+  // ---------- seeds that fly to the purse ----------
+  // Big payouts pop up as "+123" over the bird and arc up into the seed counter, which bumps.
+  let flyLast = 0;
+  function heroScreen() {
+    const r = stage.getBoundingClientRect();
+    let v;
+    if (+sideCanvas.style.opacity > 0.5 && !S.space) v = hero.position.clone().project(fcam);
+    else v = birdSprite.position.clone().project(camera);
+    return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+  }
+  function flySeeds(amount, label) {
+    const now = performance.now(); if (!(amount > 0) || now - flyLast < 300) return; flyLast = now;
+    const purse = document.querySelector('.purse .amt'); if (!purse) return;
+    const [x0, y0] = heroScreen(), pr = purse.getBoundingClientRect(), x1 = pr.left + pr.width * 0.5, y1 = pr.top + pr.height * 0.5;
+    const el = document.createElement('div'); el.className = 'seedfly num';
+    el.textContent = `+${label || fmt(amount)}`; document.body.appendChild(el);
+    const mx = (x0 + x1) / 2 + 40, my = Math.min(y0, y1) - 60;
+    const anim = el.animate([
+      { transform: `translate(${x0}px, ${y0}px) scale(.6)`, opacity: 0 },
+      { transform: `translate(${x0}px, ${y0 - 34}px) scale(1.15)`, opacity: 1, offset: 0.25 },
+      { transform: `translate(${mx}px, ${my}px) scale(1)`, opacity: 1, offset: 0.6 },
+      { transform: `translate(${x1}px, ${y1}px) scale(.5)`, opacity: 0.2 },
+    ], { duration: 1100, easing: 'cubic-bezier(.3,.7,.4,1)' });
+    anim.onfinish = () => { el.remove(); purse.classList.remove('bump'); void purse.offsetWidth; purse.classList.add('bump'); Haptic.impact('LIGHT'); };
+  }
   addEventListener('keydown', () => Sound.start(), { capture: true });
 
   // ======================================================================
@@ -2695,12 +3037,19 @@
   $('btnPassport').onclick = () => {
     const box = $('stamps'); box.innerHTML = '';
     const regionCol = { 'North America': '#2557a7', 'South America': '#2b8a57', Africa: '#b5651d', Europe: '#7a3ea0', Asia: '#cf2e3a', Oceania: '#11808a' };
+    // stamps earned since the passport was last opened thump down one after another
+    const seen = S.passSeen || 0, order = new Map(S.visited.map((ci, k) => [ci, k])); let fresh = 0;
     for (const c of CITIES) {
       const got = S.visited.includes(c.i), d = document.createElement('div');
       d.className = 'stamp' + (got ? ' got' : ''); if (got) d.style.color = regionCol[c.region];
-      d.textContent = got ? c.name : '?'; d.title = got ? `${c.name}, ${c.region}` : `Somewhere in ${c.region}`;
+      if (got) { const sp = document.createElement('span'); sp.textContent = c.name; d.append(sp); d.style.setProperty('--rot', `${Math.round((hash(c.i, 5) - 0.5) * 24)}deg`); }
+      else d.textContent = '?';
+      if (got && order.get(c.i) >= seen && seen > 0) { d.classList.add('fresh'); d.style.setProperty('--d', `${0.25 + fresh++ * 0.18}s`); }
+      d.title = got ? `${c.name}, ${c.region}` : `Somewhere in ${c.region}`;
       box.append(d);
     }
+    if (fresh) setTimeout(() => Sound.stamp(), 300);
+    S.passSeen = S.visited.length;
     for (const b of F.SPACE) {
       const got = S.cosmos.includes(b.id), d = document.createElement('div');
       d.className = 'stamp world' + (got ? ' got' : ''); if (got) d.style.color = '#5b3d8a';
@@ -2892,6 +3241,7 @@
     if (th.ok) {
       let bonus = F.predatorMiss(S); dailyHit('fights'); Sound.win();
       bonus += extra(bonus * sp) || 0;
+      flySeeds(bonus);
       banner.classList.add('ok'); meterEl.style.width = '100%';
       $('threatText').textContent = th.type === 'hunter'
         ? `Out of range! The hunter gave up. +${fmt(bonus)} seeds`
@@ -3031,8 +3381,9 @@
         : '<p class="expo-note">All gear owned. Every world is within reach.</p>'}`;
       const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear');
       box.querySelectorAll('[data-loop]').forEach((bt) => bt.onclick = () => {
-        const k = +bt.dataset.loop, switching = !!S.space;
+        const k = +bt.dataset.loop, switching = !!S.space, firstTime = !S.cosmos.includes(F.SPACE[k].id || F.SPACE[k].key);
         if (!F.launchLoop(S, k)) return;
+        if (!switching || firstTime) cinematic('Liftoff!', `Next stop: ${F.SPACE[k].name}`, 3.6);
         moonOvalKey = '';
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
@@ -3243,6 +3594,9 @@
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
         if (e.first) { stamp(e.city, e.bonus, true); Sound.stamp(); dailyHit('cities'); } // stamp only the first time the bird lands somewhere
+        if (e.type === 'arrive' && e.bonus > 0 && !e.waypoint) flySeeds(e.bonus);
+        if (e.first && S.visited.length === 2) cinematic(`First stamp: ${e.city.name}`, 'Your passport has its first stamp');
+        if (e.lapDone && S.lapsTotal === 1) setTimeout(() => cinematic('Around the world!', `${F.birdOf(S).name} circled the whole planet`), 600);
         if (e.lapDone) { dailyHit('laps'); if (S.lapsTotal <= 100) Sound.chime(); }
         if (e.wx === 'storm' && S.wx.left >= 29) dailyHit('storm');
         forecast(e);
@@ -3269,9 +3623,12 @@
         if (sa < 1) updateSpaceChart(dt);
         if (sa > 0) updateSpace(dt);
       } else {
-        if (sa < 1) updateGlobe(dt);
+        const pip = sa > 0.98 && SW >= 700 && SH >= 500; // iPad-size stage, either way up
+        setPip(pip);
+        if (sa < 1 || pip) updateGlobe(dt, pip);
         if (sa > 0) updateFlight(dt);
       }
+      if (S.space) setPip(false);
       uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); refreshEventChip(); }
       Sound.tick(); Sound.setScene(S.space ? 'space' : 'earth');
       Sound.setWind(S.space ? 0.15 : Math.min(1, 0.25 + Math.log10(1 + F.speed(S)) / 4) * smooth(SIDE_A, SIDE_B, Z));

@@ -47,7 +47,7 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 #side { opacity: 0; pointer-events: none; }
 
 /* ---------- top HUD ---------- */
-.hud { position: absolute; left: 0; right: 0; top: 0; padding: calc(10px + env(safe-area-inset-top)) 14px 0;
+.hud { position: absolute; left: 0; right: 0; top: 0; padding: calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 0 calc(14px + env(safe-area-inset-left));
   display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 .bar { display: flex; align-items: center; gap: 10px; }
@@ -209,6 +209,32 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .postmark .bonus { position: absolute; left: 0; right: 0; top: 100%; text-align: center; margin-top: 8px;
   font-family: var(--display); font-weight: 800; font-size: 22px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
 
+/* milestone moments: letterbox bars and a title */
+.cine { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.cine i { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .6s ease; }
+.cine i:first-child { top: 0; } .cine i:last-of-type { bottom: 0; }
+.cine.on i { height: 11%; }
+.cine-title { position: absolute; left: 0; right: 0; bottom: 14%; text-align: center; color: #fff; font-family: var(--display);
+  font-weight: 800; font-size: clamp(22px, 5vw, 38px); letter-spacing: -.3px; text-shadow: 0 3px 18px rgba(0,0,0,.6); opacity: 0; transform: translateY(10px);
+  transition: opacity .6s ease .3s, transform .6s ease .3s; }
+.cine.on .cine-title { opacity: 1; transform: none; }
+.cine-title small { display: block; font-size: .5em; font-weight: 600; opacity: .85; margin-top: 4px; }
+/* photo mode: everything but the world fades away */
+body.photo .hud, body.photo .flap, body.photo #labels, body.photo .threat, body.photo .zoom, body.photo .hint, body.photo #globe.pip { opacity: 0 !important; pointer-events: none !important; }
+.photobar { position: absolute; left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; justify-content: center; align-items: center; gap: 22px; z-index: 6; }
+.pbtn { width: 68px; height: 68px; border-radius: 50%; border: 4px solid #fff; display: grid; place-items: center; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+.pbtn span { width: 52px; height: 52px; border-radius: 50%; background: #fff; transition: transform .1s; }
+.pbtn:active span { transform: scale(.88); }
+.pdone { position: absolute; right: 18px; color: #fff; font-weight: 800; background: rgba(6,12,31,.55); padding: 9px 16px; border-radius: 999px; }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 7; }
+.flash.go { animation: flash .45s ease-out; }
+@keyframes flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+/* seeds flying to the purse, and the purse bumping when they land */
+.seedfly { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; font-weight: 800; font-size: 22px; color: #ffe08a;
+  text-shadow: 0 2px 0 #9b6c12, 0 4px 12px rgba(0,0,0,.45); white-space: nowrap; margin: -14px 0 0 -20px; }
+.purse .amt.bump { animation: bump .35s cubic-bezier(.3,1.6,.5,1); }
+@keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); color: #ffe08a; } 100% { transform: scale(1); } }
+.purse .amt { display: inline-block; transform-origin: left center; }
 /* ---------- drawer ---------- */
 #drawer { position: relative; background: var(--paper); display: flex; flex-direction: column; min-height: 0;
   padding-bottom: env(safe-area-inset-bottom); }
@@ -279,9 +305,36 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
 .stamp { aspect-ratio: 1; border: 2px dashed #c9d1de; border-radius: 6px; display: grid; place-items: center;
   text-align: center; font-size: 10.5px; color: #9aa6bc; padding: 4px; line-height: 1.15; }
 .stamp.got { border: 2px solid currentColor; font-weight: 700; background: #fff; }
+/* passport stamps look inked: a double ring postmark, a little crooked, with worn ink */
+.stamp.got:not(.world) { border: none; background: none; position: relative; border-radius: 50%; transform: rotate(var(--rot, -8deg));
+  font-family: var(--display); font-size: 10px; letter-spacing: .3px; text-transform: uppercase; }
+.stamp.got:not(.world)::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; border: 2.5px solid currentColor;
+  box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 4.5px currentColor; opacity: .85; }
+.stamp.got:not(.world) span { position: relative; padding: 0 10px; opacity: .9; }
+.stamp.got:not(.world) span::after { content: '✈'; display: block; font-size: 11px; margin-top: 2px; }
+.stamp.fresh { animation: thunk .5s cubic-bezier(.2,1.6,.4,1) both; animation-delay: var(--d, 0s); }
+@keyframes thunk { 0% { transform: scale(1.9) rotate(calc(var(--rot, -8deg) - 14deg)); opacity: 0; } 60% { opacity: 1; } 100% { transform: scale(1) rotate(var(--rot, -8deg)); opacity: 1; } }
+/* every sheet is a sheet of airmail paper */
+.card { background-color: var(--paper); background-image: radial-gradient(rgba(120,100,60,.05) 1px, transparent 1.2px); background-size: 7px 7px; }
+.card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 7px; border-radius: 18px 18px 0 0;
+  background: repeating-linear-gradient(-45deg, var(--red) 0 12px, var(--paper) 12px 18px, var(--blue) 18px 30px, var(--paper) 30px 36px); }
+.sheet.on .card { animation: cardIn .32s cubic-bezier(.2,1.2,.4,1); }
+@keyframes cardIn { from { transform: translateY(18px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .stamp.fresh, .sheet.on .card { animation: none; } }
 .back { font-size: 13px; color: var(--ink-2); margin-top: 14px; display: block; text-align: center; }
 .back a { color: var(--blue); }
 
+/* iPad and wide screens: while you're in the close-up, the globe rides along as a round inset */
+#globe.pip { inset: auto; left: calc(18px + env(safe-area-inset-left)); bottom: 64px; width: 210px; height: 210px; border-radius: 50%;
+  z-index: 2; box-shadow: 0 0 0 3px rgba(255,255,255,.85), 0 10px 30px rgba(0,0,0,.45); cursor: zoom-out; }
+/* phones on their side: drawer moves to the right so the sky gets the height */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --drawer-h: 100vh; }
+  #app { grid-template-rows: 1fr; grid-template-columns: 1fr calc(320px + env(safe-area-inset-right)); }
+  #drawer { height: 100vh; padding-right: env(safe-area-inset-right); }
+  #drawer::before { left: -8px; right: auto; top: 0; bottom: 0; width: 8px; height: auto; }
+  #globe.pip { width: 140px; height: 140px; bottom: 54px; }
+}
 @media (min-width: 900px) {
   #app { grid-template-rows: 1fr; grid-template-columns: 1fr 380px; }
   #drawer { height: 100vh; }
@@ -313,6 +366,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <span class="spacer"></span>
         <span class="chip rocks" id="rocksChip" hidden>☄️ <span class="num" id="rocksCount">0</span></span>
         <button class="chip" id="btnShop" aria-label="Open the feather shop" hidden>🪶 <span class="num" id="shopCount">0</span></button>
+        <button class="chip" id="btnPhoto" aria-label="Photo mode">📷</button>
         <button class="chip" id="btnSound" aria-label="Mute sound">🔊</button>
         <button class="chip" id="btnPassport" aria-label="Open passport">🛂 <span class="num" id="stampCount">1</span></button>
         <button class="chip" id="btnMenu" aria-label="Open menu">☰</button>
@@ -342,6 +396,12 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
       <button id="zin" aria-label="Zoom in to the bird">+</button>
       <button id="zout" aria-label="Zoom out to the globe">−</button>
     </div>
+    <div class="cine" id="cine" aria-hidden="true"><i></i><i></i><div class="cine-title" id="cineTitle"></div></div>
+    <div class="photobar" id="photoBar" hidden>
+      <button class="pbtn" id="btnSnap" aria-label="Take a photo"><span></span></button>
+      <button class="pdone" id="btnPhotoDone">Done</button>
+    </div>
+    <div class="flash" id="flash"></div>
     <button class="flap" id="flap" aria-label="Flap for a speed boost">
       <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="46"/><circle class="ring" id="ring" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289"/></svg>
       <b id="flapLabel">FLAP</b><span id="boostPct">+0%</span>

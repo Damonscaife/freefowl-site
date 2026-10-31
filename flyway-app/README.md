@@ -74,3 +74,17 @@ Then in Xcode raise the **Build** number by 1 and Archive/Upload again (step 3.4
   export-compliance question.
 - Icon source: `assets/icon-only.png` (1024×1024). Splash: `assets/splash.png`.
   After changing either, run `npm run icons`.
+
+## App Store screenshots and preview
+
+`assets/appstore/` holds draft store assets made from the web build:
+
+- `iphone69-*.jpg`: five 6.9 inch iPhone screenshots (1320 x 2868) with captions
+- `ipad13-*.jpg`: five 13 inch iPad screenshots (2064 x 2752) with captions
+- `app-preview-iphone69-draft.mp4`: a 30 second App Preview (886 x 1920, 30 fps, silent audio track)
+
+They were rendered in a software browser, so motion in the preview is smoother on a real device.
+For the final upload, record the preview on an iPhone (Control Center screen recording) once the
+build is on TestFlight, and retake the screenshots there if anything looks off.
+To regenerate the drafts: serve the repo root (`python3 -m http.server 8765`), then run
+`python3 scripts/store.py` and `python3 scripts/preview.py` (needs Playwright and ffmpeg for the trim).
