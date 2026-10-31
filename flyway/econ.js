@@ -218,7 +218,7 @@
       blurb: (L) => `${L} follower${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} seeds, auto-flap` },
     { id: 'stamina', name: 'Stamina', icon: '💪', get base() { return T.bS; }, get growth() { return T.gS; },
       blurb: (L) => `flap boost up to +${Math.round(boostCap(L) * 100)}%` },
-    // defences against hawks, owls and hunters
+    // defences against hawks and owls
     { id: 'keen', name: 'Keen Eyes', icon: '👁️', base: 2000, growth: 2.4,
       blurb: (L) => `warnings ${fmt(2 + 0.2 * L, 1)}s ahead · ${Math.max(2, 8 - Math.min(6, Math.floor(L * 0.5)))} flaps to dodge` },
     { id: 'camo', name: 'Camouflage', icon: '🍂', base: 5000, growth: 2.8,
@@ -559,9 +559,9 @@
     storm: { name: 'Storm', icon: '⛈️', speed: 0.85, seeds: 1.5, weight: 10, note: 'predators grounded, +50% seeds' },
   };
   // Catch the Wind: tailwinds come more often, last longer and push harder
-  const tailBoost = (L) => 1.5 + 0.25 * L;
-  const tailWeight = (L) => 22 * (1 + 0.4 * L);
-  const tailSecs = (L) => WX_SECS + 4 * L;
+  const tailBoost = (L) => 1.5 + 0.125 * L;
+  const tailWeight = (L) => 22 * (1 + 0.2 * L);
+  const tailSecs = (L) => WX_SECS + 2 * L;
   const tailShare = (L) => { const tot = Object.keys(WEATHER).reduce((a, k) => a + (k === 'tailwind' ? tailWeight(L) : WEATHER[k].weight), 0); return Math.round(tailWeight(L) / tot * 100); };
   function wxSpeed(s) { const w = wxOf(s); return w === WEATHER.tailwind ? tailBoost(s.levels.tail || 0) : w.speed; }
   function wxNote(s, type) { return type === 'tailwind' ? `×${fmt(tailBoost(s.levels.tail || 0), 2)} speed` : WEATHER[type].note; }

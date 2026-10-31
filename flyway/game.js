@@ -353,6 +353,68 @@
   }
   // the ground height a strip actually uses at local x / depth z, coast slopes included,
   // so trees, lakes and clouds sit on (or above) the same surface the mesh draws
+  // ---- roads and traffic ----
+  let curRoad = null; // the road of the strip being built, so its trees and towers keep clear
+  const roadTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = '#4a4c52'; g.fillRect(0, 0, 64, 128);
+    g.fillStyle = '#d9d9d2'; g.fillRect(2, 0, 3, 128); g.fillRect(59, 0, 3, 128);
+    g.fillStyle = '#f2c94c'; g.fillRect(30, 0, 4, 64);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapT = THREE.RepeatWrapping; return t;
+  })();
+  const roadMat = new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const carGeo = new THREE.BoxGeometry(2, 0.75, 1).translate(0, 0.6, 0);
+  const cabGeo = new THREE.BoxGeometry(1, 0.55, 0.9).translate(-0.1, 1.2, 0);
+  const CAR_MATS = ['#d6453d', '#f2f2f2', '#2f6fd1', '#f0b429', '#3a3d45', '#3fa36b', '#9aa3ad'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.2 });
+  function addRoad(grp, seed, hAt, highway) {
+    const xs = (hash(seed, 71) - 0.5) * (CW - 30), bend = 30 + hash(seed, 72) * 25, width = highway ? 7 : 4;
+    // from just in front of the camera, away into the distance, bending off to the left
+    const pts = [];
+    for (let i = 0; i <= 48; i++) { const s = i / 48; pts.push(new THREE.Vector3(xs - bend * Math.pow(s, 1.6), 0, 10 - 250 * s)); }
+    let len = 0; const lens = [0];
+    for (let i = 1; i < pts.length; i++) { len += pts[i].distanceTo(pts[i - 1]); lens.push(len); }
+    const pos = [], uv = [], idx = [];
+    pts.forEach((p, i) => {
+      const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)], tx = q.x - o.x, tz = q.z - o.z, tl = Math.hypot(tx, tz);
+      const nx = -tz / tl * width / 2, nz = tx / tl * width / 2;
+      const y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
+      p.y = y;
+      pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (highway ? 10 : 7), 1, lens[i] / (highway ? 10 : 7));
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    grp.add(new THREE.Mesh(g, roadMat));
+    // traffic both ways
+    const cars = [], n = highway ? 10 : 5;
+    for (let i = 0; i < n; i++) {
+      const car = new THREE.Group(), mat = CAR_MATS[Math.floor(hash(seed + i, 73) * CAR_MATS.length)];
+      const body = new THREE.Mesh(carGeo, mat), cab = new THREE.Mesh(cabGeo, glassMat);
+      body.userData.shared = cab.userData.shared = true; car.add(body, cab); grp.add(car);
+      const dir = i % 2 ? 1 : -1, lanes = highway ? 2 : 1, lane = (0.5 + Math.floor(hash(i, seed) * lanes)) / lanes;
+      cars.push({ car, s: hash(seed, i + 80) * len, dir, off: dir * lane * width / 2 * 0.9, v: (highway ? 9 : 6) + hash(i, seed + 81) * 4 });
+    }
+    return { pts, lens, len, cars };
+  }
+  function nearRoad(x, z, r) {
+    const road = curRoad; if (!road) return false;
+    for (const p of road.pts) if (Math.abs(p.z - z) < r + 6 && Math.hypot(p.x - x, p.z - z) < r + 0) return true;
+    return false;
+  }
+  function updateTraffic(road, dt) {
+    const { pts, lens, len } = road;
+    for (const c of road.cars) {
+      c.s = (c.s + c.dir * c.v * dt + len) % len;
+      let i = 1; while (i < lens.length - 1 && lens[i] < c.s) i++;
+      const a = pts[i - 1], b = pts[i], k = (c.s - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
+      const tx = b.x - a.x, tz = b.z - a.z, tl = Math.hypot(tx, tz) || 1;
+      c.car.position.set(lerp(a.x, b.x, k) - tz / tl * c.off, lerp(a.y, b.y, k), lerp(a.z, b.z, k) + tx / tl * c.off);
+      c.car.rotation.y = -Math.atan2(tz * c.dir, tx * c.dir);
+    }
+  }
+  const HARBOUR = 10; // width of the harbour basin between a seaside city's quay and the open sea
   function stripHeight(kind, prevKind, nextKind, wx0, lx, z) {
     if (kind === 'sea') return -6;
     const wx = wx0 + lx + CW / 2;
@@ -360,10 +422,15 @@
     let h = landHeight(wx, z);
     // a city sits on a plain that rises smoothly into the hills on either side, so the
     // ground runs unbroken into and out of town instead of stepping down at the edge
-    if (kind === 'city') h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, Math.min(dl, dr)));
+    if (kind === 'city') {
+      const dLand = Math.min(prevKind === 'sea' ? Infinity : dl, nextKind === 'sea' ? Infinity : dr);
+      h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, dLand));
+    }
     let t = 1;
-    if (prevKind === 'sea') t = Math.min(t, smooth(0, 26, dl));
-    if (nextKind === 'sea') t = Math.min(t, smooth(0, 26, dr));
+    // open land slopes down to a beach; a city on the water ends in a harbour quay instead
+    const shore = kind === 'city' ? (d) => smooth(HARBOUR - 1.5, HARBOUR, d) : (d) => smooth(0, 26, d);
+    if (prevKind === 'sea') t = Math.min(t, shore(dl));
+    if (nextKind === 'sea') t = Math.min(t, shore(dr));
     return -6 + (h + 6) * t;
   }
   function buildChunk(kind, geo, prevKind, nextKind, name) {
@@ -383,17 +450,64 @@
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
     const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z);
-    if (kind === 'city') addCity(grp, name, wx0, hAt);
+    // a paved road (a highway through cities) running away from you and curving off to the left
+    const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
+    curRoad = kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hash(wx0, 70) < 0.3)
+      ? addRoad(grp, wx0, hAt, kind === 'city') : null;
+    if (kind === 'city') addCity(grp, name, wx0, hAt, prevKind === 'sea', nextKind === 'sea');
+    // now and then the bird swoops right down between the towers of a city it passes
+    if (fly) addCanyon(grp, wx0, hAt);
     if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt); if (kind === 'land') addLake(grp, b, wx0, hAt); }
     else addSea(grp, wx0);
-    return { grp, kind, wx0, hAt };
+    const road = curRoad; curRoad = null;
+    return { grp, kind, wx0, hAt, fly, road };
   }
-  function addCity(grp, name, seed, hAt) {
+  // a seaside city's waterfront: wooden piers into the basin, boats tied up, and dock cranes on the quay
+  const pierMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.9 });
+  let CRANE_MAT = null;
+  function addHarbour(grp, seed, seaL, seaR) {
+    CRANE_MAT = CRANE_MAT || sceneryMat(paintTex(160, 256, (g, W, H) => {
+      g.strokeStyle = '#e07a26'; g.lineWidth = 7; g.lineCap = 'square';
+      g.beginPath(); g.moveTo(W * 0.3, H); g.lineTo(W * 0.3, H * 0.18); g.moveTo(W * 0.55, H); g.lineTo(W * 0.55, H * 0.18); g.stroke();
+      g.lineWidth = 3; for (let y = H * 0.25; y < H; y += H * 0.12) { g.beginPath(); g.moveTo(W * 0.3, y); g.lineTo(W * 0.55, y + H * 0.1); g.stroke(); }
+      g.lineWidth = 8; g.beginPath(); g.moveTo(W * 0.05, H * 0.16); g.lineTo(W * 0.98, H * 0.16); g.stroke();
+      g.fillStyle = '#c45f18'; g.fillRect(W * 0.24, H * 0.06, W * 0.36, H * 0.1);
+      g.strokeStyle = '#333'; g.lineWidth = 2; g.beginPath(); g.moveTo(W * 0.88, H * 0.18); g.lineTo(W * 0.88, H * 0.5); g.stroke();
+      g.fillStyle = '#3d6fb0'; g.fillRect(W * 0.8, H * 0.5, W * 0.16, H * 0.07);
+    }), { fog: true });
+    const sides = [];
+    if (seaL) sides.push(-1); if (seaR) sides.push(1);
+    const y = GROUND + 1.1;
+    for (const sd of sides) {
+      const edge = sd * CW / 2, quay = edge - sd * HARBOUR; // basin runs from the quay out to the strip edge
+      const piers = [], m = new THREE.Matrix4();
+      for (let z = -12; z > -170; z -= 14 + hash(seed, z) * 10) piers.push(z);
+      const inst = new THREE.InstancedMesh(towerGeo, pierMat, piers.length);
+      piers.forEach((z, i) => {
+        const len = 6 + hash(z, seed) * 4;
+        m.compose(new THREE.Vector3(quay + sd * len / 2, y - 0.6, z), new THREE.Quaternion(), new THREE.Vector3(len, 0.6, 1.4)); inst.setMatrixAt(i, m);
+        // a boat moored alongside most piers
+        if (hash(seed, i + 30) < 0.7) {
+          const big = hash(seed, i + 40) < 0.25, sh = big ? SHIPS.target : SHIPS.fishing, sp = new THREE.Sprite(sh.mat);
+          sp.center.set(0.5, 0.12); sp.scale.set(sh.w * (big ? 0.8 : 0.8), sh.h * 0.8, 1);
+          sp.position.set(quay + sd * len * 0.55, GROUND + 0.5, z - 2.2); grp.add(sp);
+        }
+      });
+      grp.add(inst);
+      // a couple of cranes standing on the quay, arms out over the water
+      for (let k = 0; k < 2; k++) {
+        const sp = new THREE.Sprite(CRANE_MAT); sp.center.set(0.5, 0); sp.scale.set(sd * 9, 14, 1);
+        sp.position.set(quay - sd * 2, GROUND + 2.5, -30 - k * 45 - hash(seed, k) * 20); grp.add(sp);
+      }
+    }
+  }
+  function addCity(grp, name, seed, hAt, seaL, seaR) {
+    if (seaL || seaR) addHarbour(grp, seed, seaL, seaR);
     const n = 90, inst = new THREE.InstancedMesh(towerGeo, towerMat, n), m = new THREE.Matrix4();
     for (let i = 0; i < n; i++) {
       const x = (hash(seed, i) - 0.5) * (CW - 10), z = -30 - hash(i, seed) * 130;
       const core = 1 - Math.min(1, Math.hypot(x / (CW * 0.5), (z + 95) / 65));
-      const h = 3 + core * core * 30 * (0.4 + hash(i * 3, seed) * 0.9);
+      const h = hAt(x - 2, z) < 1.5 || hAt(x + 2, z) < 1.5 || nearRoad(x, z, 6) ? 0 : 3 + core * core * 30 * (0.4 + hash(i * 3, seed) * 0.9); // nothing built in the harbour
       const w = 2.2 + hash(i, i + seed) * 3;
       m.compose(new THREE.Vector3(x, GROUND + hAt(x, z) - 0.6, z), new THREE.Quaternion(), new THREE.Vector3(w, h, w * (0.7 + hash(seed, i * 7) * 0.6)));
       inst.setMatrixAt(i, m);
@@ -410,6 +524,47 @@
       sp.scale.set(36, 6.75, 1); sp.position.set(0, GROUND + 36, -95); grp.add(sp);
     }
   }
+  // the street the bird swoops down: tall towers just behind its line of flight, shorter
+  // ones just in front, so it reads as flying through the city rather than over it
+  const SWOOP = 11; // how far the bird drops into the street
+  // close-up towers get window bands and a few tints so they read as buildings, not grey walls
+  const winTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 512; const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 512);
+    for (let y = 6; y < 512; y += 12) for (let x = 5; x < 64; x += 11) { g.fillStyle = Math.random() < 0.25 ? '#fff2c0' : '#6f86a6'; g.fillRect(x, y, 7, 7); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const canyonMat = new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.6, emissive: 0x000000, emissiveMap: winTex });
+  const TOWER_TINTS = ['#d9dee6', '#c9d6e8', '#e6dccb', '#b9c7d9', '#d6d0c4', '#aebfd2'];
+  function addCanyon(grp, seed, hAt) {
+    const spots = [];
+    for (let x = -CW / 2 + 12; x < CW / 2 - 12; x += 7 + hash(seed, x) * 4) {
+      spots.push([x, -6 - hash(x, seed) * 8, -2 + hash(seed + 1, x) * 12, 3 + hash(x, seed + 2) * 1.6]);     // back row rises past the bird
+    }
+    for (let x = -CW / 2 + 15; x < CW / 2 - 15; x += 10 + hash(seed + 3, x) * 7) {
+      if (hash(x, seed + 4) < 0.3) continue;                                                              // gaps to see through
+      spots.push([x, 4 + hash(seed + 5, x) * 2, -SWOOP - 5 + hash(x, seed + 6) * 4.5, 2.2 + hash(seed + 7, x) * 1.2]); // front row, mostly below the bird
+    }
+    const inst = new THREE.InstancedMesh(towerGeo, canyonMat, spots.length), m = new THREE.Matrix4(), col = new THREE.Color();
+    spots.forEach(([x, z, top, w], i) => {
+      if (hAt(x, z) < 1.5) top = -999; // never in the harbour
+      const base = GROUND + hAt(x, z) - 0.6;
+      m.compose(new THREE.Vector3(x, base, z), new THREE.Quaternion(), new THREE.Vector3(w, top < -500 ? 0.01 : Math.max(2, top - base), w * 0.9));
+      inst.setMatrixAt(i, m); inst.setColorAt(i, col.setStyle(TOWER_TINTS[Math.floor(hash(seed + i, 9) * TOWER_TINTS.length)]));
+    });
+    grp.add(inst);
+  }
+  // how far into a flythrough street the bird is right now (0 none … 1 deepest)
+  function swoopNow() {
+    if (side.threat || side.bug) return 0;
+    for (const c of world.chunks) {
+      if (!c.fly) continue;
+      const p = -c.grp.position.x / (CW / 2); // −1 entering … 1 leaving
+      if (p < -1.6 || p > 1.6) continue;
+      return smooth(-1.45, -0.6, p) * (1 - smooth(0.6, 1.45, p));
+    }
+    return 0;
+  }
   function disposeChunk(c) {
     c.grp.traverse((o) => {
       if (o.userData.shared || (o.material && o.material.userData && o.material.userData.shared)) return; // shared scenery stays loaded
@@ -419,8 +574,9 @@
   }
 
   // What will be under the bird by the time a strip now at world x reaches it.
+  // uses a smoothed speed, so a quick flap or a gust doesn't throw the whole road ahead off
   function lookahead(sec) {
-    const km = Math.min(F.legLen(S), S.legKm + F.speed(S) * sec);
+    const km = Math.min(F.legLen(S), S.legKm + (side.vS || F.speed(S)) * sec);
     return F.lerpGeo(F.legFrom(S), F.legTo(S), km / F.legLen(S));
   }
   const kindAt = (g) => (isLand(g.lat, g.lon) ? 'land' : 'sea');
@@ -465,23 +621,32 @@
     g.restore();
   }), { fog: true, opacity: 0.96 }));
   function makeCloud(x) {
-    const c = chunkAtX(x);
+    // is there land anywhere under (or behind) where this cloud would hang?
+    const samples = [-0.5, -0.25, 0, 0.25, 0.5].map((k) => chunkAtX(x + k * 56));
+    const overLand = samples.some((c) => c && c.kind !== 'sea');
     // the small near-lens clouds only drift over open water, where nothing below can poke through them
-    const far = Math.random() < 0.9 || (c && c.kind !== 'sea');
+    const far = Math.random() < 0.9 || overLand;
     const sp = new THREE.Sprite(CLOUD_MATS[Math.floor(Math.random() * CLOUD_MATS.length)]);
     const w = far ? 22 + Math.random() * 34 : 8 + Math.random() * 6;
     sp.scale.set(w, w / 2, 1);
     // keep clouds off the camera's lens: well behind the bird, or small and low
-    const z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
+    let z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
     let y = far ? -6 + Math.random() * 36 : -15 + Math.random() * 5;
-    // over land, lift the cloud clear of the hills beneath it so it never looks parked on the ground
-    if (c && c.kind !== 'sea') {
-      let top = -Infinity;
-      for (const k of [-0.45, -0.2, 0, 0.2, 0.45]) {
-        const cx = x + k * w, cc = chunkAtX(cx) || c;
-        if (cc.kind !== 'sea') top = Math.max(top, GROUND + cc.hAt(cx - cc.grp.position.x, z));
+    if (overLand) {
+      // over land the clouds hang far off in the background, above the skyline: from the camera,
+      // the cloud's flat base must sit higher than every hill top between it and the camera
+      z = -340 - Math.random() * 130;
+      const camY = 4, camZ = 16;
+      let maxA = -Infinity;
+      for (const k of [-0.5, -0.25, 0, 0.25, 0.5]) {
+        const cx = x + k * w, c = chunkAtX(cx);
+        for (let zz = -30; zz >= -360; zz -= 30) {
+          const h = c && c.kind !== 'sea' ? GROUND + c.hAt(cx - c.grp.position.x, zz) : GROUND - 6;
+          maxA = Math.max(maxA, (h - camY) / (camZ - zz));
+        }
       }
-      y = Math.max(y, top + (far ? 14 + Math.random() * 18 : 9));
+      const base = camY + maxA * (camZ - z) + 4;      // the puff's flat bottom, just above the skyline
+      y = base + 0.11 * w + Math.random() * 5;        // the base is 22% of the sprite up from its centre
     }
     sp.position.set(x, y, z);
     fscene.add(sp); world.clouds.push(sp);
@@ -522,7 +687,9 @@
   const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine'], tundra: ['pine'], tropic: ['palm', 'round'], desert: ['cactus'] };
   function addTrees(grp, b, wx0, kind, hAt) {
     const kinds = TREES_FOR[b]; if (!kinds) return;
-    const n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : 34;
+    // some stretches of land are proper forest: dense, and the trees grow bigger
+    const forest = kind === 'land' && (b === 'temperate' || b === 'boreal' || b === 'tropic') && hash(wx0, 60) < 0.3;
+    const n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? 160 : 34;
     for (let i = 0; i < n; i++) {
       const lx = (hash(wx0, i) - 0.5) * (CW - 4), z = -6 - hash(i, wx0 + 3) * 170;
       if (kind === 'city' && z > -140) continue;
@@ -532,9 +699,9 @@
       const sz = DEPTH / 60, zr = (ZC + DEPTH / 2 - z) / sz, j0 = Math.floor(zr), fz = zr - j0;
       const X0 = -CW / 2 + i0 * sx, Z0 = ZC + DEPTH / 2 - j0 * sz;
       const h = lerp(lerp(hAt(X0, Z0), hAt(X0 + sx, Z0), fx), lerp(hAt(X0, Z0 - sz), hAt(X0 + sx, Z0 - sz), fx), fz);
-      if (h > 30 || h < 0.5) continue; // no trees on bare rock and snow, or down at the waterline
+      if (h > 30 || h < 0.5 || nearRoad(lx, z, 3.5)) continue; // no trees on bare rock and snow, at the waterline or on the road
       const sp = new THREE.Sprite(TREE_MATS[kinds[Math.floor(hash(i, wx0) * kinds.length)]]);
-      const size = 3 + hash(wx0 + i, 7) * 4;
+      const size = (3 + hash(wx0 + i, 7) * 4) * (forest ? 1.25 : 1);
       sp.center.set(0.5, 0.02); sp.scale.set(size * 0.67, size, 1);
       sp.position.set(lx, GROUND + h - 0.25, z); grp.add(sp);
     }
@@ -599,19 +766,37 @@
       g.fillStyle = '#ffffff'; g.font = 'bold 20px sans-serif'; g.fillText('71', W * 0.12, H * 0.8);
     }) },
   };
+  // the ship a warship is shooting at: a rusty dark freighter
+  SHIPS.target = { w: 13, h: 6, tex: paintTex(320, 150, (g, W, H) => {
+    hull(g, W * 0.04, W * 0.96, H * 0.58, H * 0.9, '#2d2a2a'); g.fillStyle = '#8c2f22'; g.fillRect(W * 0.06, H * 0.8, W * 0.86, H * 0.05);
+    g.fillStyle = '#4a4440'; g.fillRect(W * 0.08, H * 0.36, W * 0.2, H * 0.22); g.fillStyle = '#c8a24a'; g.fillRect(W * 0.12, H * 0.42, W * 0.04, H * 0.05); g.fillRect(W * 0.2, H * 0.42, W * 0.04, H * 0.05);
+    g.fillStyle = '#6b3b2a'; for (let k = 0; k < 4; k++) g.fillRect(W * (0.34 + k * 0.15), H * 0.44, W * 0.12, H * 0.14);
+    g.fillStyle = '#3a3533'; g.fillRect(W * 0.16, H * 0.14, W * 0.05, H * 0.22);
+  }) };
   for (const k in SHIPS) SHIPS[k].mat = sceneryMat(SHIPS[k].tex, { fog: true });
+  // gunfire pieces, shared: muzzle flash, shell, explosion and the white water column of a miss
+  const fxMat = (inner, outer) => { const m = new THREE.SpriteMaterial({ map: dotTexture(inner, outer), transparent: true, depthWrite: false, fog: false }); m.userData.shared = true; return m; };
+  const FLASH_MAT = fxMat('#fffbe0', 'rgba(255,190,60,.8)'), SHELL_MAT = fxMat('#fff3c0', 'rgba(255,160,40,.6)');
+  const BOOM_MAT = fxMat('#fff2b0', 'rgba(255,110,30,.9)'), SMOKE_MAT = fxMat('rgba(70,62,58,.9)', 'rgba(60,55,52,.5)');
+  const SPLASH_MAT = sceneryMat(paintTex(64, 128, (g, W, H) => {
+    const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.3, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(220,235,245,.9)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(W * 0.2, H); g.quadraticCurveTo(W * 0.3, H * 0.2, W * 0.5, 0); g.quadraticCurveTo(W * 0.7, H * 0.2, W * 0.8, H); g.fill();
+  }), { fog: true });
+  const fx = (mat, grp, x, y, z, w, h = w) => { const sp = new THREE.Sprite(mat); sp.scale.set(w, h, 1); sp.position.set(x, y, z); sp.userData.shared = true; grp.add(sp); return sp; };
   function addSea(grp, wx0) {
     const y = GROUND + 0.7, waves = [];
-    for (let i = 0; i < 34; i++) {
+    // some stretches of ocean are rough: more crests, taller and quicker
+    const rough = hash(wx0, 50) < 0.3, amp = rough ? 2.2 : 1;
+    for (let i = 0; i < (rough ? 48 : 34); i++) {
       const sp = new THREE.Sprite(WAVE_MAT), w = 1.6 + hash(wx0, i) * 2.4;
       sp.center.set(0.5, 0.1); sp.scale.set(w, w / 3, 1);
       const x = (hash(i, wx0) - 0.5) * CW;
       sp.position.set(x, y, -4 - hash(wx0 + 1, i) * 200); grp.add(sp);
       // each crest swells, breaks and drops on its own clock, rolling forward as it goes
-      sp.userData.wave = { x, w, ph: hash(wx0 + 2, i) * 7, rate: 0.55 + hash(wx0 + 3, i) * 0.5, drift: 0.6 + hash(wx0 + 4, i) * 0.8 };
+      sp.userData.wave = { x, w: w * (rough ? 1.3 : 1), amp, ph: hash(wx0 + 2, i) * 7, rate: (0.55 + hash(wx0 + 3, i) * 0.5) * (rough ? 1.4 : 1), drift: 0.6 + hash(wx0 + 4, i) * 0.8 };
       waves.push(sp);
     }
-    grp.userData.waves = waves;
+    grp.userData.waves = waves; grp.userData.rough = rough;
     // ships are rare: fishing boats most often, cruise liners now and then, warships seldom
     const r = hash(wx0, 41);
     const kind = r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.285 ? 'warship' : null;
@@ -619,6 +804,16 @@
       const sh = SHIPS[kind], sp = new THREE.Sprite(sh.mat);
       sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1);
       sp.position.set((hash(wx0, 42) - 0.5) * (CW - sh.w), y, -14 - hash(wx0, 43) * (kind === 'fishing' ? 60 : 140)); grp.add(sp);
+      if (kind === 'warship') {
+        // a warship fires its guns to the right; usually there's a ship out there it's shelling
+        const n = { ship: sp, t: 0.6 + hash(wx0, 44) * 1.5, shells: [], fx: [], hits: 0, target: null, sinking: 0 };
+        sp.position.x = -CW / 2 + 6 + hash(wx0, 42) * 12;
+        if (hash(wx0, 45) < 0.75) {
+          const tg = new THREE.Sprite(SHIPS.target.mat); tg.center.set(0.5, 0.12); tg.scale.set(SHIPS.target.w, SHIPS.target.h, 1);
+          tg.position.set(sp.position.x + 30 + hash(wx0, 46) * 14, y, sp.position.z - 6); grp.add(tg); n.target = tg;
+        }
+        grp.userData.naval = n;
+      }
     }
   }
   const JUMPERS = {
@@ -643,9 +838,42 @@
     }) },
   };
   for (const k in JUMPERS) JUMPERS[k].mat = sceneryMat(JUMPERS[k].tex, { fog: true });
-  const seaLife = { list: [], t: 8 };
+  const seaLife = { list: [], t: 8, rogue: null, rogueT: 14 };
+  // a giant wave: a dark wall of water with a curling white crest
+  const ROGUE_MAT = sceneryMat(paintTex(512, 256, (g, W, H) => {
+    const gr = g.createLinearGradient(0, H * 0.15, 0, H); gr.addColorStop(0, '#2f7fbf'); gr.addColorStop(1, '#174a7c');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(0, H);
+    g.bezierCurveTo(W * 0.15, H * 0.9, W * 0.35, H * 0.2, W * 0.62, H * 0.12);   // the face rising to the lip
+    g.bezierCurveTo(W * 0.8, H * 0.06, W * 0.9, H * 0.22, W * 0.8, H * 0.36);    // curling over
+    g.bezierCurveTo(W * 0.74, H * 0.3, W * 0.7, H * 0.42, W * 0.78, H * 0.5);
+    g.bezierCurveTo(W * 0.9, H * 0.8, W * 0.96, H * 0.95, W, H); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 14; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(W * 0.42, H * 0.22); g.bezierCurveTo(W * 0.62, H * 0.06, W * 0.86, H * 0.08, W * 0.8, H * 0.34); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.85)';
+    for (let k = 0; k < 14; k++) { g.beginPath(); g.arc(W * (0.66 + Math.random() * 0.22), H * (0.08 + Math.random() * 0.3), 6 + Math.random() * 10, 0, Math.PI * 2); g.fill(); }
+    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 4;
+    for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(W * (0.15 + k * 0.1), H * 0.98); g.quadraticCurveTo(W * (0.3 + k * 0.08), H * (0.6 - k * 0.05), W * (0.5 + k * 0.05), H * (0.4 - k * 0.03)); g.stroke(); }
+  }), { fog: true });
+  function updateRogue(dt, dx, under) {
+    seaLife.rogueT -= dt * (under && under.grp.userData.rough ? 2.5 : 1);
+    if (!seaLife.rogue && under && under.kind === 'sea' && seaLife.rogueT <= 0) {
+      const sp = new THREE.Sprite(ROGUE_MAT); sp.center.set(0.5, 0.04);
+      const W = world.viewW || 14, w = 22 + Math.random() * 14;
+      sp.userData = { t: 0, T: 6.5, x: W * (0.9 + Math.random() * 0.5), z: -14 - Math.random() * 22, w };
+      fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
+    }
+    const sp = seaLife.rogue; if (!sp) return;
+    const d = sp.userData; d.t += dt; d.x -= dx * 0.75;     // it rolls along with you, a little slower
+    const k = d.t / d.T, rise = smooth(0, 0.3, k) * (1 - smooth(0.78, 1, k));
+    sp.scale.set(d.w * (0.8 + 0.3 * k), d.w * 0.45 * rise + 0.01, 1);
+    sp.position.set(d.x, GROUND + 0.2, d.z);
+    // it crashes down in a burst of spray
+    if (!d.crashed && k > 0.8) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.2, GROUND + d.w * 0.25, d.z), 2.2); side.shake = Math.max(side.shake, 0.15); }
+    if (k >= 1) { fscene.remove(sp); seaLife.rogue = null; }
+  }
   function updateSeaLife(dt, dx) {
     const under = chunkAtX(world.viewW ? world.viewW * 0.4 : 6);
+    updateRogue(dt, dx, under);
     seaLife.t -= dt;
     if (under && under.kind === 'sea' && seaLife.t <= 0 && seaLife.list.length < 2) {
       // dolphins are a nice surprise; whales are rare
@@ -667,16 +895,81 @@
       else sp.material.rotation = (0.5 - f) * 1.3; // nose up on the way out, down on the way back in
     }
   }
-  function updateWaves() {
+  function updateNaval(c, n, dt) {
+    const grp = c.grp, sh = n.ship, y0 = GROUND + 0.7;
+    const gun = new THREE.Vector3(sh.position.x + SHIPS.warship.w * 0.38, y0 + SHIPS.warship.h * 0.48, sh.position.z + 0.2);
+    // fire on a timer while the ship is on screen
+    n.t -= dt;
+    const onScreen = grp.position.x + sh.position.x > -40 && grp.position.x + sh.position.x < (world.viewW || 14) * 1.6 + 40;
+    if (n.t <= 0 && onScreen) {
+      n.t = 1.4 + Math.random() * 1.6;
+      const alive = n.target && !n.sinking;
+      const to = alive ? n.target.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 4, SHIPS.target.h * 0.35, 0))
+        : gun.clone().add(new THREE.Vector3(26 + Math.random() * 20, 0, -4 - Math.random() * 8)).setY(y0);
+      // shots after the first one or two start landing; a miss throws up a column of water
+      const hit = alive && (n.hits > 0 || Math.random() < 0.55);
+      if (alive && !hit) to.add(new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 3), 0, 0)).setY(y0);
+      n.shells.push({ sp: fx(SHELL_MAT, grp, gun.x, gun.y, gun.z, 0.9), from: gun.clone(), to, t: 0, T: 0.9 + to.distanceTo(gun) / 60, hit });
+      n.fx.push({ sp: fx(FLASH_MAT, grp, gun.x + 1, gun.y, gun.z + 0.2, 4), t: 0, T: 0.18, grow: 1.8 });
+      n.fx.push({ sp: fx(SMOKE_MAT, grp, gun.x + 1.2, gun.y + 0.4, gun.z, 2), t: 0, T: 1.6, grow: 3, rise: 1.5 });
+      sh.position.x -= 0.25; // recoil
+    }
+    sh.position.x = lerp(sh.position.x, n.baseX ?? (n.baseX = sh.position.x), 1 - Math.exp(-dt * 3));
+    for (let i = n.shells.length - 1; i >= 0; i--) {
+      const s = n.shells[i]; s.t += dt; const k = Math.min(1, s.t / s.T);
+      s.sp.position.lerpVectors(s.from, s.to, k); s.sp.position.y += Math.sin(Math.PI * k) * (4 + s.from.distanceTo(s.to) * 0.12);
+      if (k < 1) continue;
+      grp.remove(s.sp); n.shells.splice(i, 1);
+      if (s.hit) {
+        n.hits++;
+        const big = n.hits >= 3;
+        n.fx.push({ sp: fx(BOOM_MAT, grp, s.to.x, s.to.y + 1, s.to.z + 0.5, big ? 5 : 3), t: 0, T: big ? 1.1 : 0.5, grow: big ? 4 : 2.2 });
+        n.fx.push({ sp: fx(SMOKE_MAT, grp, s.to.x, s.to.y + 2, s.to.z, 3), t: 0, T: big ? 4 : 2, grow: big ? 5 : 3, rise: 2.5 });
+        if (big) {
+          // the third hit: the freighter goes up and starts to sink
+          n.sinking = 0.001;
+          n.fx.push({ sp: fx(BOOM_MAT, grp, s.to.x - 3, s.to.y + 2, s.to.z + 0.6, 4), t: -0.15, T: 0.9, grow: 3.5 });
+          n.fx.push({ sp: fx(BOOM_MAT, grp, s.to.x + 3, s.to.y + 1.5, s.to.z + 0.6, 4), t: -0.3, T: 0.9, grow: 3.5 });
+          const at = new THREE.Vector3(grp.position.x + s.to.x, s.to.y + 1, s.to.z);
+          const sp = sparks.geometry.attributes.position;
+          for (let j = 0; j < 30; j++) { sp.setXYZ(j, at.x, at.y, at.z); sparkV[j].set((Math.random() - 0.5) * 9, 3 + Math.random() * 8, (Math.random() - 0.5) * 3); }
+          sp.needsUpdate = true; side.burst = 1.4; side.burstG = 9; sparks.material.color.setStyle('#ffb347'); sparks.material.size = 0.7;
+          side.shake = Math.max(side.shake, 0.2); Sound.hit();
+        }
+      } else {
+        n.fx.push({ sp: fx(SPLASH_MAT, grp, s.to.x, y0 - 0.3, s.to.z, 2, 6), t: 0, T: 1.2, grow: 0, splash: true });
+      }
+    }
+    for (let i = n.fx.length - 1; i >= 0; i--) {
+      const e = n.fx[i]; e.t += dt; const k = e.t / e.T;
+      if (k < 0) { e.sp.visible = false; continue; }
+      e.sp.visible = true;
+      if (k >= 1) { grp.remove(e.sp); n.fx.splice(i, 1); continue; }
+      if (e.splash) { e.sp.scale.y = 6 * Math.sin(Math.PI * Math.min(1, k * 1.4)); e.sp.center.set(0.5, 0); continue; }
+      if (!e.w0) e.w0 = e.sp.scale.x;
+      e.sp.scale.setScalar(e.w0 * (1 + e.grow * k) * (1 - (e.rise ? 0 : k * k * 0.9)));
+      if (e.rise) e.sp.position.y += e.rise * dt;
+    }
+    // the freighter lists, then slips under
+    if (n.sinking > 0 && n.target) {
+      n.sinking += dt;
+      n.target.material = SHIPS.target.mat;
+      n.target.position.y = y0 - smooth(0.8, 6, n.sinking) * SHIPS.target.h * 1.1;
+      if (n.sinking > 6) { grp.remove(n.target); n.target = null; }
+    }
+  }
+  function updateWaves(dt = 0) {
     const t = side.t;
     for (const c of world.chunks) {
+      if (c.grp.userData.naval) updateNaval(c, c.grp.userData.naval, dt);
+      if (c.road) updateTraffic(c.road, dt);
       const ws = c.grp.userData.waves; if (!ws) continue;
       for (const sp of ws) {
         const d = sp.userData.wave, k = (t * d.rate + d.ph) % 1; // 0..1 through one swell
         const rise = Math.sin(Math.PI * k);                       // up, crest, down
-        sp.scale.set(d.w * (0.7 + 0.5 * k), (d.w / 3) * (0.15 + 1.1 * rise), 1);
+        sp.scale.set(d.w * (0.7 + 0.5 * k), (d.w / 3) * (0.15 + 1.1 * rise) * d.amp, 1);
         sp.position.x = d.x + ((t * d.drift) % 6) - 3 + k * 1.2;  // rolls ahead while it breaks
-        sp.position.y = GROUND + 0.6 + 0.25 * Math.sin(t * 1.7 + d.ph * 3);
+        sp.position.y = GROUND + 0.6 + 0.25 * d.amp * Math.sin(t * 1.7 + d.ph * 3);
       }
     }
   }
@@ -1270,6 +1563,30 @@
     setBirds();
   }
 
+  // Strips are laid down well ahead of the bird using a guess of when it will reach them.
+  // When the bird speeds up or slows down that guess goes stale (land drawn over what is
+  // really ocean, or the other way round), so every half second the strips still out of
+  // close view are checked against where the bird will really be, and relaid if wrong.
+  function checkStrips(dt, v) {
+    side.vS = lerp(side.vS || v, v, 1 - Math.exp(-dt / 2.5));
+    side.geoT = (side.geoT || 0) - dt;
+    if (side.geoT > 0) return;
+    side.geoT = 0.5;
+    const near = (world.viewW || 14) * 2 + CW / 2, u = unitsPerSec(side.vS), cs = world.chunks;
+    let lastCity = -1; cs.forEach((c, i) => { if (c.kind === 'city') lastCity = i; });
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i], x = c.grp.position.x;
+      if (x < near || i <= lastCity) continue;
+      const want = kindAt(lookahead(Math.max(0, x / u)));
+      if (want === c.kind) { c.miss = 0; continue; }
+      c.miss = (c.miss || 0) + 1; if (c.miss < 2) continue; // must be wrong on two checks running
+      // relay from here on (one strip earlier too, if it's also out of view, so the shoreline joins)
+      let j = i; if (j - 1 > lastCity && cs[j - 1].grp.position.x >= near) j--;
+      while (cs.length > j) disposeChunk(cs.pop());
+      world.nextType = null;
+      return; // the strip loop in updateFlight refills ahead on the next frame
+    }
+  }
   function updateFlight(dt) {
     const v = F.speed(S);
     world.u = lerp(world.u, unitsPerSec(v), 1 - Math.exp(-dt * 2));
@@ -1290,13 +1607,14 @@
       } else { const g = lookahead(sec); pushChunk(nx, world.nextType || kindAt(g), g); }
       last = world.chunks[world.chunks.length - 1];
     }
+    checkStrips(dt, v);
     for (const c of world.clouds) {
       c.position.x -= dx;
       if (c.position.x < -220) { fscene.remove(c); c.userData.recycle = true; }
     }
     world.clouds = world.clouds.filter((c) => !c.userData.recycle);
     while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
-    updateSkyLife(dt, dx); updateSeaLife(dt, dx); updateWaves();
+    updateSkyLife(dt, dx); updateSeaLife(dt, dx); updateWaves(dt);
 
     // streaks show once things get fast
     const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
@@ -1318,7 +1636,8 @@
     // gliding holds the wings level; otherwise play the flap flipbook
     const heroPh = glide > 0.55 ? 0.35 : side.flap;
     setFrame(hero, phaseFrame(heroPh, BIRD_FRAMES));
-    const dive = (side.bug ? diveOffset(side.bug.t) : 0) + threatOffset();
+    side.swoop = lerp(side.swoop || 0, swoopNow(), 1 - Math.exp(-dt * 6));
+    const dive = (side.bug ? diveOffset(side.bug.t) : 0) + threatOffset() - SWOOP * side.swoop;
     const wobble = S.stun > 0 ? Math.sin(side.t * 14) * 0.25 : 0;
     hero.position.set(0, Math.sin(side.t * 1.6) * 0.35 * (dive ? 0.3 : 1) - Math.sin(side.flap) * 0.08 + dive + wobble, 0);
     // nose down into the dive, up on the climb
@@ -1332,7 +1651,7 @@
     streaks.material.color.setStyle(S.rush > 0 ? '#ffd36b' : '#ffffff');
     flock.forEach((f, i) => {
       const h = f.userData.home, slot = battleSlot(i, f);
-      const want = slot || new THREE.Vector3(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4, h.z);
+      const want = slot || new THREE.Vector3(h.x + Math.sin(side.t * 0.5 + i) * 0.4, h.y + Math.sin(side.t * 1.4 + i * 1.3) * 0.4 - SWOOP * (side.swoop || 0), h.z);
       // ease toward the slot so scattering and regrouping read as flight, not teleporting
       f.position.lerp(want, slot ? 1 - Math.exp(-dt * 9) : 1 - Math.exp(-dt * 3));
       f.userData.roll = 0.04 + Math.sin(side.t * 0.8 + i) * 0.05;
@@ -1360,6 +1679,7 @@
     water.material.color.setStyle(night > 0.5 ? '#183461' : '#2468a6');
     towerMat.emissive.setStyle(night > 0.4 ? '#b8862e' : '#000000');
     towerMat.emissiveIntensity = night * 0.55;
+    canyonMat.emissive.setStyle(night > 0.4 ? '#8a6420' : '#000000'); canyonMat.emissiveIntensity = night * 0.7;
     updateWeather(dt, v, cur, (S.wx && S.wx.type) || 'clear');
     for (const m of CLOUD_MATS) m.color.copy(cloudTint);
 
@@ -1983,6 +2303,8 @@
     if (S.space && S.space.event && S.space.event.type === 'field') { const r = F.mine(S); if (r) { mineHit(r); } }
     const th = side.threat;
     if (th && !th.resolved) th.meter += th.type === 'hunter' ? 0.12 : (fromHold ? 0.35 : 1) / F.THREAT.taps(S);
+    // during the fight itself every tap adds fighting spirit: a bigger reward if you win, fewer seeds lost if you don't
+    else if (th && th.phase === 'battle' && !fromHold) { th.spirit = Math.min(SPIRIT_MAX, (th.spirit || 0) + 1); if (!S.space) featherBurst(hero.position.clone().add(new THREE.Vector3(0.6, 0.4, 0.3)), '#ffd36b', 0); }
   }
   flapBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault(); flapBtn.classList.add('down'); doFlap();
@@ -2481,11 +2803,8 @@
     if (S.space) return Math.random() < 0.55 ? 'raider' : 'spacehawk';
     const g = currentGeo(), hour = side.skyHour != null ? side.skyHour : localHour(g.lon), v = F.speed(S);
     const night = hour < 6 || hour > 19.5;
-    if (night) return 'owl';
-    // hunters only over open land: never over water, never right by a city
-    const fromCity = S.legKm / v, toCity = (F.legLen(S) - S.legKm) / v;
-    const open = isLand(g.lat, g.lon) && fromCity > 6 && toCity > 8;
-    return open && Math.random() < 0.55 ? 'hunter' : 'hawk';
+    // no hunters: birds of prey only, an owl after dark and a hawk by day
+    return night ? 'owl' : 'hawk';
   }
   // The outcome is fixed the moment the warning ends (did the player fill the
   // meter?), but it is only announced after the 5-second battle.
@@ -2510,6 +2829,8 @@
         // a tug-of-war bar for suspense; it gives nothing away
         const b = th.t - th.warn;
         meterEl.style.width = (50 + 34 * Math.sin(b * 3.4) * Math.cos(b * 1.3 + 0.6)) + '%';
+        // after the opening line, rally the player to keep tapping
+        if (b > 1.1) $('threatText').textContent = rallyText(th);
         if (b >= BATTLE) finishBattle(th);
       } else if (th.t >= th.warn + BATTLE + 3) {
         side.threat = null; banner.hidden = true; banner.classList.remove('ok', 'bad', 'fight');
@@ -2526,9 +2847,24 @@
     $('threatIcon').textContent = THREATS[type].icon; $('threatText').textContent = THREATS[type].ask;
     meterEl.style.width = '0%'; flapBtn.classList.add('alarm'); Sound.alarm();
   }
+  // Fighting spirit: taps during the 5-second fight. It can't change who wins (that's settled),
+  // but it pays out either way, so there's always a reason to keep hammering the button.
+  const SPIRIT_MAX = 25, spiritPct = (th) => Math.round(Math.min(SPIRIT_MAX, th.spirit || 0) * 4); // up to +100%
+  const RALLY = [
+    'Keep tapping! Every tap adds fighting spirit',
+    'Dig deep! Tap FLAP to fight harder',
+    "Don't give up! Tap, tap, tap!",
+    'Hit FLAP! Spirit means a bigger reward',
+    'Fight back! Win big or lose less',
+  ];
+  function rallyText(th) {
+    const b = th.t - th.warn, line = RALLY[Math.floor(b / 1.25) % RALLY.length].replace('FLAP', S.space ? 'BOOST' : 'FLAP');
+    const p = spiritPct(th);
+    return p ? `${line} · spirit +${p}%` : line;
+  }
   function startBattle(th) {
-    th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999;
-    flapBtn.classList.remove('alarm'); banner.classList.add('fight');
+    th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999; th.spirit = 0;
+    banner.classList.add('fight'); // the FLAP button keeps pulsing: taps still count for spirit
     const name = THREATS[th.type].name, flockUp = S.levels.flock > 0;
     $('threatText').textContent = THREATS[th.type].space
       ? (F.shipLv(S, 'wing') > 0 ? `Your wingmates are dogfighting the ${name}…` : `Dodging the ${name}'s lasers…`)
@@ -2538,8 +2874,10 @@
   }
   function finishBattle(th) {
     th.phase = 'done';
-    const name = THREATS[th.type].name;
-    banner.classList.remove('fight');
+    const name = THREATS[th.type].name, sp = spiritPct(th) / 100;
+    banner.classList.remove('fight'); flapBtn.classList.remove('alarm');
+    // what the player's fighting spirit earned or saved, added to the result line
+    const extra = (gain) => { if (!(gain > 0)) return ''; S.seeds += gain; S.runSeeds += gain; return gain; };
     if (THREATS[th.type].space) {
       if (th.ok) {
         const r = F.spaceMiss(S); banner.classList.add('ok'); meterEl.style.width = '100%'; dailyHit('fights'); Sound.win();
@@ -2552,7 +2890,8 @@
       refreshShip(); return;
     }
     if (th.ok) {
-      const bonus = F.predatorMiss(S); dailyHit('fights'); Sound.win();
+      let bonus = F.predatorMiss(S); dailyHit('fights'); Sound.win();
+      bonus += extra(bonus * sp) || 0;
       banner.classList.add('ok'); meterEl.style.width = '100%';
       $('threatText').textContent = th.type === 'hunter'
         ? `Out of range! The hunter gave up. +${fmt(bonus)} seeds`
@@ -2562,9 +2901,12 @@
     }
     const r = F.predatorHit(S); Sound.lose();
     banner.classList.add('bad'); meterEl.style.width = '0%';
+    // spirit claws back part of the lost seeds (up to 60%)
+    const saved = r.lost === 'seeds' ? extra(r.seeds * Math.min(0.6, sp * 0.6)) || 0 : 0;
+    if (saved) r.seeds -= saved;
     $('threatText').textContent = r.lost === 'follower'
       ? (th.type === 'hunter' ? `The hunter hit one of your flock. Slowed for ${F.THREAT.STUN}s.` : `The ${name} carried off one of your flock. Slowed for ${F.THREAT.STUN}s.`)
-      : `The ${name} knocked loose ${fmt(r.seeds)} seeds. Slowed for ${F.THREAT.STUN}s.`;
+      : `The ${name} knocked loose ${fmt(r.seeds)} seeds${saved ? ` (your fight saved ${fmt(saved)})` : ''}. Slowed for ${F.THREAT.STUN}s.`;
     showOutcome(th, r);
     refreshUpgrades();
   }
@@ -2778,7 +3120,7 @@
     if (a === 'feathers') { S.feathers += 10; toast('+10 golden feathers.'); }
     if (a === 'lap' && !S.space) { S.ri = F.lapLegs(S) - 1; S.legKm = Math.max(0, F.legLen(S) - 1); rebuildRoute(); toast('Last leg of the lap.'); }
     if (a === 'raider') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = S.space && S.space.loop ? 'raider' : null; side.threatT = 0; close('menuSheet'); }
-    if (a === 'hawk' || a === 'hunter') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = a; side.threatT = 0; S.wx = { type: 'clear', left: 0 }; close('menuSheet'); }
+    if (a === 'hawk' || a === 'owl') { S.arrivals = Math.max(S.arrivals, 3); side.forceType = a; side.threatT = 0; S.wx = { type: 'clear', left: 0 }; close('menuSheet'); }
     if (a === 'bug') { side.bug = { t: 0, caught: false }; close('menuSheet'); }
     if (a === 'storm' || a === 'tailwind') { S.wx = { type: a, left: 30 }; close('menuSheet'); }
     if (a === 'birds') { S.birds = BIRDS.map((b) => b.id); toast('Every bird unlocked. Pick one when you migrate.'); }
@@ -2981,5 +3323,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world, kindAt, lookahead, chunkAtX };
 })();
