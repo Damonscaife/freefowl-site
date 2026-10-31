@@ -351,6 +351,21 @@
     const k = 0.85 + fbm(wx / 25, z / 25) * 0.3;
     return c.map((v) => Math.pow(v / 255 * k, 2.2)); // sRGB → linear for vertex colours
   }
+  // the ground height a strip actually uses at local x / depth z, coast slopes included,
+  // so trees, lakes and clouds sit on (or above) the same surface the mesh draws
+  function stripHeight(kind, prevKind, nextKind, wx0, lx, z) {
+    if (kind === 'sea') return -6;
+    const wx = wx0 + lx + CW / 2;
+    const dl = lx + CW / 2, dr = CW / 2 - lx;
+    let h = landHeight(wx, z);
+    // a city sits on a plain that rises smoothly into the hills on either side, so the
+    // ground runs unbroken into and out of town instead of stepping down at the edge
+    if (kind === 'city') h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, Math.min(dl, dr)));
+    let t = 1;
+    if (prevKind === 'sea') t = Math.min(t, smooth(0, 26, dl));
+    if (nextKind === 'sea') t = Math.min(t, smooth(0, 26, dr));
+    return -6 + (h + 6) * t;
+  }
   function buildChunk(kind, geo, prevKind, nextKind, name) {
     const wx0 = world.cursor; world.cursor += CW;
     const b = geo ? biome(geo.lat, geo.lon) : 'temperate';
@@ -358,18 +373,8 @@
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const lx = p.getX(i), z = p.getZ(i), wx = wx0 + lx + CW / 2;
-      let h;
-      if (kind === 'sea') h = -6;
-      else {
-        // cities sit on a plain; open land gets hills and far ranges
-        h = kind === 'city' ? 2 + fbm(wx / 30, z / 30) * 3 : landHeight(wx, z);
-        // slope down to the water where the next or previous strip is sea
-        const dl = lx + CW / 2, dr = CW / 2 - lx;
-        let t = 1;
-        if (prevKind === 'sea') t = Math.min(t, smooth(0, 26, dl));
-        if (nextKind === 'sea') t = Math.min(t, smooth(0, 26, dr));
-        h = -6 + (h + 6) * t;
-      }
+      // cities sit on a plain; open land gets hills and far ranges, sloping down to any sea beside it
+      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z);
       p.setY(i, GROUND + h);
       col.set(kind === 'sea' ? [0.26, 0.21, 0.13] : vertColor(b, h, wx, z), i * 3);
     }
@@ -377,19 +382,20 @@
     g.computeVertexNormals();
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
-    if (kind === 'city') addCity(grp, name, wx0);
-    if (kind !== 'sea') { addTrees(grp, b, wx0, kind); if (kind === 'land') addLake(grp, b, wx0); }
+    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z);
+    if (kind === 'city') addCity(grp, name, wx0, hAt);
+    if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt); if (kind === 'land') addLake(grp, b, wx0, hAt); }
     else addSea(grp, wx0);
-    return { grp, kind, wx0 };
+    return { grp, kind, wx0, hAt };
   }
-  function addCity(grp, name, seed) {
+  function addCity(grp, name, seed, hAt) {
     const n = 90, inst = new THREE.InstancedMesh(towerGeo, towerMat, n), m = new THREE.Matrix4();
     for (let i = 0; i < n; i++) {
       const x = (hash(seed, i) - 0.5) * (CW - 10), z = -30 - hash(i, seed) * 130;
       const core = 1 - Math.min(1, Math.hypot(x / (CW * 0.5), (z + 95) / 65));
       const h = 3 + core * core * 30 * (0.4 + hash(i * 3, seed) * 0.9);
       const w = 2.2 + hash(i, i + seed) * 3;
-      m.compose(new THREE.Vector3(x, GROUND + 2, z), new THREE.Quaternion(), new THREE.Vector3(w, h, w * (0.7 + hash(seed, i * 7) * 0.6)));
+      m.compose(new THREE.Vector3(x, GROUND + hAt(x, z) - 0.6, z), new THREE.Quaternion(), new THREE.Vector3(w, h, w * (0.7 + hash(seed, i * 7) * 0.6)));
       inst.setMatrixAt(i, m);
     }
     grp.add(inst);
@@ -459,13 +465,24 @@
     g.restore();
   }), { fog: true, opacity: 0.96 }));
   function makeCloud(x) {
-    const far = Math.random() < 0.9;
+    const c = chunkAtX(x);
+    // the small near-lens clouds only drift over open water, where nothing below can poke through them
+    const far = Math.random() < 0.9 || (c && c.kind !== 'sea');
     const sp = new THREE.Sprite(CLOUD_MATS[Math.floor(Math.random() * CLOUD_MATS.length)]);
     const w = far ? 22 + Math.random() * 34 : 8 + Math.random() * 6;
     sp.scale.set(w, w / 2, 1);
     // keep clouds off the camera's lens: well behind the bird, or small and low
     const z = far ? -40 - Math.random() * 280 : -14 - Math.random() * 18;
-    const y = far ? -6 + Math.random() * 36 : -15 + Math.random() * 5;
+    let y = far ? -6 + Math.random() * 36 : -15 + Math.random() * 5;
+    // over land, lift the cloud clear of the hills beneath it so it never looks parked on the ground
+    if (c && c.kind !== 'sea') {
+      let top = -Infinity;
+      for (const k of [-0.45, -0.2, 0, 0.2, 0.45]) {
+        const cx = x + k * w, cc = chunkAtX(cx) || c;
+        if (cc.kind !== 'sea') top = Math.max(top, GROUND + cc.hAt(cx - cc.grp.position.x, z));
+      }
+      y = Math.max(y, top + (far ? 14 + Math.random() * 18 : 9));
+    }
     sp.position.set(x, y, z);
     fscene.add(sp); world.clouds.push(sp);
   }
@@ -503,28 +520,34 @@
   const TREE_MATS = {};
   for (const k in TREE_KINDS) TREE_MATS[k] = sceneryMat(paintTex(128, 192, TREE_KINDS[k]), { fog: true });
   const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine'], tundra: ['pine'], tropic: ['palm', 'round'], desert: ['cactus'] };
-  function addTrees(grp, b, wx0, kind) {
+  function addTrees(grp, b, wx0, kind, hAt) {
     const kinds = TREES_FOR[b]; if (!kinds) return;
     const n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : 34;
     for (let i = 0; i < n; i++) {
       const lx = (hash(wx0, i) - 0.5) * (CW - 4), z = -6 - hash(i, wx0 + 3) * 170;
       if (kind === 'city' && z > -140) continue;
-      const h = landHeight(wx0 + lx + CW / 2, z);
-      if (h > 30) continue; // no trees on bare rock and snow
+      // read the height the way the mesh draws it (straight lines between its grid points),
+      // so a tree on a sloping island shore stands on the ground instead of floating beside it
+      const sx = CW / 16, i0 = Math.floor((lx + CW / 2) / sx), fx = (lx + CW / 2) / sx - i0;
+      const sz = DEPTH / 60, zr = (ZC + DEPTH / 2 - z) / sz, j0 = Math.floor(zr), fz = zr - j0;
+      const X0 = -CW / 2 + i0 * sx, Z0 = ZC + DEPTH / 2 - j0 * sz;
+      const h = lerp(lerp(hAt(X0, Z0), hAt(X0 + sx, Z0), fx), lerp(hAt(X0, Z0 - sz), hAt(X0 + sx, Z0 - sz), fx), fz);
+      if (h > 30 || h < 0.5) continue; // no trees on bare rock and snow, or down at the waterline
       const sp = new THREE.Sprite(TREE_MATS[kinds[Math.floor(hash(i, wx0) * kinds.length)]]);
       const size = 3 + hash(wx0 + i, 7) * 4;
       sp.center.set(0.5, 0.02); sp.scale.set(size * 0.67, size, 1);
-      sp.position.set(lx, GROUND + h, z); grp.add(sp);
+      sp.position.set(lx, GROUND + h - 0.25, z); grp.add(sp);
     }
   }
   // lakes: flat water in a hollow, some land strips get one
   const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fc0, roughness: 0.25, metalness: 0.1 });
   const lakeGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
-  function addLake(grp, b, wx0) {
+  function addLake(grp, b, wx0, hAt) {
     if (b === 'desert' || b === 'ice' || hash(wx0, 99) > 0.4) return;
     const lx = (hash(wx0, 5) - 0.5) * (CW - 30), z = -40 - hash(wx0, 6) * 90, r = 6 + hash(wx0, 7) * 8;
     let lo = Infinity;
-    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; lo = Math.min(lo, landHeight(wx0 + lx + CW / 2 + Math.cos(a) * r, z + Math.sin(a) * r * 0.6)); }
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; lo = Math.min(lo, hAt(lx + Math.cos(a) * r, z + Math.sin(a) * r * 0.6)); }
+    if (lo < 1) return; // too near the shore for a lake
     const m = new THREE.Mesh(lakeGeo, lakeMat); m.scale.set(r, 1, r * 0.6);
     m.position.set(lx, GROUND + lo + 0.4, z); m.userData.shared = true; grp.add(m);
   }
@@ -542,9 +565,10 @@
   // a distant flock: a loose V of tiny birds, two wing poses
   const flockMats = [0, 1].map((f) => sceneryMat(paintTex(256, 128, (g, W, H) => {
     g.strokeStyle = '#2b2f3a'; g.lineWidth = 3; g.lineCap = 'round';
-    const pts = [[0.5, 0.5], [0.4, 0.38], [0.6, 0.38], [0.3, 0.28], [0.7, 0.3], [0.2, 0.2], [0.82, 0.18]];
+    // leader out front on the right, the rest trailing back: the flock is heading the same way as you
+    const pts = [[0.86, 0.45], [0.72, 0.36], [0.7, 0.58], [0.57, 0.28], [0.55, 0.68], [0.42, 0.2], [0.4, 0.78]];
     for (const [x, y] of pts) {
-      const X = x * W, Y = y * H + 30, d = f ? 7 : -5;
+      const X = x * W, Y = y * H + 6, d = f ? 7 : -5;
       g.beginPath(); g.moveTo(X - 9, Y + d); g.quadraticCurveTo(X - 4, Y - 2, X, Y); g.quadraticCurveTo(X + 4, Y - 2, X + 9, Y + d); g.stroke();
     }
   }), { fog: false }));
@@ -577,15 +601,20 @@
   };
   for (const k in SHIPS) SHIPS[k].mat = sceneryMat(SHIPS[k].tex, { fog: true });
   function addSea(grp, wx0) {
-    const y = GROUND + 0.7;
-    for (let i = 0; i < 26; i++) {
+    const y = GROUND + 0.7, waves = [];
+    for (let i = 0; i < 34; i++) {
       const sp = new THREE.Sprite(WAVE_MAT), w = 1.6 + hash(wx0, i) * 2.4;
       sp.center.set(0.5, 0.1); sp.scale.set(w, w / 3, 1);
-      sp.position.set((hash(i, wx0) - 0.5) * CW, y, -4 - hash(wx0 + 1, i) * 200); grp.add(sp);
+      const x = (hash(i, wx0) - 0.5) * CW;
+      sp.position.set(x, y, -4 - hash(wx0 + 1, i) * 200); grp.add(sp);
+      // each crest swells, breaks and drops on its own clock, rolling forward as it goes
+      sp.userData.wave = { x, w, ph: hash(wx0 + 2, i) * 7, rate: 0.55 + hash(wx0 + 3, i) * 0.5, drift: 0.6 + hash(wx0 + 4, i) * 0.8 };
+      waves.push(sp);
     }
-    // ships are rare: fishing boats most often, cruise liners and warships now and then
+    grp.userData.waves = waves;
+    // ships are rare: fishing boats most often, cruise liners now and then, warships seldom
     const r = hash(wx0, 41);
-    const kind = r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.32 ? 'warship' : null;
+    const kind = r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.285 ? 'warship' : null;
     if (kind) {
       const sh = SHIPS[kind], sp = new THREE.Sprite(sh.mat);
       sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1);
@@ -636,6 +665,19 @@
       if (!d.splashed && f > 0.95) { d.splashed = true; splash(new THREE.Vector3(sp.position.x, GROUND + 0.8, d.z), J === JUMPERS.whale ? 1.6 : 0.9); }
       if (f >= 1) { fscene.remove(sp); seaLife.list.splice(k, 1); }
       else sp.material.rotation = (0.5 - f) * 1.3; // nose up on the way out, down on the way back in
+    }
+  }
+  function updateWaves() {
+    const t = side.t;
+    for (const c of world.chunks) {
+      const ws = c.grp.userData.waves; if (!ws) continue;
+      for (const sp of ws) {
+        const d = sp.userData.wave, k = (t * d.rate + d.ph) % 1; // 0..1 through one swell
+        const rise = Math.sin(Math.PI * k);                       // up, crest, down
+        sp.scale.set(d.w * (0.7 + 0.5 * k), (d.w / 3) * (0.15 + 1.1 * rise), 1);
+        sp.position.x = d.x + ((t * d.drift) % 6) - 3 + k * 1.2;  // rolls ahead while it breaks
+        sp.position.y = GROUND + 0.6 + 0.25 * Math.sin(t * 1.7 + d.ph * 3);
+      }
     }
   }
   function splash(at, size) {
@@ -968,8 +1010,40 @@
       const up = 5.5 * clamp(th.meter, 0, 1), weave = b > 0 && b < BATTLE ? Math.sin(b * 4.2) * 0.9 : 0;
       return (b < BATTLE + 0.4 ? up : up * (1 - smooth(BATTLE + 0.4, BATTLE + 2, b))) + weave;
     }
-    if (b < 0 || b > BATTLE) return 0;
+    if (b < 0 || b > BATTLE || isDuel(th)) return 0;
     return Math.sin(b * 5.3) * 1.3 * (1 - smooth(4.4, BATTLE, b));
+  }
+  // A lone bird doesn't just take it: it duels the predator. The two circle each other,
+  // slam together every CLASH seconds (feathers fly), the bird throws a barrel roll to dodge,
+  // and at the end whoever won finishes on top. Positions are in the flight scene's units.
+  const CLASH = 1.1;
+  const isDuel = (th) => th && th.type !== 'hunter' && !flock.length;
+  function duel(b, ok) {
+    const C = new THREE.Vector3(0.9, -0.4, -0.8);
+    const clash = Math.pow(Math.max(0, Math.cos(b * Math.PI * 2 / CLASH)), 8); // 1 at each impact
+    const a = b * 3.3, r = 2.6 - 2.2 * clash;
+    const hero = C.clone().add(new THREE.Vector3(Math.cos(a) * r, Math.sin(a * 1.4) * 0.9 * (1 - clash), Math.sin(a) * r * 0.45));
+    const pred = C.clone().add(new THREE.Vector3(Math.cos(a + Math.PI) * r, Math.sin(a * 1.4 + 2) * 0.9 * (1 - clash) + 0.3, Math.sin(a + Math.PI) * r * 0.45));
+    // bank into the turn; the bird adds a full barrel roll mid-fight
+    let heroRoll = -Math.sin(a) * 0.7, predRoll = Math.sin(a) * 0.7;
+    heroRoll += Math.PI * 2 * smooth(2.3, 2.85, b);
+    // the finish: the winner rises over the loser and strikes down
+    const fin = smooth(4.2, 4.85, b);
+    if (fin > 0) {
+      hero.lerp(C.clone().add(new THREE.Vector3(ok ? -0.2 : -0.4, ok ? 1.9 : -1.3, 0)), fin);
+      pred.lerp(C.clone().add(new THREE.Vector3(ok ? 0.5 : 0.1, ok ? -0.9 : 1.2, 0.1)), fin);
+      heroRoll = lerp(heroRoll, ok ? -0.5 : 0.6, fin); predRoll = lerp(predRoll, ok ? 0.8 : -0.5, fin);
+    }
+    return { hero, pred, heroRoll, predRoll, clash, at: hero.clone().lerp(pred, 0.5) };
+  }
+  // where the lone bird is during a duel, blended in from and back out to its normal spot
+  function duelHero(base, baseRoll) {
+    const th = side.threat; if (!isDuel(th)) return null;
+    const b = bt(th);
+    if (b < -0.3 || b > BATTLE + 0.9) return null;
+    const d = duel(Math.min(b, BATTLE), th.ok);
+    const k = smooth(-0.3, 0.25, b) * (1 - smooth(BATTLE, BATTLE + 0.9, b));
+    return { pos: base.clone().lerp(d.hero, k), roll: lerp(baseRoll, d.heroRoll, k) };
   }
   // where follower i flies during the fight (null = its normal slot)
   function battleSlot(i, f) {
@@ -1039,6 +1113,18 @@
       m.position.copy(high.lerp(C.clone().add(new THREE.Vector3(1.5, 1.5, 0)), k));
       m.userData.roll = -0.55 * k;
       setFrame(m, b < -0.55 ? phaseFrame(t * 5, BIRD_FRAMES) : 3);
+    } else if (b <= BATTLE && isDuel(th)) {
+      // one on one: the bird and the predator duel it out
+      const d = duel(b, th.ok);
+      m.position.copy(d.pred); th.pPos = d.pred.clone();
+      m.userData.roll = d.predRoll;
+      setFrame(m, phaseFrame(b * 11, BIRD_FRAMES));
+      const n = Math.floor((b + CLASH / 2) / CLASH); // fires as each clash peaks
+      if (b > 0.3 && b < BATTLE && n !== th.lastHit) {
+        th.lastHit = n;
+        featherBurst(d.at, '#f4ece0'); featherBurst(d.at.clone().add(new THREE.Vector3(0.3, 0.2, 0)), '#8a6a48');
+        side.shake = 0.35; Sound.hit();
+      }
     } else if (b <= BATTLE) {
       // the dogfight: a tight figure-eight through the flock, wings working hard
       const P = C.clone().add(new THREE.Vector3(Math.sin(b * 2.1) * 3.2, 0.6 + Math.sin(b * 4.2) * 1.2, Math.cos(b * 2.1) * 1.4));
@@ -1210,7 +1296,7 @@
     }
     world.clouds = world.clouds.filter((c) => !c.userData.recycle);
     while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
-    updateSkyLife(dt, dx); updateSeaLife(dt, dx);
+    updateSkyLife(dt, dx); updateSeaLife(dt, dx); updateWaves();
 
     // streaks show once things get fast
     const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
@@ -1238,6 +1324,8 @@
     // nose down into the dive, up on the climb
     const pitch = side.bug ? (side.bug.t < DIVE ? -0.28 * Math.sin(Math.PI * clamp(side.bug.t / DIVE, 0, 1)) : 0.22 * Math.sin(Math.PI * clamp((side.bug.t - DIVE) / CLIMB, 0, 1))) : 0;
     hero.userData.roll = 0.04 + Math.sin(side.t * 1.6 + 0.6) * 0.04 + pitch + wobble * 0.3;
+    const dh = duelHero(hero.position, hero.userData.roll);
+    if (dh) { hero.position.copy(dh.pos); hero.userData.roll = dh.roll; setFrame(hero, phaseFrame(side.t * 11, BIRD_FRAMES)); }
     updateBug(dt);
     updatePredators(dt); updateCarried(dt);
     // golden streaks while a bug rush is on
@@ -2491,7 +2579,7 @@
     if (!w || e.wx === 'clear' || legSecs < 4 || now - lastForecastAt < 6000) return;
     lastForecastAt = now;
     const dest = F.legTo(S).v ? 'on this lap' : `on the way to ${F.legTo(S).name}`;
-    setTimeout(() => toast(`${w.icon} ${w.name} ${dest}: ${w.note}`), 900);
+    setTimeout(() => toast(`${w.icon} ${w.name} ${dest}: ${F.wxNote(S, e.wx)}`), 900);
   }
   function tickWeather(dt) {
     if (S.space || !S.wx || S.wx.type !== 'storm') return;
@@ -2507,7 +2595,7 @@
     if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${F.SPACE[S.space.dest].short} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · ${F.CURRENCY[S.space.dest].icon} ${F.CURRENCY[S.space.dest].name}` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
-    el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${w.note}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
+    el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${F.wxNote(S, wx)}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
   }
 
   // ---------- space: HUD, arrivals, expedition panel ----------

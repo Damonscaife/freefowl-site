@@ -212,8 +212,8 @@
       blurb: (L) => `${fmt(wingSpeed(L))} km/s base speed` },
     { id: 'beak', name: 'Forager Beak', icon: '🌰', get base() { return T.bB; }, get growth() { return T.gB; },
       blurb: (L) => `${fmt(forage(L), 1)} seeds/sec foraging` },
-    { id: 'tail', name: 'Tailwind', icon: '🌬️', get base() { return T.bT; }, get growth() { return T.gT; },
-      blurb: (L) => `×${fmt(1 + 0.25 * L, 2)} speed` },
+    { id: 'tail', name: 'Catch the Wind', icon: '🌬️', get base() { return T.bT; }, get growth() { return T.gT; },
+      blurb: (L) => `tailwinds ×${fmt(tailBoost(L), 2)} speed · ${tailShare(L)}% of skies · ${tailSecs(L)}s` },
     { id: 'flock', name: 'Flock', icon: '🐦', get base() { return T.bF; }, get growth() { return T.gF; },
       blurb: (L) => `${L} follower${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} seeds, auto-flap` },
     { id: 'stamina', name: 'Stamina', icon: '💪', get base() { return T.bS; }, get growth() { return T.gS; },
@@ -231,7 +231,9 @@
   const bugRush = (L) => 15 + 3 * (L - 1);            // seconds of rush per bug
   const RUSH_SPEED = 2, RUSH_SEEDS = 3;
 
-  const wingSpeed = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L); // km/s
+  // A new bird starts at a real bird's pace (0.05 km/s, about 180 km/h); the
+  // first few levels ramp it up, and from level 5 on it follows the full curve.
+  const wingSpeed = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L) * Math.min(1, 0.1 + 0.18 * L); // km/s
   const forage = (L) => T.k0 * (1 + L) * 2 ** doublings(L);
   const boostCap = (L) => 0.5 + 0.35 * L;                            // extra speed fraction
   const PRICE = 2; // every upgrade costs double its listed base
@@ -430,12 +432,12 @@
 
   function baseSpeed(s) {
     const b = birdOf(s);
-    return wingSpeed(s.levels.wings) * (1 + 0.25 * s.levels.tail) * b.speed * perkSpeed(s);
+    return wingSpeed(s.levels.wings) * b.speed * perkSpeed(s);
   }
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxOf(s).speed;
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s);
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
@@ -536,7 +538,7 @@
           s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0; s.overNext = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
-        if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather();
+        if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather(s);
         // the rooster crows up a tailwind whenever the sky is calm
         if (birdOf(s).crow && s.wx.type === 'clear') s.wx = { type: 'tailwind', left: 12 };
         ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay, waypoint: !!to.v, nonstopNow: lapDone && s.lapsTotal === NONSTOP_AT });
@@ -556,11 +558,19 @@
     rain: { name: 'Rain', icon: '🌧️', speed: 1, seeds: 1.3, weight: 15, note: '+30% seeds' },
     storm: { name: 'Storm', icon: '⛈️', speed: 0.85, seeds: 1.5, weight: 10, note: 'predators grounded, +50% seeds' },
   };
-  function rollWeather() {
-    const types = Object.keys(WEATHER), total = types.reduce((a, k) => a + WEATHER[k].weight, 0);
+  // Catch the Wind: tailwinds come more often, last longer and push harder
+  const tailBoost = (L) => 1.5 + 0.25 * L;
+  const tailWeight = (L) => 22 * (1 + 0.4 * L);
+  const tailSecs = (L) => WX_SECS + 4 * L;
+  const tailShare = (L) => { const tot = Object.keys(WEATHER).reduce((a, k) => a + (k === 'tailwind' ? tailWeight(L) : WEATHER[k].weight), 0); return Math.round(tailWeight(L) / tot * 100); };
+  function wxSpeed(s) { const w = wxOf(s); return w === WEATHER.tailwind ? tailBoost(s.levels.tail || 0) : w.speed; }
+  function wxNote(s, type) { return type === 'tailwind' ? `×${fmt(tailBoost(s.levels.tail || 0), 2)} speed` : WEATHER[type].note; }
+  function rollWeather(s) {
+    const L = (s && s.levels.tail) || 0, wt = (k) => (k === 'tailwind' ? tailWeight(L) : WEATHER[k].weight);
+    const types = Object.keys(WEATHER), total = types.reduce((a, k) => a + wt(k), 0);
     let r = Math.random() * total;
     // clear skies also hold for a while, so calm stretches feel deliberate too
-    for (const k of types) { r -= WEATHER[k].weight; if (r <= 0) return k === 'clear' ? { type: k, left: 0, calm: 20 } : { type: k, left: WX_SECS }; }
+    for (const k of types) { r -= wt(k); if (r <= 0) return k === 'clear' ? { type: k, left: 0, calm: 20 } : { type: k, left: k === 'tailwind' ? tailSecs(L) : WX_SECS }; }
     return { type: 'clear', left: 0 };
   }
   const wxOf = (s) => WEATHER[(!s.space && s.wx && s.wx.type) || 'clear'];
@@ -794,6 +804,6 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
-    feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
+    feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
