@@ -546,10 +546,25 @@
     }
   }
   const HARBOUR = 10; // width of the harbour basin between a seaside city's quay and the open sea
+  // Where land meets open sea the coastline wanders: at each depth it sits a little out into
+  // the sea strip or a little back into the land strip, so the shore is a ragged natural line
+  // all the way to the horizon instead of a straight seam where two strips join. Both strips
+  // read the same offset for their shared edge (keyed on the edge's world x), so they agree.
+  const coastOff = (edgeX, z) => (fbm(edgeX * 0.0137 + 3.1, z / 70 + 1.7) - 0.5) * 70; // + = out into the sea
+  const shoreRise = (t) => t * t * (3 - 2 * t); // a soft beach at the bottom, a rounded brow at the top
+  const shoreWidth = (z) => 22 + 34 * smooth(-60, -330, z); // gentler slopes in the far, high country
   function stripHeight(kind, prevKind, nextKind, wx0, lx, z) {
-    if (kind === 'sea') return -6;
     const wx = wx0 + lx + CW / 2;
     const dl = lx + CW / 2, dr = CW / 2 - lx;
+    if (kind === 'sea') {
+      // headlands and spits from a neighbouring land strip can reach into the sea strip
+      let reach = 0;
+      if (prevKind === 'land') reach = Math.max(reach, coastOff(wx0, z) - dl);
+      if (nextKind === 'land') reach = Math.max(reach, coastOff(wx0 + CW, z) - dr);
+      if (reach <= 0) return -6;
+      const t = shoreRise(smooth(0, shoreWidth(z), reach));
+      return -6 + (landHeight(wx, z) + 6) * t;
+    }
     let h = landHeight(wx, z);
     // a city sits on a plain that rises smoothly into the hills on either side, so the
     // ground runs unbroken into and out of town instead of stepping down at the edge
@@ -558,10 +573,18 @@
       h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, dLand));
     }
     let t = 1;
-    // open land slopes down to a beach; a city on the water ends in a harbour quay instead
-    const shore = kind === 'city' ? (d) => smooth(HARBOUR - 1.5, HARBOUR, d) : (d) => smooth(0, 26, d);
-    if (prevKind === 'sea') t = Math.min(t, shore(dl));
-    if (nextKind === 'sea') t = Math.min(t, shore(dr));
+    if (kind === 'city') {
+      // a city on the water ends in a harbour quay
+      const shore = (d) => smooth(HARBOUR - 1.5, HARBOUR, d);
+      if (prevKind === 'sea') t = Math.min(t, shore(dl));
+      if (nextKind === 'sea') t = Math.min(t, shore(dr));
+    } else {
+      // open land slopes down to a ragged shoreline that may sit inside this strip or out past its edge
+      const w = shoreWidth(z);
+      if (prevKind === 'sea') t = Math.min(t, smooth(0, w, dl + coastOff(wx0, z)));
+      if (nextKind === 'sea') t = Math.min(t, smooth(0, w, dr + coastOff(wx0 + CW, z)));
+      t = shoreRise(t);
+    }
     return -6 + (h + 6) * t;
   }
   function buildChunk(kind, geo, prevKind, nextKind, name) {
@@ -574,7 +597,7 @@
       // cities sit on a plain; open land gets hills and far ranges, sloping down to any sea beside it
       const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z);
       p.setY(i, GROUND + h);
-      col.set(kind === 'sea' ? [0.26, 0.21, 0.13] : vertColor(b, h, wx, z), i * 3);
+      col.set(h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z), i * 3); // seabed, sandy beach, land
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.computeVertexNormals();
