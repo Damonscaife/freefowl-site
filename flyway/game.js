@@ -1066,14 +1066,18 @@
   // flat blue body, a thick white curling crest, foam dots. 16 frames: it swells, curls over,
   // crashes in a burst of spray and settles into foam.
   // Painted fresh every frame (a small 320x200 canvas), so the wave moves smoothly at full frame rate.
-  const GW = { w: 320, h: 200 };
-  const giantCanvas = document.createElement('canvas'); giantCanvas.width = GW.w; giantCanvas.height = GW.h;
+  // The wave is drawn in a 320x200 box, inside a padded canvas (room for the spray and the crest
+  // to fly past the box's edges) at twice the resolution, so it stays crisp up close.
+  const GW = { w: 320, h: 200, padX: 48, padTop: 70, padBot: 10, res: 2 };
+  GW.cw = GW.w + GW.padX * 2; GW.ch = GW.h + GW.padTop + GW.padBot;
+  const giantCanvas = document.createElement('canvas'); giantCanvas.width = GW.cw * GW.res; giantCanvas.height = GW.ch * GW.res;
   const giantG = giantCanvas.getContext('2d');
   const giantTex = new THREE.CanvasTexture(giantCanvas); giantTex.colorSpace = THREE.SRGBColorSpace;
   function paintGiant(f, time) {
     const g = giantG, W = GW.w, H = GW.h;
     let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647; // same foam layout every frame; time makes it boil
-    g.clearRect(0, 0, W, H);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, giantCanvas.width, giantCanvas.height);
+    g.setTransform(GW.res, 0, 0, GW.res, GW.padX * GW.res, GW.padTop * GW.res);
     const rise = smooth(0, 0.45, f), curl = smooth(0.3, 0.7, f), fall = smooth(0.72, 1, f);
     const bob = Math.sin(time * 3.1) * 2.5, sway = Math.sin(time * 2.3) * 3;
     const top = H * (0.86 - 0.5 * rise * (1 - 0.8 * fall)) + bob; // crest height
@@ -1086,7 +1090,7 @@
     const lipX = cx + W * 0.22 * curl, lipY = top + (base - top) * 0.45 * curl + Math.sin(time * 5) * 2 * curl;
     g.bezierCurveTo(cx + W * 0.12, top - 4, lipX + 6, top + (lipY - top) * 0.2, lipX, lipY);   // over the top and curling down
     g.bezierCurveTo(lipX - W * 0.08 * curl, lipY - 6, cx + W * 0.02, top + (base - top) * 0.5, cx + W * 0.16, base); // the hollow face
-    g.lineTo(W, base); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
+    g.closePath(); g.fill(); // closes along the waterline: the sea itself carries on below, no box edges
     // lighter, glassy face under the curl, shimmering
     g.fillStyle = `rgba(140,220,240,${0.3 + 0.1 * Math.sin(time * 6)})`; g.beginPath(); g.moveTo(cx + W * 0.02, top + 8);
     g.quadraticCurveTo(cx + W * 0.04, top + (base - top) * 0.6, cx + W * 0.16, base); g.lineTo(cx - W * 0.1, base); g.quadraticCurveTo(cx - W * 0.06, top + (base - top) * 0.4, cx + W * 0.02, top + 8); g.fill();
@@ -1172,7 +1176,7 @@
   function updateRogue(dt, dx, under) {
     seaLife.rogueT -= dt * (under && under.grp.userData.rough ? 2.5 : 1);
     if (!seaLife.rogue && under && under.kind === 'sea' && seaLife.rogueT <= 0) {
-      const sp = new THREE.Sprite(giantMat); sp.center.set(0.5, 0.06);
+      const sp = new THREE.Sprite(giantMat); sp.center.set(0.5, (GW.padBot + GW.h * 0.06) / GW.ch); // anchored at the waterline
       const W = world.viewW || 14, w = 34 + Math.random() * 12;
       sp.userData = { t: 0, T: 6, x: W * (0.75 + Math.random() * 0.4), z: -24 - Math.random() * 12, w, crashed: false };
       fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
@@ -1181,7 +1185,7 @@
     const d = sp.userData; d.t += dt; d.x -= dx * 0.35;
     const k = d.t / d.T;
     paintGiant(Math.min(1, k), d.t); // smooth: a fresh picture every frame
-    sp.scale.set(d.w, d.w * GW.h / GW.w, 1);
+    sp.scale.set(d.w * GW.cw / GW.w, d.w * GW.ch / GW.w, 1);
     sp.position.set(d.x + k * 3, GROUND + 0.2, d.z);
     sp.material.opacity = 1 - smooth(0.88, 1, k);
     if (!d.crashed && k > 0.66) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.15, GROUND + d.w * 0.25, d.z + 1), 2.2); side.shake = Math.max(side.shake, 0.12); }
