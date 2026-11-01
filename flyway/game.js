@@ -2069,18 +2069,21 @@
   const sscene = new THREE.Scene();
   sscene.add(new THREE.AmbientLight(0xffffff, 0.35));
   const ssun = new THREE.DirectionalLight(0xfff4e0, 2.4); ssun.position.set(-300, 120, 200); sscene.add(ssun);
-  {
-    const n = 1800, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  // Background stars in two layers. Both drift slowly left while the ship flies (the nearer,
+  // dimmer layer a little faster), so space feels like it's sliding past.
+  const starLayers = [[1800, 1.7, 1, 0.006], [500, 1.2, 0.55, 0.014]].map(([n, size, bright, rate]) => {
+    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       const v = new THREE.Vector3().randomDirection().multiplyScalar(900);
       pos.set([v.x, v.y, v.z], i * 3);
-      const w = 0.7 + Math.random() * 0.3, tint = Math.random();
+      const w = (0.7 + Math.random() * 0.3) * bright, tint = Math.random();
       col.set(tint < 0.15 ? [w, w * 0.85, w * 0.7] : tint > 0.85 ? [w * 0.8, w * 0.9, w] : [w, w, w], i * 3);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    sscene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.7, sizeAttenuation: false, vertexColors: true })));
-  }
+    const pts = new THREE.Points(g, new THREE.PointsMaterial({ size, sizeAttenuation: false, vertexColors: true }));
+    pts.userData.rate = rate; sscene.add(pts); return pts;
+  });
   const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff8e0', 'rgba(255,214,140,.35)'), depthWrite: false, transparent: true }));
   sunGlow.position.set(-700, 260, 420); sunGlow.scale.setScalar(160); sscene.add(sunGlow);
 
@@ -2381,6 +2384,9 @@
     bodyPlace(spaceEarth, sp.u % 1, 40);
     bodyPlace(target, (sp.u + 0.5) % 1, body.star ? 14 : sp.dest === 0 ? 24 : 34);
     updateAsteroids(dt); updateMoonGear(dt);
+    // the star field slides left (radians per second; quicker with BOOST, solar wind and warp, slower in a fight)
+    const drift = (1 + S.boost + (side.solarK || 0) + 6 * (side.warpK || 0)) * (fight ? 0.4 : 1);
+    for (const l of starLayers) l.rotation.y += dt * l.userData.rate * drift;
     spaceEarth.rotation.y += dt * 0.03; target.rotation.y += dt * 0.02;
     // the shuttle, steady with a little bob
     const bob = Math.sin(side.t * 1.3) * 0.4, jink = fight ? Math.sin(side.t * 5.1) * 1.1 : 0;
