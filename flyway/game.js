@@ -1673,6 +1673,71 @@
       sky.flock.material = flockMats[Math.floor(side.t * 3) % 2];
       if (sky.flock.position.x < -180) { fscene.remove(sky.flock); sky.flock = null; sky.flockT = 8 + Math.random() * 14; }
     }
+    updatePassers(dt);
+  }
+
+  // ---- other flocks sharing the sky ----
+  // Real species flying the same way, a little behind the bird's own line. Each has its own
+  // cruising speed: early on most of them are a bit quicker than the player and pull ahead;
+  // as the player gets faster it starts overtaking them, slow fliers first, until every
+  // flock it meets slips by behind it.
+  const PASSER_V0 = 0.06; // km/s: the player's speed at the very start
+  const PASSERS = {
+    land: [['starling', 1.15, 12, 18], ['feralduck', 1.25, 4, 7], ['mallard', 1.3, 4, 7], ['goose', 1.4, 5, 9], ['crane', 1.55, 4, 7], ['swallow', 1.8, 5, 9], ['swift', 2.6, 4, 8], ['falcon', 3.4, 1, 2]],
+    sea: [['gull', 1.25, 4, 8], ['pelican', 1.3, 4, 7], ['tern', 1.5, 4, 8], ['puffin', 1.6, 5, 9], ['flamingo', 1.4, 5, 9], ['albatross', 2.2, 1, 3], ['frigate', 2.8, 1, 3]],
+  };
+  const passers = []; let passerT = 6;
+  function spawnPasser(v, u) {
+    const c = chunkAtX(0), pool = PASSERS[c && c.kind === 'sea' ? 'sea' : 'land'];
+    // once the bird is very fast, only the quickest kinds are worth drawing (the rest would be a blur)
+    const opts = pool.filter(([, k]) => v < PASSER_V0 * k * 40);
+    if (!opts.length) return;
+    const [id, k, n0, n1] = opts[Math.floor(Math.random() * opts.length)];
+    const b = BIRDS.find((x) => x.id === id); if (!b) return;
+    const vf = PASSER_V0 * k * (0.9 + Math.random() * 0.2), ahead = vf > v;
+    const n = n0 + Math.floor(Math.random() * (n1 - n0 + 1)), small = id === 'starling';
+    const z = -8 - Math.random() * 14, y = (hero ? hero.position.y : 0) + 0.5 + Math.random() * 4.5;
+    // just outside the view at that depth
+    const reach = (fcam.position.z - z) * Math.tan(THREE.MathUtils.degToRad(fcam.fov / 2)) * fcam.aspect + 8;
+    const birds = [];
+    for (let i = 0; i < n; i++) {
+      const m = cutout(atlasFor(b), small ? 2.2 : 3.4);
+      // a loose V (or a swirling cloud, for starlings) trailing back from its leader
+      const row = Math.floor((i + 1) / 2), sgn = i % 2 ? 1 : -1;
+      m.userData.off = small ? new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6)
+        : new THREE.Vector3(-row * 2.4, -row * 0.35, sgn * row * 1.6);
+      m.userData.phase = Math.random() * 6; m.userData.rate = (small ? 15 : 9) * (0.85 + Math.random() * 0.3);
+      fscene.add(m); birds.push(m);
+    }
+    const cx = fcam.position.x;
+    passers.push({ birds, vf, x: cx + (ahead ? -reach : reach), cx, y, z, reach, t: 0, small });
+  }
+  function updatePassers(dt) {
+    const v = F.speed(S), u = world.u;
+    passerT -= dt;
+    if (passerT <= 0 && passers.length < 2 && !S.space && !side.threat) {
+      spawnPasser(v, u); passerT = 9 + Math.random() * 14;
+    }
+    for (let i = passers.length - 1; i >= 0; i--) {
+      const p = passers[i]; p.t += dt;
+      // ground scrolls back at u (that's the player's speed); this flock covers vf of it
+      let rel = u * (p.vf / Math.max(v, 1e-6) - 1);
+      if (Math.abs(rel) < 2.5) rel = Math.sign(rel || 1) * 2.5; // always drifting, never parked beside the bird
+      p.x += rel * dt;
+      // a flock that just keeps pace drifts off after a while instead of shadowing the bird forever
+      const lift = smooth(40, 52, p.t) * 30;
+      p.birds.forEach((m, j) => {
+        const o = m.userData.off, sw = p.small ? Math.sin(side.t * 0.7 + j) * 1.2 : Math.sin(side.t * 0.9 + j) * 0.25;
+        m.position.set(p.x + o.x + sw, p.y + o.y + lift + Math.sin(side.t * 1.3 + j * 1.7) * 0.3, p.z + o.z);
+        m.userData.roll = Math.sin(side.t * 0.6 + j) * 0.05;
+        setFrame(m, phaseFrame(side.t * m.userData.rate + m.userData.phase, BIRD_FRAMES));
+        faceCamera(m);
+      });
+      if (Math.abs(p.x - p.cx) > p.reach + 14 || lift >= 30 || S.space) {
+        p.birds.forEach((m) => { fscene.remove(m); m.geometry.dispose(); m.material.dispose(); m.userData.tex.dispose(); });
+        passers.splice(i, 1);
+      }
+    }
   }
 
   // speed streaks
@@ -3717,6 +3782,7 @@
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
+    refreshRoutePick();
     open('menuSheet');
   };
   // two taps instead of confirm(), which webviews and app shells often block
@@ -3771,12 +3837,12 @@
         side.bug.caught = true;
         const rush = F.catchBug(S); dailyHit('bugs'); Sound.chirp();
         burstAtBeak();
-        toast(`Caught a bug! 2× speed and 3× seeds for ${Math.ceil(rush)}s`);
+        toast(`Caught a bug! +50% speed and 2× seeds for ${Math.ceil(rush)}s`);
       }
       if (side.bug.t >= DIVE + CLIMB) side.bug = null;
       return;
     }
-    if (!L || side.threat || S.space) return;
+    if (!L || side.threat || S.space || S.rush > 0) return; // no new bug until the rush is over
     side.bugT -= dt;
     if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) / (F.birdOf(S).bugs || 1) * (0.75 + Math.random() * 0.5); }
   }
@@ -4065,7 +4131,7 @@
     if (!S.space && !F.isNonstop(S)) { const f = F.legFrom(S); S.route = F.genLap(S, f.v ? f : f.i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
     save();
   }
-  const ORBIT_MSG = 'Orbital speed! Your bird can circle the globe in under a minute, so it now flies like a satellite. Each orbit pays out every destination.';
+  const ORBIT_MSG = 'Orbital speed! Your bird can circle the globe in under a minute, so it now flies like a satellite. Each orbit pays out every destination. Prefer city hopping? Switch any time in the menu.';
 
   // ---------- ship upgrades (shown in place of bird upgrades while looping the Moon) ----------
   const shipRows = {};
@@ -4133,6 +4199,25 @@
     refreshHud(); refreshUpgrades(); save();
   });
   $('optLapPrompt').onchange = (e) => { S.noLapPrompt = !e.target.checked; save(); };
+  // Once the bird can circle the globe, the player chooses: hop from city to city as before
+  // (each lap a new wandering route east), or circle the whole globe. Takes effect right away.
+  function refreshRoutePick() {
+    const box = $('routePick'); box.hidden = !F.circleUnlocked(S);
+    if (box.hidden) return;
+    const pref = S.routePref === 'hop' ? 'hop' : 'circle';
+    box.querySelectorAll('[data-route]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.route === pref)));
+    $('routeNote').textContent = pref === 'hop'
+      ? 'Each lap wanders east from city to city through a new part of the world, paying each city as you reach it.'
+      : 'Your bird circles the whole globe in one sweep, and every lap pays out every destination at once.';
+  }
+  $('routePick').querySelectorAll('[data-route]').forEach((b) => b.onclick = () => {
+    const pref = b.dataset.route;
+    if ((S.routePref === 'hop' ? 'hop' : 'circle') === pref) return;
+    S.routePref = pref; S.homeward = false; S.overs = []; S.overNext = 0;
+    if (!S.space) { const f = F.legFrom(S); S.route = F.genLap(S, f.v ? f : f.i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
+    refreshRoutePick(); save(); Sound.tap && Sound.tap();
+    toast(pref === 'hop' ? 'City hopping: your bird wanders from city to city again.' : 'Circling the globe again.');
+  });
 
   // ---------- daily migration challenge ----------
   function dailyHit(id, by = 1) {
@@ -4319,7 +4404,7 @@
         if (e.type === 'warp') { toast('🌀 Warp jump!'); Sound.launch(); Haptic.impact('HEAVY'); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
-        if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }
+        if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination. You can switch back to city hopping in the menu.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
         if (e.first) { stamp(e.city, e.bonus, true); Sound.stamp(); dailyHit('cities'); } // stamp only the first time the bird lands somewhere
         if (e.type === 'arrive' && e.bonus > 0 && !e.waypoint) flySeeds(e.bonus);

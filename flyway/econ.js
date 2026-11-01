@@ -320,11 +320,11 @@
       blurb: (L) => L ? `predators ${Math.round((1 - 1 / (1 + 0.12 * L)) * 100)}% less often` : 'predators find you less often' },
     // the big-ticket item: the bird dips low to snatch a passing bug for a short rush
     { id: 'bugs', name: 'Bug Catcher', icon: '🪲', base: 25000, growth: 3.2,
-      blurb: (L) => L ? `a bug every ~${Math.round(bugEvery(L))}s · ${bugRush(L)}s rush of 2× speed, 3× seeds` : 'dip low to catch bugs: 2× speed, 3× seeds' },
+      blurb: (L) => L ? `a bug every ~${Math.round(bugEvery(L))}s · ${bugRush(L)}s rush of +50% speed, 2× seeds` : 'dip low to catch bugs: +50% speed, 2× seeds' },
   ];
   const bugEvery = (L) => 50 / (1 + 0.3 * (L - 1));   // seconds between bugs
   const bugRush = (L) => 15 + 3 * (L - 1);            // seconds of rush per bug
-  const RUSH_SPEED = 2, RUSH_SEEDS = 3;
+  const RUSH_SPEED = 1.5, RUSH_SEEDS = 2; // a bug rush: +50% speed, +100% seeds
 
   // A new bird starts at a real bird's pace (0.05 km/s, about 180 km/h); the
   // first few levels ramp it up, and from level 5 on it follows the full curve.
@@ -404,7 +404,9 @@
   // current city, stopping only at cities lying close to it. A full orbit
   // pays as if the bird had reached every destination. Unlocked for good.
   const ORBIT_SPEED = 40075 / 60; // km/s: once around the equator per minute
-  const isOrbit = (s) => !!s.orbitUnlocked;
+  // Once circling is unlocked (orbital speed, or nonstop) the player can switch back to
+  // city hopping (s.routePref === 'hop'): laps then wander east through a band of cities again.
+  const isOrbit = (s) => !!s.orbitUnlocked && s.routePref !== 'hop';
   const v3 = (c) => { const a = rad(c.lat), o = rad(c.lon); return [Math.cos(a) * Math.cos(o), Math.cos(a) * Math.sin(o), Math.sin(a)]; };
   const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -417,7 +419,9 @@
   // Extremely fast (a lap in under 30 seconds) also means nonstop: stops would
   // just make the path jitter across the map.
   const STRAIGHT_SPEED = 40075 / 30;
-  const isNonstop = (s) => (s.lapsTotal || 0) >= NONSTOP_AT || baseSpeed(s) >= STRAIGHT_SPEED;
+  const nonstopReached = (s) => (s.lapsTotal || 0) >= NONSTOP_AT || baseSpeed(s) >= STRAIGHT_SPEED;
+  const isNonstop = (s) => s.routePref !== 'hop' && nonstopReached(s);
+  const circleUnlocked = (s) => !!s.orbitUnlocked || nonstopReached(s);
   function nearestCity(lat, lon) {
     let best = CITIES[0], bd = Infinity;
     for (const c of CITIES) { const d = distKm({ lat, lon }, c); if (d < bd) { bd = d; best = c; } }
@@ -655,7 +659,7 @@
         if (!s.wx || (s.wx.left <= 0 && !(s.wx.calm > 0))) s.wx = rollWeather(s);
         // the rooster crows up a tailwind whenever the sky is calm
         if (birdOf(s).crow && s.wx.type === 'clear') s.wx = { type: 'tailwind', left: 12 };
-        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay, waypoint: !!to.v, nonstopNow: lapDone && s.lapsTotal === NONSTOP_AT });
+        ev.push({ type: 'arrive', city: to, bonus, first, lapDone, wx: s.wx.type, orbitPay, waypoint: !!to.v, nonstopNow: lapDone && s.lapsTotal === NONSTOP_AT && s.routePref !== 'hop' });
       }
     }
     return ev;
@@ -891,8 +895,8 @@
   }
   const dailyText = (d) => DAILY.find((c) => c.id === d.id).text(d.n);
 
-  // A caught bug starts (or extends) the rush.
-  function catchBug(s) { s.rush = Math.max(s.rush, 0) + bugRush(s.levels.bugs || 1) * (birdOf(s).rush || 1); return s.rush; }
+  // A caught bug starts the rush. Rushes don't stack: no time is added on top of one already running.
+  function catchBug(s) { s.rush = Math.max(s.rush, bugRush(s.levels.bugs || 1) * (birdOf(s).rush || 1)); return s.rush; }
 
   function buy(s, id, n) {
     const u = UPGRADES.find((x) => x.id === id);
@@ -909,7 +913,7 @@
   function migrateAgain(s, birdId, startIdx) {
     const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
-      birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, overCount: s.overCount || {} };
+      birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {} };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
@@ -943,7 +947,7 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
-    GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };

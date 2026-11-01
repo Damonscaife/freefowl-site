@@ -279,6 +279,11 @@ body.photo .hud, body.photo .flap, body.photo #labels, body.photo .threat, body.
 .mode { display: flex; background: var(--paper-2); border-radius: 999px; padding: 3px; margin-left: auto; }
 .mode button { padding: 5px 11px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .mode button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.routepick { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--paper-2); }
+.routepick h4 { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
+.routepick .mode { margin-left: 0; display: inline-flex; }
+.routepick .mode button { padding: 7px 14px; font-size: 13.5px; }
+.routepick p { font-size: 13px; color: var(--ink-2); margin-top: 8px; }
 .migrate { margin: 0 14px 8px; padding: 10px 14px; border-radius: 10px; background: var(--ink); color: #fff;
   display: none; align-items: center; gap: 10px; text-align: left; }
 .migrate.on { display: flex; }
@@ -541,6 +546,14 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <p style="font-size:13.5px">Golden feathers 🪶: 5 for every lap around the globe, and a bonus when you migrate. Spend them on new birds and on perks that last forever.</p>
     <button class="go" id="btnShopMenu" style="margin-top:12px">Open the feather shop</button>
     <label class="check"><input type="checkbox" id="optLapPrompt" checked> Ask to migrate after each lap</label>
+    <div class="routepick" id="routePick" hidden>
+      <h4>Route around Earth</h4>
+      <div class="mode" role="group" aria-label="Route around Earth">
+        <button data-route="hop" aria-pressed="false">City hopping</button>
+        <button data-route="circle" aria-pressed="true">Circle the globe</button>
+      </div>
+      <p id="routeNote"></p>
+    </div>
     <div class="admin" id="admin" hidden>
       <h4>Admin (testing)</h4>
       <div class="admin-row"><input id="adminAmt" inputmode="decimal" autocomplete="off" placeholder="Seeds, e.g. 5000 or 2e12" aria-label="Seeds to add"><button id="adminAdd">Add</button></div>
