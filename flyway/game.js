@@ -511,14 +511,15 @@
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.2 });
   // One ribbon of road along a path of points, with traffic. fade: cars shrink away at the ends
   // (used where a highway runs on into the next strip, so they don't pop at the seam).
-  function roadMesh(grp, pts, width, hAt, wide, seed, nCars, fade) {
+  function roadMesh(grp, pts, width, hAt, wide, seed, nCars, fade, yAdj) {
     let len = 0; const lens = [0];
     for (let i = 1; i < pts.length; i++) { len += pts[i].distanceTo(pts[i - 1]); lens.push(len); }
     const pos = [], uv = [], idx = [];
     pts.forEach((p, i) => {
       const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)], tx = q.x - o.x, tz = q.z - o.z, tl = Math.hypot(tx, tz) || 1;
       const nx = -tz / tl * width / 2, nz = tx / tl * width / 2;
-      const y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
+      let y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
+      if (yAdj) y = yAdj(p, y);
       p.y = y;
       pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (wide ? 10 : 7), 1, lens[i] / (wide ? 10 : 7));
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
@@ -538,28 +539,93 @@
     return { pts, lens, len, cars, width, fade };
   }
   // A country road (or a city avenue) from behind the camera, curving left into the distance.
-  // It ends where it meets the highway, or runs right to the back of the land, so its end never shows.
-  function addRoad(grp, seed, hAt, wide, hwy) {
-    const bend = 30 + hash(seed, 72) * 25, width = wide ? 7 : 4;
-    const xs = lerp(-CW / 2 + 8 + bend, CW / 2 - 8, hash(seed, 71)); // keeps the whole road inside this strip
-    const zEnd = hwy ? HWY_Z : -356, n = 56, pts = [];
-    for (let i = 0; i <= n; i++) { const t = i / n; pts.push(new THREE.Vector3(xs - bend * Math.pow(t, 1.6), 0, 45 + (zEnd - 45) * t)); }
-    return roadMesh(grp, pts, width, hAt, wide, seed, wide ? 10 : 5, false);
+  // It meets the highway square-on at a proper T junction, or runs right to the back of the land,
+  // so its end never shows. Planned first (pure x/z) so the ground can carve a valley for it.
+  const GRID_X = 24; // ground mesh columns per strip (fine enough for the road valleys)
+  const ROAD_M = 16; // roads keep this far from a strip's sides, so their valley stays inside it
+  function planRoad(seed, wide, hw) {
+    let bend = Math.min(44, 30 + hash(seed, 72) * 25);
+    const width = wide ? 7 : 4, lo0 = -CW / 2 + ROAD_M, hi0 = CW / 2 - ROAD_M;
+    if (!hw) {
+      const xs = lerp(lo0 + bend, hi0, hash(seed, 71));
+      return { xs, bend, zEnd: -356, width, wide, ease: (t) => Math.pow(t, 1.6) };
+    }
+    // join only where the highway runs straight along the valley (not where it sweeps away)
+    const straight = hw.filter((p) => Math.abs(p.z - HWY_Z) < 0.01).map((p) => p.x);
+    if (!straight.length) return null;
+    const lo = Math.max(lo0, Math.min(...straight) + width + 2), hi = Math.min(hi0, Math.max(...straight) - width - 2);
+    if (hi < lo) return null;
+    const xe = lerp(lo, hi, hash(seed, 71)); bend = Math.min(bend, hi0 - xe);
+    const ease = (t) => { const u = Math.min(1, t / 0.8); return u * u * (3 - 2 * u); }; // straight for the last stretch
+    return { xs: xe + bend, bend, xe, zEnd: HWY_Z + 3.2, width, wide, ease, join: true };
   }
+  const roadX = (r, z) => r.xs - r.bend * r.ease(clamp((z - 45) / (r.zEnd - 45), 0, 1));
+  function addRoad(grp, seed, hAt, r, hwy) {
+    const n = 56, pts = [];
+    for (let i = 0; i <= n; i++) { const z = 45 + (r.zEnd - 45) * i / n; pts.push(new THREE.Vector3(roadX(r, z), 0, z)); }
+    let hy = null;
+    if (r.join && hwy) { // level the last stretch with the highway, then pave the junction
+      const hp = hwy.pts; let i = 1; while (i < hp.length - 1 && hp[i].x < r.xe) i++;
+      hy = lerp(hp[i - 1].y, hp[i].y, clamp((r.xe - hp[i - 1].x) / (hp[i].x - hp[i - 1].x || 1), 0, 1));
+    }
+    const road = roadMesh(grp, pts, r.width, hAt, r.wide, seed, r.wide ? 10 : 5, r.join, hy == null ? null : (p, y) => lerp(y, hy, smooth(HWY_Z + 16, HWY_Z + 4, p.z)));
+    if (hy != null) {
+      const zA = HWY_Z + 2.3, zB = HWY_Z + 3.5 + 3, wa = r.width / 2 + 2.2, wb = r.width / 2 + 0.05;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute([r.xe - wa, hy + 0.03, zA, r.xe + wa, hy + 0.03, zA, r.xe - wb, hy + 0.03, zB, r.xe + wb, hy + 0.03, zB], 3));
+      g.setIndex([0, 2, 1, 1, 2, 3]); g.computeVertexNormals();
+      grp.add(new THREE.Mesh(g, junctionMat));
+    }
+    return road;
+  }
+  const junctionMat = new THREE.MeshStandardMaterial({ color: 0x4a4c52, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   // The highway: runs along the bird's direction of travel, joined up strip to strip. Where the
   // highway country starts or ends it sweeps in from (or away to) the far distance.
   const HWY_Z = -95;
   const hwyFlag = (wx0) => fbm(wx0 * 0.0021 + 5.3, 3.7) > 0.47;
-  function addHighway(grp, seed, hAt, prevHw, nextHw) {
+  // early: the next strip is sea, so turn away inland well before the shore
+  const hwyZ = (lx, prevHw, nextHw, early) => {
+    const t = (lx + CW / 2) / CW; let z = HWY_Z;
+    if (!prevHw) z = lerp(-356, HWY_Z, smooth(0, 0.6, t));
+    if (!nextHw) z = lerp(z, -356, early ? smooth(0.05, 0.5, t) : smooth(0.4, 1, t));
+    return z;
+  };
+  function planHighway(prevHw, nextHw, early) {
     const pts = [], n = 40;
     for (let i = 0; i <= n; i++) {
-      const t = i / n, x = -CW / 2 + CW * t;
-      let z = HWY_Z;
-      if (!prevHw) z = lerp(-356, HWY_Z, smooth(0, 0.6, t));
-      if (!nextHw) z = lerp(z, -356, smooth(0.4, 1, t));
-      pts.push(new THREE.Vector3(x, 0, z));
+      const x = -CW / 2 + CW * i / n;
+      if (early && i > n * 0.5) break; // it has already gone off into the distance
+      pts.push(new THREE.Vector3(x, 0, hwyZ(x, prevHw, nextHw, early)));
     }
+    return pts;
+  }
+  function addHighway(grp, seed, hAt, pts, prevHw, nextHw) {
     return roadMesh(grp, pts, 7, hAt, true, seed + 999, 6, prevHw || nextHw);
+  }
+  // Roads never climb over a mountain: the ground sinks into a valley along them, with a flat
+  // floor under the road and slopes rising to the hills either side.
+  const valleyFloor = (wx, z) => 1.8 + fbm(wx / 70 + 9.1, z / 70 + 2.3) * 2.2;
+  function makeCarve(wx0, road, hw) {
+    if (!road && !hw) return null;
+    return (lx, z, h) => {
+      const dl = lx + CW / 2, dr = CW / 2 - lx, outer = 12 + 12 * smooth(-60, -330, z);
+      let k = 0;
+      if (road && z > road.zEnd - 2) {
+        const x0 = roadX(road, z), s = (roadX(road, z - 1) - roadX(road, z + 1)) / 2;
+        const d = Math.abs(lx - x0) / Math.sqrt(1 + s * s);
+        k = Math.max(k, (1 - smooth(road.width / 2 + 1.5, road.width / 2 + outer, d)) * smooth(0, 12, dl) * smooth(0, 12, dr));
+      }
+      if (hw && !(hw.early && lx > 0)) {
+        const z0 = hwyZ(lx, hw.prev, hw.next, hw.early), s = (hwyZ(lx + 0.5, hw.prev, hw.next, hw.early) - hwyZ(lx - 0.5, hw.prev, hw.next, hw.early));
+        const d = Math.abs(z - z0) / Math.sqrt(1 + s * s);
+        // the near side opens out into a broad, low valley, so the hills in front don't hide the highway
+        const reach = z > z0 ? 60 : outer;
+        k = Math.max(k, (1 - smooth(5, 3.5 + reach, d)) * (hw.prev ? 1 : smooth(0, 12, dl)) * (hw.next ? 1 : smooth(0, 12, dr)));
+      }
+      if (k <= 0) return h;
+      const f = Math.min(h, valleyFloor(wx0 + dl, z));
+      return h + (f - h) * k;
+    };
   }
   // keep trees, lakes and buildings off the road and the highway
   function segDist(px, pz, a, b) {
@@ -603,7 +669,7 @@
   // How tall the land is: mountain regions get much bigger relief. Each strip blends from the
   // previous strip's relief at its left edge to its own at the right, so the ground stays continuous.
   const reliefOf = (b) => (b === 'alpine' ? 2.2 : b === 'tropic' ? 1.15 : 1);
-  function stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL = 1, ampR = 1) {
+  function stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL = 1, ampR = 1, carve = null) {
     const wx = wx0 + lx + CW / 2;
     const dl = lx + CW / 2, dr = CW / 2 - lx;
     const amp = lerp(ampL, ampR, dl / CW), landHeight = (x, zz) => 3 + (landHeight0(x, zz) - 3) * amp;
@@ -623,6 +689,7 @@
       const dLand = Math.min(prevKind === 'sea' ? Infinity : dl, nextKind === 'sea' ? Infinity : dr);
       h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, dLand));
     }
+    if (carve) h = carve(lx, z, h);
     let t = 1;
     if (kind === 'city') {
       // a city on the water ends in a harbour quay
@@ -638,16 +705,29 @@
     }
     return -6 + (h + 6) * t;
   }
-  function buildChunk(kind, geo, prevKind, nextKind, name, atWx, ampL, prevBiome) {
+  function buildChunk(kind, geo, prevKind, nextKind, name, atWx, ampL, prevBiome, hwIn) {
     const wx0 = atWx ?? world.cursor; if (atWx == null) world.cursor += CW;
     const b = geo ? biome(geo.lat, geo.lon) : 'temperate', ampR = reliefOf(b), pb = prevBiome || b;
     if (ampL == null) ampL = ampR;
-    const g = new THREE.PlaneGeometry(CW, DEPTH, 16, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
+    // Plan the roads before shaping the ground, so it can carve valleys for them.
+    // The highway never runs beside the sea (no road off the edge of a cliff); it only carries
+    // on into a sea-side strip if the strip before already brought it this far.
+    const prevHw = kind === 'land' && !!(hwIn && hwIn.prev);
+    const haveHw = prevHw || (kind === 'land' && prevKind !== 'sea' && nextKind !== 'sea' && hwyFlag(wx0));
+    const nextHw = haveHw && (hwIn && hwIn.next != null ? hwIn.next : nextKind === 'land' && hwyFlag(wx0 + CW));
+    const early = nextKind === 'sea';
+    const hwPts = haveHw ? planHighway(prevHw, nextHw, early) : null;
+    const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
+    const lite = world.u > 120;
+    const rPlan = !lite && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hwPts ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < 0.3)
+      ? planRoad(wx0, kind === 'city', hwPts) : null;
+    const carve = makeCarve(wx0, rPlan, haveHw ? { prev: prevHw, next: nextHw, early } : null);
+    const g = new THREE.PlaneGeometry(CW, DEPTH, GRID_X, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const lx = p.getX(i), z = p.getZ(i), wx = wx0 + lx + CW / 2;
       // cities sit on a plain; open land gets hills and far ranges, sloping down to any sea beside it
-      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR);
+      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR, carve);
       p.setY(i, GROUND + h);
       col.set(h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z, pb, biomeBlend(lx + CW / 2, wx, z)), i * 3); // seabed, sandy beach, land (blending in from the last strip's landscape)
     }
@@ -655,14 +735,11 @@
     g.computeVertexNormals();
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
-    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR);
-    liteBuild = world.u > 120; // a strip crosses the screen in well under a second
+    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR, carve);
+    liteBuild = lite; // a strip crosses the screen in well under a second
     // a paved road (a highway through cities) running away from you and curving off to the left
-    const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
-    curHwy = kind === 'land' && hwyFlag(wx0)
-      ? addHighway(grp, wx0, hAt, prevKind === 'land' && hwyFlag(wx0 - CW), nextKind === 'land' && hwyFlag(wx0 + CW)) : null;
-    curRoad = !liteBuild && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : curHwy ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < 0.3)
-      ? addRoad(grp, wx0, hAt, kind === 'city', curHwy) : null;
+    curHwy = hwPts ? addHighway(grp, wx0, hAt, hwPts, prevHw, nextHw) : null;
+    curRoad = rPlan ? addRoad(grp, wx0, hAt, rPlan, curHwy) : null;
     if (kind === 'city') addCity(grp, name, wx0, hAt, prevKind === 'sea', nextKind === 'sea');
     // now and then the bird swoops right down between the towers of a city it passes
     if (fly) addCanyon(grp, wx0, hAt);
@@ -670,7 +747,7 @@
     else addSea(grp, wx0);
     addProps(grp, b, kind, wx0, hAt, geo);
     const road = curRoad, hwy = curHwy; curRoad = curHwy = null;
-    return { grp, kind, wx0, hAt, fly, road, hwy, geo, name, prevKind, nextKind, ampL, ampR, biome: b, prevBiome: pb };
+    return { grp, kind, wx0, hAt, fly, road, hwy, hwyNext: nextHw, geo, name, prevKind, nextKind, ampL, ampR, biome: b, prevBiome: pb };
   }
   // a seaside city's waterfront: wooden piers into the basin, boats tied up, and dock cranes on the quay
   const pierMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.9 });
@@ -798,26 +875,38 @@
 
   // What will be under the bird by the time a strip now at world x reaches it.
   // uses a smoothed speed, so a quick flap or a gust doesn't throw the whole road ahead off
+  // At high speed a strip laid at the edge of the view can be several legs ahead, so this walks
+  // on through the following legs of the route instead of stopping at the next city (which used
+  // to paint land ahead long after the globe had the bird back out over the ocean).
   function lookahead(sec) {
-    const km = Math.min(F.legLen(S), S.legKm + (side.vS || F.speed(S)) * sec);
-    return F.lerpGeo(F.legFrom(S), F.legTo(S), km / F.legLen(S));
+    let km = S.legKm + (side.vS || F.speed(S)) * sec, k = S.ri;
+    const R = S.route || [];
+    let a = F.routePt(S, k), b = F.routePt(S, k + 1), L = F.distKm(a, b);
+    while (km > L && k + 2 < R.length) {
+      km -= L; k++;
+      a = b; b = F.routePt(S, k + 1); L = F.distKm(a, b);
+    }
+    return F.lerpGeo(a, b, L > 0 ? Math.min(1, km / L) : 1);
   }
   const kindAt = (g) => (isLand(g.lat, g.lon) ? 'land' : 'sea');
   function pushChunk(x, kind, geo, name) {
     const prev = world.chunks[world.chunks.length - 1];
-    const nextGeo = lookahead(Math.max(0, (x + CW) / world.u));
+    const nextGeo = lookahead(Math.max(0, (x + CW) / unitsPerSec(side.vS || F.speed(S))));
     world.nextType = kindAt(nextGeo);
     // The strip before this one was shaped for a guess of what would come next (it slopes to
     // a shore only if it expects sea). If the guess was wrong, its edge wouldn't meet this one:
     // a cliff or a straight seam. Rebuild it to match while it's still far off.
-    if (prev && prev.nextKind !== kind) {
+    // Likewise if it ran its highway up to this edge and this strip can't carry it on.
+    if (prev && (prev.nextKind !== kind || (prev.hwyNext && kind !== 'land'))) {
       if (world.building || prev.grp.position.x > (world.viewW || 14) * 2 + CW / 2) {
-        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome);
+        const pp = world.chunks[world.chunks.length - 2];
+        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome, { prev: !!(pp && pp.hwyNext) });
         r.grp.position.x = prev.grp.position.x; fscene.add(r.grp);
         world.chunks[world.chunks.length - 1] = r; disposeChunk(prev);
-      } else if (kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
+      } else if (prev.nextKind !== kind && kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
     }
-    const c = buildChunk(kind, geo, prev ? prev.kind : kind, world.nextType, name, undefined, prev ? prev.ampR : undefined, prev ? prev.biome : undefined);
+    const p2 = world.chunks[world.chunks.length - 1];
+    const c = buildChunk(kind, geo, p2 ? p2.kind : kind, world.nextType, name, undefined, p2 ? p2.ampR : undefined, p2 ? p2.biome : undefined, { prev: !!(p2 && p2.hwyNext) });
     c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
 
@@ -990,7 +1079,7 @@
       if (kind === 'city' && z > -140) continue;
       // read the height the way the mesh draws it (straight lines between its grid points),
       // so a tree on a sloping island shore stands on the ground instead of floating beside it
-      const sx = CW / 16, i0 = Math.floor((lx + CW / 2) / sx), fx = (lx + CW / 2) / sx - i0;
+      const sx = CW / GRID_X, i0 = Math.floor((lx + CW / 2) / sx), fx = (lx + CW / 2) / sx - i0;
       const sz = DEPTH / 60, zr = (ZC + DEPTH / 2 - z) / sz, j0 = Math.floor(zr), fz = zr - j0;
       const X0 = -CW / 2 + i0 * sx, Z0 = ZC + DEPTH / 2 - j0 * sz;
       const h = lerp(lerp(hAt(X0, Z0), hAt(X0 + sx, Z0), fx), lerp(hAt(X0, Z0 - sz), hAt(X0 + sx, Z0 - sz), fx), fz);
@@ -2223,7 +2312,7 @@
   function resetSide() {
     for (const c of world.chunks) disposeChunk(c); world.chunks = [];
     for (const c of world.clouds) fscene.remove(c); world.clouds = [];
-    world.u = unitsPerSec(F.speed(S));
+    world.u = unitsPerSec(F.speed(S)); side.vS = side.vF = F.speed(S);
     const here = F.legFrom(S);
     // start over the departure city so take-off reads right
     world.cursor = 0;
@@ -2243,7 +2332,6 @@
   // really ocean, or the other way round), so every half second the strips still out of
   // close view are checked against where the bird will really be, and relaid if wrong.
   function checkStrips(dt, v) {
-    side.vS = lerp(side.vS || v, v, 1 - Math.exp(-dt / 2.5));
     side.geoT = (side.geoT || 0) - dt;
     if (side.geoT > 0) return;
     side.geoT = 0.5;
@@ -2265,7 +2353,14 @@
   }
   function updateFlight(dt) {
     const v = F.speed(S);
-    world.u = lerp(world.u, unitsPerSec(v), 1 - Math.exp(-dt * 2));
+    // The ground scrolls in step with the kilometres the bird really flies: a fixed-ish number of
+    // world units per km (set by a slow average of the speed), times the actual speed. So a strip
+    // laid for "N km ahead" arrives under the bird when the globe has the bird N km on, even when
+    // the speed changes sharply on the way (which used to leave land under a bird over the ocean).
+    side.vS = lerp(side.vS || v, v, 1 - Math.exp(-dt / 2.5));
+    side.vF = lerp(side.vF ?? v, v, 1 - Math.exp(-dt * 6));
+    const U = unitsPerSec(side.vS);
+    world.u = side.vS > 1e-6 ? Math.min(U * side.vF / side.vS, 400) : unitsPerSec(v);
     const fighting = side.threat && side.threat.phase === 'battle';
     const u = world.u, dx = u * dt * (fighting ? 0.35 : 1);
     side.t += dt;
@@ -2277,10 +2372,10 @@
     let last = world.chunks[world.chunks.length - 1], guard = 0;
     const maxBuilds = last.grp.position.x < (world.viewW || 14) * 1.5 + CW ? 12 : 1;
     while (last.grp.position.x < 620 - CW && guard++ < maxBuilds) {
-      const nx = last.grp.position.x + CW, sec = Math.max(0, nx / u);
+      const nx = last.grp.position.x + CW, sec = Math.max(0, nx / U);
       const left = (F.legLen(S) - S.legKm) / Math.max(v, 1e-6);
       // skip the skyline when legs fly by in a blink; the ticket shows lap progress instead
-      if (side.cityLeg !== S.leg + 1 && left < sec + CW / u && left > 1.0 && F.legLen(S) / v >= 3 && !F.legTo(S).v) {
+      if (side.cityLeg !== S.leg + 1 && left < sec + CW / U && left > 1.0 && F.legLen(S) / v >= 3 && !F.legTo(S).v) {
         side.cityLeg = S.leg + 1;
         const to = F.legTo(S); pushChunk(nx, 'city', to, to.name);
       } else { const g = lookahead(sec); pushChunk(nx, world.nextType || kindAt(g), g); }
