@@ -1065,53 +1065,60 @@
   // A giant wave, drawn as a 2D flipbook in the same cartoon style as the little crests:
   // flat blue body, a thick white curling crest, foam dots. 16 frames: it swells, curls over,
   // crashes in a burst of spray and settles into foam.
-  const GW = { F: 16, C: 4, R: 4, w: 256, h: 160 };
-  const giantTex = paintTex(GW.w * GW.C, GW.h * GW.R, (g) => {
-    let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (let i = 0; i < GW.F; i++) {
-      const f = i / (GW.F - 1), W = GW.w, H = GW.h;
-      g.save(); g.translate((i % GW.C) * W, Math.floor(i / GW.C) * H); g.beginPath(); g.rect(0, 0, W, H); g.clip();
-      const rise = smooth(0, 0.45, f), curl = smooth(0.3, 0.7, f), fall = smooth(0.72, 1, f);
-      const top = H * (0.86 - 0.5 * rise * (1 - 0.8 * fall)); // crest height
-      const cx = W * (0.5 + 0.12 * curl);                       // crest position, leaning forward as it curls
-      const base = H * 0.94;
-      // the body of water
-      const gr = g.createLinearGradient(0, top, 0, base); gr.addColorStop(0, '#3f9ad6'); gr.addColorStop(1, '#1f5f9e');
-      g.fillStyle = gr; g.beginPath(); g.moveTo(0, base);
-      g.bezierCurveTo(W * 0.3, base, W * 0.34, top + (base - top) * 0.15, cx, top); // a long rolling back
-      const lipX = cx + W * 0.22 * curl, lipY = top + (base - top) * 0.45 * curl;
-      g.bezierCurveTo(cx + W * 0.12, top - 4, lipX + 6, top + (lipY - top) * 0.2, lipX, lipY);   // over the top and curling down
-      g.bezierCurveTo(lipX - W * 0.08 * curl, lipY - 6, cx + W * 0.02, top + (base - top) * 0.5, cx + W * 0.16, base); // the hollow face
-      g.lineTo(W, base); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
-      // lighter, glassy face under the curl
-      g.fillStyle = 'rgba(140,220,240,.35)'; g.beginPath(); g.moveTo(cx + W * 0.02, top + 8);
-      g.quadraticCurveTo(cx + W * 0.04, top + (base - top) * 0.6, cx + W * 0.16, base); g.lineTo(cx - W * 0.1, base); g.quadraticCurveTo(cx - W * 0.06, top + (base - top) * 0.4, cx + W * 0.02, top + 8); g.fill();
-      // white streaks across the back of the swell, like the little wave crests
-      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.lineCap = 'round';
-      for (let k = 0; k < 4; k++) { const yy = lerp(top + 18, base - 6, (k + 0.5) / 4), x0 = W * (0.06 + k * 0.05); g.beginPath(); g.moveTo(x0, yy + 4); g.quadraticCurveTo(x0 + W * 0.1, yy - 6, x0 + W * 0.22, yy + 2); g.stroke(); }
-      // the white crest line, thick like the little waves
-      g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 7; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(cx - W * 0.25, top + (base - top) * 0.22); g.bezierCurveTo(cx - W * 0.08, top - 6, cx + W * 0.12, top - 6, lipX, lipY); g.stroke();
-      // swirl inside the curl
-      if (curl > 0.3) { g.lineWidth = 4; g.beginPath(); g.arc(lipX - W * 0.05, lipY - 2, W * 0.035 * curl, -1.2, 2.6); g.stroke(); }
-      // foam: dots along the crest, more as it breaks, a carpet once it crashes
-      g.fillStyle = 'rgba(255,255,255,.9)';
-      const nf = Math.floor(4 + 26 * curl + 30 * fall);
-      for (let k = 0; k < nf; k++) {
-        const t = rnd(), x = lerp(cx - W * 0.2, lipX + W * 0.1, t) + (fall ? (rnd() - 0.5) * W * 0.6 * fall : 0);
-        const y = fall > 0.2 ? base - rnd() * 18 * (1 - fall * 0.5) : lerp(top, lipY, t) + (rnd() - 0.5) * 8;
-        g.beginPath(); g.arc(x, y, 2 + rnd() * 5, 0, Math.PI * 2); g.fill();
-      }
-      // spray thrown up as the lip slams down
-      if (f > 0.6 && f < 0.95) {
-        const sp = smooth(0.6, 0.8, f) * (1 - smooth(0.85, 0.95, f));
-        for (let k = 0; k < 18; k++) { const a = -Math.PI * (0.15 + rnd() * 0.7), r = 10 + rnd() * 50 * sp; g.globalAlpha = 0.8 * sp; g.beginPath(); g.arc(lipX + Math.cos(a) * r, lipY + Math.sin(a) * r, 2 + rnd() * 4, 0, Math.PI * 2); g.fill(); }
-        g.globalAlpha = 1;
-      }
-      g.restore();
+  // Painted fresh every frame (a small 320x200 canvas), so the wave moves smoothly at full frame rate.
+  const GW = { w: 320, h: 200 };
+  const giantCanvas = document.createElement('canvas'); giantCanvas.width = GW.w; giantCanvas.height = GW.h;
+  const giantG = giantCanvas.getContext('2d');
+  const giantTex = new THREE.CanvasTexture(giantCanvas); giantTex.colorSpace = THREE.SRGBColorSpace;
+  function paintGiant(f, time) {
+    const g = giantG, W = GW.w, H = GW.h;
+    let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647; // same foam layout every frame; time makes it boil
+    g.clearRect(0, 0, W, H);
+    const rise = smooth(0, 0.45, f), curl = smooth(0.3, 0.7, f), fall = smooth(0.72, 1, f);
+    const bob = Math.sin(time * 3.1) * 2.5, sway = Math.sin(time * 2.3) * 3;
+    const top = H * (0.86 - 0.5 * rise * (1 - 0.8 * fall)) + bob; // crest height
+    const cx = W * (0.5 + 0.12 * curl) + sway;                      // crest position, leaning forward as it curls
+    const base = H * 0.94;
+    // the body of water
+    const gr = g.createLinearGradient(0, top, 0, base); gr.addColorStop(0, '#3f9ad6'); gr.addColorStop(1, '#1f5f9e');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(0, base);
+    g.bezierCurveTo(W * 0.3, base, W * 0.34, top + (base - top) * 0.15, cx, top); // a long rolling back
+    const lipX = cx + W * 0.22 * curl, lipY = top + (base - top) * 0.45 * curl + Math.sin(time * 5) * 2 * curl;
+    g.bezierCurveTo(cx + W * 0.12, top - 4, lipX + 6, top + (lipY - top) * 0.2, lipX, lipY);   // over the top and curling down
+    g.bezierCurveTo(lipX - W * 0.08 * curl, lipY - 6, cx + W * 0.02, top + (base - top) * 0.5, cx + W * 0.16, base); // the hollow face
+    g.lineTo(W, base); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
+    // lighter, glassy face under the curl, shimmering
+    g.fillStyle = `rgba(140,220,240,${0.3 + 0.1 * Math.sin(time * 6)})`; g.beginPath(); g.moveTo(cx + W * 0.02, top + 8);
+    g.quadraticCurveTo(cx + W * 0.04, top + (base - top) * 0.6, cx + W * 0.16, base); g.lineTo(cx - W * 0.1, base); g.quadraticCurveTo(cx - W * 0.06, top + (base - top) * 0.4, cx + W * 0.02, top + 8); g.fill();
+    // white streaks rolling up the back of the swell, like the little wave crests
+    g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.lineCap = 'round';
+    for (let k = 0; k < 5; k++) {
+      const ph = (time * 0.6 + k / 5) % 1, yy = lerp(base - 4, top + 14, ph), x0 = W * (0.04 + ph * 0.28) + k * 6;
+      g.globalAlpha = Math.sin(Math.PI * ph); g.beginPath(); g.moveTo(x0, yy + 4); g.quadraticCurveTo(x0 + W * 0.08, yy - 6, x0 + W * 0.18, yy + 2); g.stroke();
     }
-  });
-  giantTex.repeat.set(1 / GW.C, 1 / GW.R);
+    g.globalAlpha = 1;
+    // the white crest line, thick like the little waves
+    g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 8; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(cx - W * 0.25, top + (base - top) * 0.22); g.bezierCurveTo(cx - W * 0.08, top - 6, cx + W * 0.12, top - 6, lipX, lipY); g.stroke();
+    // swirl inside the curl, turning
+    if (curl > 0.3) { g.lineWidth = 4; const a0 = time * 4; g.beginPath(); g.arc(lipX - W * 0.05, lipY - 2, W * 0.035 * curl, a0, a0 + 3.8); g.stroke(); }
+    // foam: dots along the crest that boil and drift, more as it breaks, a carpet once it crashes
+    g.fillStyle = 'rgba(255,255,255,.9)';
+    const nf = Math.floor(6 + 30 * curl + 34 * fall);
+    for (let k = 0; k < nf; k++) {
+      const t = rnd(), j1 = rnd(), j2 = rnd(), r0 = 2 + rnd() * 5;
+      const x = lerp(cx - W * 0.2, lipX + W * 0.1, t) + (fall ? (j1 - 0.5) * W * 0.6 * fall : 0) + Math.sin(time * 4 + k) * 2.5;
+      const y = (fall > 0.2 ? base - j2 * 18 * (1 - fall * 0.5) : lerp(top, lipY, t) + (j2 - 0.5) * 8) + Math.cos(time * 5 + k * 1.3) * 2;
+      g.beginPath(); g.arc(x, y, r0 * (0.75 + 0.25 * Math.sin(time * 7 + k)), 0, Math.PI * 2); g.fill();
+    }
+    // spray thrown up as the lip slams down, flying outward
+    if (f > 0.6 && f < 0.97) {
+      const sp = smooth(0.6, 0.78, f) * (1 - smooth(0.85, 0.97, f)), out = smooth(0.6, 0.97, f);
+      for (let k = 0; k < 26; k++) { const a = -Math.PI * (0.12 + rnd() * 0.76), r = 10 + rnd() * 70 * out; g.globalAlpha = 0.85 * sp; g.beginPath(); g.arc(lipX + Math.cos(a) * r, lipY + Math.sin(a) * r + out * out * 30, 2 + rnd() * 4, 0, Math.PI * 2); g.fill(); }
+      g.globalAlpha = 1;
+    }
+    giantTex.needsUpdate = true;
+  }
   const giantMat = new THREE.SpriteMaterial({ map: giantTex, transparent: true, depthWrite: false, fog: true });
   // ---- the far horizon: distant sailboats, ships and whale spouts out where the sea meets the sky ----
   // Kept just inside the haze and tinted toward the sky colour by hand, so they read as far away.
@@ -1172,8 +1179,8 @@
     }
     const sp = seaLife.rogue; if (!sp) return;
     const d = sp.userData; d.t += dt; d.x -= dx * 0.35;
-    const k = d.t / d.T, fi = Math.min(GW.F - 1, Math.floor(k * GW.F));
-    giantTex.offset.set((fi % GW.C) / GW.C, 1 - (Math.floor(fi / GW.C) + 1) / GW.R); // flip to this frame
+    const k = d.t / d.T;
+    paintGiant(Math.min(1, k), d.t); // smooth: a fresh picture every frame
     sp.scale.set(d.w, d.w * GW.h / GW.w, 1);
     sp.position.set(d.x + k * 3, GROUND + 0.2, d.z);
     sp.material.opacity = 1 - smooth(0.88, 1, k);
