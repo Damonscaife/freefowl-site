@@ -462,7 +462,7 @@
     for (const r of RANGES) {
       r.t.offset.x = (r.t.offset.x + dx * r.par / 1200) % 1;
       r.m.material.color.copy(r.base).lerp(fogCol, r.haze).multiplyScalar(lerp(1, 0.45, night));
-      r.m.material.opacity = smooth(0.15, 0.6, side.landK);
+      r.m.material.opacity = smooth(0.4, 0.85, side.landK); // no mountain ranges standing in the open ocean
       r.m.visible = r.m.material.opacity > 0.01;
     }
   }
@@ -550,7 +550,8 @@
   // the sea strip or a little back into the land strip, so the shore is a ragged natural line
   // all the way to the horizon instead of a straight seam where two strips join. Both strips
   // read the same offset for their shared edge (keyed on the edge's world x), so they agree.
-  const coastOff = (edgeX, z) => (fbm(edgeX * 0.0137 + 3.1, z / 70 + 1.7) - 0.5) * 70; // + = out into the sea
+  // clamped so a cove never eats so far into a land strip that its slope reaches the strip's other edge
+  const coastOff = (edgeX, z) => clamp((fbm(edgeX * 0.0137 + 3.1, z / 70 + 1.7) - 0.5) * 70, -20, 35); // + = out into the sea
   const shoreRise = (t) => t * t * (3 - 2 * t); // a soft beach at the bottom, a rounded brow at the top
   const shoreWidth = (z) => 22 + 34 * smooth(-60, -330, z); // gentler slopes in the far, high country
   function stripHeight(kind, prevKind, nextKind, wx0, lx, z) {
@@ -587,8 +588,8 @@
     }
     return -6 + (h + 6) * t;
   }
-  function buildChunk(kind, geo, prevKind, nextKind, name) {
-    const wx0 = world.cursor; world.cursor += CW;
+  function buildChunk(kind, geo, prevKind, nextKind, name, atWx) {
+    const wx0 = atWx ?? world.cursor; if (atWx == null) world.cursor += CW;
     const b = geo ? biome(geo.lat, geo.lon) : 'temperate';
     const g = new THREE.PlaneGeometry(CW, DEPTH, 16, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
@@ -615,7 +616,7 @@
     if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt); if (kind === 'land') addLake(grp, b, wx0, hAt); }
     else addSea(grp, wx0);
     const road = curRoad; curRoad = null;
-    return { grp, kind, wx0, hAt, fly, road };
+    return { grp, kind, wx0, hAt, fly, road, geo, name, prevKind, nextKind };
   }
   // a seaside city's waterfront: wooden piers into the basin, boats tied up, and dock cranes on the quay
   const pierMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.9 });
@@ -739,6 +740,16 @@
     const prev = world.chunks[world.chunks.length - 1];
     const nextGeo = lookahead(Math.max(0, (x + CW) / world.u));
     world.nextType = kindAt(nextGeo);
+    // The strip before this one was shaped for a guess of what would come next (it slopes to
+    // a shore only if it expects sea). If the guess was wrong, its edge wouldn't meet this one:
+    // a cliff or a straight seam. Rebuild it to match while it's still far off.
+    if (prev && prev.nextKind !== kind) {
+      if (world.building || prev.grp.position.x > (world.viewW || 14) * 2 + CW / 2) {
+        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0);
+        r.grp.position.x = prev.grp.position.x; fscene.add(r.grp);
+        world.chunks[world.chunks.length - 1] = r; disposeChunk(prev);
+      } else if (kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
+    }
     const c = buildChunk(kind, geo, prev ? prev.kind : kind, world.nextType, name);
     c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
@@ -1869,9 +1880,11 @@
     // start over the departure city so take-off reads right
     world.cursor = 0;
     let x = -CW * 3 + 30; // puts the departure city in frame at take-off
+    world.building = true; // nothing is on screen yet, so any strip may be reshaped to fit its neighbour
     for (let i = 0; i < 2; i++) { pushChunk(x, kindAt(here), here); x += CW; }
     pushChunk(x, 'city', here, here.name); x += CW;
     while (x < 620) { const g = lookahead(Math.max(0, x / world.u)); pushChunk(x, kindAt(g), g); x += CW; }
+    world.building = false;
     for (let i = 0; i < 16; i++) makeCloud(-150 + Math.random() * 760);
     side.cityLeg = S.leg;
     setBirds();
@@ -1898,6 +1911,7 @@
       let j = i; if (j - 1 > lastCity && cs[j - 1].grp.position.x >= near) j--;
       while (cs.length > j) disposeChunk(cs.pop());
       world.nextType = null;
+      world.cursor = cs[cs.length - 1].wx0 + CW; // carry on the ground exactly where the kept strip ends
       return; // the strip loop in updateFlight refills ahead on the next frame
     }
   }
