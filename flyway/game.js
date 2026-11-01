@@ -1016,7 +1016,7 @@
     const kind = liteBuild ? null : r < 0.2 ? 'fishing' : r < 0.27 ? 'cruise' : r < 0.285 ? 'warship' : null;
     if (kind) {
       const sh = SHIPS[kind], sp = new THREE.Sprite(sh.mat);
-      sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1);
+      sp.center.set(0.5, 0.12); sp.scale.set(sh.w, sh.h, 1); sp.userData = { ship: kind, baseY: y };
       sp.position.set((hash(wx0, 42) - 0.5) * (CW - sh.w), y, -14 - hash(wx0, 43) * (kind === 'fishing' ? 60 : 140)); grp.add(sp);
       if (kind === 'warship') {
         // a warship fires its guns to the right; usually there's a ship out there it's shelling
@@ -1024,7 +1024,7 @@
         sp.position.x = -CW / 2 + 6 + hash(wx0, 42) * 12;
         if (hash(wx0, 45) < 0.75) {
           const tg = new THREE.Sprite(SHIPS.target.mat); tg.center.set(0.5, 0.12); tg.scale.set(SHIPS.target.w, SHIPS.target.h, 1);
-          tg.position.set(sp.position.x + 30 + hash(wx0, 46) * 14, y, sp.position.z - 6); grp.add(tg); n.target = tg;
+          tg.position.set(sp.position.x + 30 + hash(wx0, 46) * 14, y, sp.position.z - 6); tg.userData = { ship: 'target', baseY: y }; grp.add(tg); n.target = tg;
         }
         grp.userData.naval = n;
       }
@@ -1180,6 +1180,13 @@
       const W = world.viewW || 14, w = 34 + Math.random() * 12;
       sp.userData = { t: 0, T: 6, x: W * (0.75 + Math.random() * 0.4), z: -24 - Math.random() * 12, w, crashed: false };
       fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
+      // often there's a boat right in its path
+      const bx = sp.userData.x + w * (0.7 + Math.random() * 0.3), host = chunkAtX(bx);
+      if (host && host.kind === 'sea' && Math.random() < 0.7) {
+        const kind = Math.random() < 0.75 ? 'fishing' : 'cruise', sh = SHIPS[kind], b = new THREE.Sprite(sh.mat);
+        b.center.set(0.5, 0.12); b.scale.set(sh.w, sh.h, 1); b.userData = { ship: kind, baseY: GROUND + 0.6 };
+        b.position.set(bx - host.grp.position.x, GROUND + 0.6, sp.userData.z + (Math.random() - 0.5) * 6); host.grp.add(b);
+      }
     }
     const sp = seaLife.rogue; if (!sp) return;
     const d = sp.userData; d.t += dt; d.x -= dx * 0.35;
@@ -1189,13 +1196,57 @@
     sp.position.set(d.x + k * 3, GROUND + 0.2, d.z);
     sp.material.opacity = 1 - smooth(0.88, 1, k);
     if (!d.crashed && k > 0.66) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.15, GROUND + d.w * 0.25, d.z + 1), 2.2); side.shake = Math.max(side.shake, 0.12); }
+    waveHitsShips(d, k, dt);
     if (k >= 1) { fscene.remove(sp); seaLife.rogue = null; }
+  }
+  // Boats caught by the giant wave ride up its face, get shoved along and tipped; small boats
+  // under the crashing lip capsize and sink, big ones list hard and are pushed sideways.
+  function waveHitsShips(d, k, dt) {
+    const rise = smooth(0, 0.45, k), curl = smooth(0.3, 0.7, k), fall = smooth(0.72, 1, k);
+    const crestX = d.x + k * 3 + d.w * (0.1 + 0.12 * curl), reach = d.w * 0.5, peak = d.w * 0.32 * rise * (1 - 0.8 * fall);
+    for (const c of world.chunks) {
+      if (c.kind !== 'sea') continue;
+      for (const sp of c.grp.children) {
+        const u = sp.userData; if (!u || !u.ship || u.sunk) continue;
+        const wx = c.grp.position.x + sp.position.x, rel = (wx - crestX) / reach;
+        if (Math.abs(rel) > 1.2 || Math.abs(sp.position.z - d.z) > 22) continue;
+        if (!u.own) { sp.material = sp.material.clone(); sp.userData.shared = true; u.own = true; u.rot = 0; }
+        const big = u.ship === 'cruise' || u.ship === 'warship';
+        const lift = peak * Math.max(0, 1 - rel * rel) * (big ? 0.6 : 1);
+        if (!u.capsize && k > 0.6 && k < 0.85 && Math.abs(rel) < 0.35 && !big) { u.capsize = 0.001; u.dir = Math.random() < 0.5 ? -1 : 1; splash(new THREE.Vector3(wx, GROUND + 2, sp.position.z), 1.6); Sound.hit(); }
+        if (u.capsize) continue; // the capsize animation (below) takes over
+        sp.position.y = u.baseY + lift;
+        sp.position.x += (1 - Math.abs(rel)) * (big ? 3 : 7) * dt * (rel < 0.4 ? 1 : 0.3); // shoved along with the water
+        u.rot = lerp(u.rot, -rel * (big ? 0.35 : 0.8) * rise, 1 - Math.exp(-dt * 6));       // bow up on the face, down on the back
+        sp.material.rotation = u.rot;
+      }
+    }
+  }
+  // capsized boats roll over, wallow, and slide under; others settle back level once the wave has passed
+  function updateShipsAfterWave(dt) {
+    for (const c of world.chunks) {
+      if (c.kind !== 'sea') continue;
+      for (const sp of c.grp.children) {
+        const u = sp.userData; if (!u || !u.own || u.sunk) continue;
+        if (u.capsize) {
+          u.capsize += dt; const t = u.capsize;
+          sp.material.rotation = u.dir * Math.min(2.7, t * 3.2) + Math.sin(t * 4) * 0.08;
+          sp.position.y = u.baseY + 1.2 * Math.max(0, 1 - t * 1.4) - smooth(1.2, 5, t) * 4;
+          sp.position.x -= 1.5 * dt;
+          if (t > 1 && !u.foam) { u.foam = true; splash(new THREE.Vector3(c.grp.position.x + sp.position.x, GROUND + 1, sp.position.z), 1.1); }
+          if (t > 5.5) { u.sunk = true; sp.visible = false; }
+        } else if (!seaLife.rogue) {
+          sp.position.y = lerp(sp.position.y, u.baseY, 1 - Math.exp(-dt * 2));
+          u.rot = lerp(u.rot || 0, 0, 1 - Math.exp(-dt * 2)); sp.material.rotation = u.rot;
+        }
+      }
+    }
   }
 
 
   function updateSeaLife(dt, dx) {
     const under = chunkAtX(world.viewW ? world.viewW * 0.4 : 6);
-    updateRogue(dt, dx, under); updateFarSea(dt, dx);
+    updateRogue(dt, dx, under); updateShipsAfterWave(dt); updateFarSea(dt, dx);
     seaLife.t -= dt;
     if (under && under.kind === 'sea' && seaLife.t <= 0 && seaLife.list.length < 2) {
       // dolphins are a nice surprise; a whale's tail now and then; a full breach is rare
