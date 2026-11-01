@@ -1051,104 +1051,164 @@
       g.fillStyle = '#111'; g.beginPath(); g.arc(W * 0.86, H * 0.52, 4, 0, Math.PI * 2); g.fill();
     }) },
   };
+  // a whale's tail flukes lifting out of the water as it dives
+  JUMPERS.tail = { w: 6, h: 4.6, secs: 4.2, height: 3.4, tail: true, tex: paintTex(192, 150, (g, W, H) => {
+    g.fillStyle = '#34445c';
+    g.beginPath(); g.moveTo(W * 0.44, H); g.lineTo(W * 0.47, H * 0.42); g.lineTo(W * 0.53, H * 0.42); g.lineTo(W * 0.56, H); g.fill(); // the tail stock
+    g.beginPath(); g.moveTo(W * 0.5, H * 0.46);
+    g.bezierCurveTo(W * 0.36, H * 0.4, W * 0.14, H * 0.3, W * 0.03, H * 0.08); g.bezierCurveTo(W * 0.2, H * 0.2, W * 0.36, H * 0.16, W * 0.5, H * 0.3);
+    g.bezierCurveTo(W * 0.64, H * 0.16, W * 0.8, H * 0.2, W * 0.97, H * 0.08); g.bezierCurveTo(W * 0.86, H * 0.3, W * 0.64, H * 0.4, W * 0.5, H * 0.46); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.55)'; for (let i = 0; i < 9; i++) { g.beginPath(); g.arc(W * (0.08 + i * 0.105), H * (0.14 + (i % 3) * 0.06), 2.5, 0, Math.PI * 2); g.fill(); } // water streaming off
+  }) };
   for (const k in JUMPERS) JUMPERS[k].mat = sceneryMat(JUMPERS[k].tex, { fog: true });
   const seaLife = { list: [], t: 8, rogue: null, rogueT: 14 };
-  // A giant wave, built as real geometry: a long wall of water rolling toward you that rises,
-  // then breaks from one end to the other (the lip curling over a hollow face), throws spray,
-  // and collapses into whitewash. Two ribbons share the shape: the back and curling lip, and
-  // the concave face under it.
-  const RW = { NX: 56, NB: 26, NF: 10, L: 64 };
-  const rogueMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.35, metalness: 0.05 });
-  function makeRogue() {
-    const n = (RW.NX + 1) * (RW.NB + RW.NF), g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    const idx = [];
-    // each column holds the back-and-lip points, then the face points
-    const S = RW.NB + RW.NF;
-    const strip = (off, rows) => { for (let i = 0; i < RW.NX; i++) for (let j = 0; j < rows - 1; j++) {
-      const a = i * S + off + j, b = a + S; idx.push(a, b, a + 1, b, b + 1, a + 1); } };
-    strip(0, RW.NB); strip(RW.NB, RW.NF);
-    g.setIndex(idx);
-    const m = new THREE.Mesh(g, rogueMat); m.frustumCulled = false; m.userData.shared = true;
-    return m;
-  }
-  const C_DEEP = new THREE.Color('#123f6e'), C_TEAL = new THREE.Color('#2f8fb0'), C_GLASS = new THREE.Color('#6fd0d8'), C_FOAM = new THREE.Color('#f4fbff');
-  function shapeRogue(m, d) {
-    const pos = m.geometry.attributes.position, col = m.geometry.attributes.color, c = new THREE.Color();
-    const k = d.t / d.T, rise = smooth(0, 0.3, k), fall = smooth(0.72, 1, k);
-    const peel = (k - 0.28) / 0.42; // how far along the wall the break has travelled
-    let v = 0;
-    const put = (x, y, z, cl) => { pos.setXYZ(v, x, y, z); col.setXYZ(v, cl.r, cl.g, cl.b); v++; };
-    const crestAt = [];
-    for (let i = 0; i <= RW.NX; i++) {
-      const u = i / RW.NX, x = (u - 0.5) * RW.L;
-      const hump = Math.sin(Math.PI * u) ** 0.6 * (0.85 + 0.15 * Math.sin(u * 9 + d.seed));
-      const H = Math.max(0.05, d.H * hump * rise * (1 - 0.97 * fall)); // collapses into the sea at the end
-      const curl = clamp(peel * 1.5 - (1 - u) * 1.1, 0, 1) * (1 - fall * 0.6);   // breaks from the right end toward the left
-      const R = H * 0.34, foam = clamp(curl * 1.4 + fall, 0, 1);
-      crestAt.push([x, H, curl]);
-      // back slope, crest, then the lip curling forward and down
-      for (let j = 0; j < RW.NB; j++) {
-        const t = j / (RW.NB - 1);
-        let y, z;
-        if (t < 0.6) { const q = t / 0.6; z = -12 + 12 * q; y = H * (q * q * (3 - 2 * q)); }
-        else { const th = (t - 0.6) / 0.4 * Math.PI * 1.15 * curl; z = R * Math.sin(th); y = H - R + R * Math.cos(th); }
-        const tip = smooth(0.55, 1, t);
-        c.copy(C_DEEP).lerp(C_TEAL, t).lerp(C_FOAM, Math.max(tip * foam, fall * 0.8));
-        put(x, y, z, c);
+  // A giant wave, drawn as a 2D flipbook in the same cartoon style as the little crests:
+  // flat blue body, a thick white curling crest, foam dots. 16 frames: it swells, curls over,
+  // crashes in a burst of spray and settles into foam.
+  const GW = { F: 16, C: 4, R: 4, w: 256, h: 160 };
+  const giantTex = paintTex(GW.w * GW.C, GW.h * GW.R, (g) => {
+    let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < GW.F; i++) {
+      const f = i / (GW.F - 1), W = GW.w, H = GW.h;
+      g.save(); g.translate((i % GW.C) * W, Math.floor(i / GW.C) * H); g.beginPath(); g.rect(0, 0, W, H); g.clip();
+      const rise = smooth(0, 0.45, f), curl = smooth(0.3, 0.7, f), fall = smooth(0.72, 1, f);
+      const top = H * (0.86 - 0.5 * rise * (1 - 0.8 * fall)); // crest height
+      const cx = W * (0.5 + 0.12 * curl);                       // crest position, leaning forward as it curls
+      const base = H * 0.94;
+      // the body of water
+      const gr = g.createLinearGradient(0, top, 0, base); gr.addColorStop(0, '#3f9ad6'); gr.addColorStop(1, '#1f5f9e');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(0, base);
+      g.bezierCurveTo(W * 0.3, base, W * 0.34, top + (base - top) * 0.15, cx, top); // a long rolling back
+      const lipX = cx + W * 0.22 * curl, lipY = top + (base - top) * 0.45 * curl;
+      g.bezierCurveTo(cx + W * 0.12, top - 4, lipX + 6, top + (lipY - top) * 0.2, lipX, lipY);   // over the top and curling down
+      g.bezierCurveTo(lipX - W * 0.08 * curl, lipY - 6, cx + W * 0.02, top + (base - top) * 0.5, cx + W * 0.16, base); // the hollow face
+      g.lineTo(W, base); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
+      // lighter, glassy face under the curl
+      g.fillStyle = 'rgba(140,220,240,.35)'; g.beginPath(); g.moveTo(cx + W * 0.02, top + 8);
+      g.quadraticCurveTo(cx + W * 0.04, top + (base - top) * 0.6, cx + W * 0.16, base); g.lineTo(cx - W * 0.1, base); g.quadraticCurveTo(cx - W * 0.06, top + (base - top) * 0.4, cx + W * 0.02, top + 8); g.fill();
+      // white streaks across the back of the swell, like the little wave crests
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.lineCap = 'round';
+      for (let k = 0; k < 4; k++) { const yy = lerp(top + 18, base - 6, (k + 0.5) / 4), x0 = W * (0.06 + k * 0.05); g.beginPath(); g.moveTo(x0, yy + 4); g.quadraticCurveTo(x0 + W * 0.1, yy - 6, x0 + W * 0.22, yy + 2); g.stroke(); }
+      // the white crest line, thick like the little waves
+      g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 7; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(cx - W * 0.25, top + (base - top) * 0.22); g.bezierCurveTo(cx - W * 0.08, top - 6, cx + W * 0.12, top - 6, lipX, lipY); g.stroke();
+      // swirl inside the curl
+      if (curl > 0.3) { g.lineWidth = 4; g.beginPath(); g.arc(lipX - W * 0.05, lipY - 2, W * 0.035 * curl, -1.2, 2.6); g.stroke(); }
+      // foam: dots along the crest, more as it breaks, a carpet once it crashes
+      g.fillStyle = 'rgba(255,255,255,.9)';
+      const nf = Math.floor(4 + 26 * curl + 30 * fall);
+      for (let k = 0; k < nf; k++) {
+        const t = rnd(), x = lerp(cx - W * 0.2, lipX + W * 0.1, t) + (fall ? (rnd() - 0.5) * W * 0.6 * fall : 0);
+        const y = fall > 0.2 ? base - rnd() * 18 * (1 - fall * 0.5) : lerp(top, lipY, t) + (rnd() - 0.5) * 8;
+        g.beginPath(); g.arc(x, y, 2 + rnd() * 5, 0, Math.PI * 2); g.fill();
       }
-      // the face: from the water in front up into the hollow under the lip
-      for (let j = 0; j < RW.NF; j++) {
-        const t = j / (RW.NF - 1), zf = R * (0.9 - 0.9 * curl) + 2.2;
-        const z = lerp(zf, -R * 0.15 * curl, t) + Math.sin(t * Math.PI) * R * 0.35 * curl, y = H * (t * t) * (0.98 - 0.25 * curl);
-        c.copy(C_GLASS).lerp(C_TEAL, 1 - t).lerp(C_FOAM, fall * 0.8 + (t > 0.85 ? 0.3 * curl : 0));
-        put(x, y, z, c);
+      // spray thrown up as the lip slams down
+      if (f > 0.6 && f < 0.95) {
+        const sp = smooth(0.6, 0.8, f) * (1 - smooth(0.85, 0.95, f));
+        for (let k = 0; k < 18; k++) { const a = -Math.PI * (0.15 + rnd() * 0.7), r = 10 + rnd() * 50 * sp; g.globalAlpha = 0.8 * sp; g.beginPath(); g.arc(lipX + Math.cos(a) * r, lipY + Math.sin(a) * r, 2 + rnd() * 4, 0, Math.PI * 2); g.fill(); }
+        g.globalAlpha = 1;
       }
+      g.restore();
     }
-    pos.needsUpdate = true; col.needsUpdate = true; m.geometry.computeVertexNormals();
-    return crestAt;
+  });
+  giantTex.repeat.set(1 / GW.C, 1 / GW.R);
+  const giantMat = new THREE.SpriteMaterial({ map: giantTex, transparent: true, depthWrite: false, fog: true });
+  // ---- the far horizon: distant sailboats, ships and whale spouts out where the sea meets the sky ----
+  // Kept just inside the haze and tinted toward the sky colour by hand, so they read as far away.
+  const FAR = {
+    sail: { w: 3.2, h: 4, tex: paintTex(96, 120, (g, W, H) => {
+      g.fillStyle = '#f4f1ea'; g.beginPath(); g.moveTo(W * 0.5, H * 0.04); g.lineTo(W * 0.52, H * 0.78); g.lineTo(W * 0.14, H * 0.78); g.fill();
+      g.fillStyle = '#e8e2d4'; g.beginPath(); g.moveTo(W * 0.56, H * 0.12); g.lineTo(W * 0.56, H * 0.78); g.lineTo(W * 0.86, H * 0.78); g.fill();
+      g.fillStyle = '#3a4250'; g.beginPath(); g.moveTo(W * 0.08, H * 0.8); g.lineTo(W * 0.92, H * 0.8); g.lineTo(W * 0.8, H * 0.94); g.lineTo(W * 0.18, H * 0.94); g.fill();
+    }) },
+    tanker: { w: 14, h: 3, tex: paintTex(320, 72, (g, W, H) => {
+      g.fillStyle = '#3a4250'; g.fillRect(W * 0.04, H * 0.55, W * 0.92, H * 0.35);
+      g.fillStyle = '#8a3a2a'; g.fillRect(W * 0.04, H * 0.82, W * 0.92, H * 0.08);
+      g.fillStyle = '#e8e4dc'; g.fillRect(W * 0.78, H * 0.18, W * 0.12, H * 0.38);
+      const cols = ['#c8504a', '#3a7ac8', '#e8b43a', '#4aa86a']; for (let i = 0; i < 9; i++) { g.fillStyle = cols[i % 4]; g.fillRect(W * (0.08 + i * 0.075), H * (0.32 + (i % 2) * 0.08), W * 0.065, H * 0.24); }
+    }) },
+    spout: { w: 3, h: 4.5, tex: paintTex(96, 144, (g, W, H) => {
+      g.fillStyle = 'rgba(255,255,255,.9)';
+      for (let i = 0; i < 22; i++) { const t = i / 21, r = 3 + t * 14; g.globalAlpha = 0.9 - t * 0.5; g.beginPath(); g.arc(W / 2 + Math.sin(i * 1.7) * t * 22, H * (0.95 - t * 0.8), r, 0, Math.PI * 2); g.fill(); }
+      g.globalAlpha = 1; g.fillStyle = '#34445c'; g.beginPath(); g.ellipse(W / 2, H * 0.97, W * 0.32, H * 0.04, 0, 0, Math.PI * 2); g.fill();
+    }) },
+  };
+  for (const k in FAR) FAR[k].mat = new THREE.SpriteMaterial({ map: FAR[k].tex, transparent: true, depthWrite: false, fog: false });
+  const farSea = { list: [], t: 3 };
+  function updateFarSea(dt, dx) {
+    // only out over open water (not with land filling the view)
+    const open = side.landK < 0.35;
+    farSea.t -= dt;
+    if (open && farSea.t <= 0 && farSea.list.length < 5) {
+      farSea.t = 4 + Math.random() * 7;
+      const r = Math.random(), kind = r < 0.45 ? 'sail' : r < 0.75 ? 'tanker' : 'spout', D = FAR[kind];
+      const sp = new THREE.Sprite(D.mat.clone()); sp.center.set(0.5, 0.05);
+      const z = -380 - Math.random() * 140, sc = 1 + Math.abs(z) / 140;
+      sp.scale.set(D.w * sc, D.h * sc, 1);
+      sp.userData = { kind, t: 0, z, x: 260 + Math.random() * 200, sc, D };
+      fscene.add(sp); farSea.list.push(sp);
+    }
+    const fogC = fscene.fog.color;
+    for (let k = farSea.list.length - 1; k >= 0; k--) {
+      const sp = farSea.list[k], d = sp.userData; d.t += dt;
+      d.x -= dx * 0.2 + (d.kind === 'tanker' ? 1.2 : d.kind === 'sail' ? 0.6 : 0) * dt; // far away, so it barely moves
+      let h = 1, a = 1;
+      if (d.kind === 'spout') { const f = (d.t % 3) / 3; h = smooth(0, 0.25, f) * (1 - smooth(0.6, 1, f)); a = h; if (d.t > 9) a = 0; } // a puff of spray, then again
+      sp.scale.y = d.D.h * d.sc * Math.max(0.01, h);
+      sp.position.set(d.x, GROUND + 0.6, d.z);
+      // haze toward the horizon colour, so they sit far off
+      sp.material.color.copy(fogC).lerp(new THREE.Color(1, 1, 1), 0.45);
+      sp.material.opacity = a * (open ? 0.9 : 0.9 * (1 - smooth(0.35, 0.6, side.landK)));
+      if (d.x < -320 || (d.kind === 'spout' && d.t > 9.5)) { fscene.remove(sp); sp.material.dispose(); farSea.list.splice(k, 1); }
+    }
   }
   function updateRogue(dt, dx, under) {
     seaLife.rogueT -= dt * (under && under.grp.userData.rough ? 2.5 : 1);
     if (!seaLife.rogue && under && under.kind === 'sea' && seaLife.rogueT <= 0) {
-      const m = seaLife.rogueMesh || (seaLife.rogueMesh = makeRogue());
-      const W = world.viewW || 14;
-      m.userData.d = { t: 0, T: 8, x: W * (0.7 + Math.random() * 0.3), z: -40 - Math.random() * 8, H: 10 + Math.random() * 4, seed: Math.random() * 9, sprayT: 0 };
-      fscene.add(m); seaLife.rogue = m; seaLife.rogueT = 30 + Math.random() * 40;
+      const sp = new THREE.Sprite(giantMat); sp.center.set(0.5, 0.06);
+      const W = world.viewW || 14, w = 34 + Math.random() * 12;
+      sp.userData = { t: 0, T: 6, x: W * (0.75 + Math.random() * 0.4), z: -24 - Math.random() * 12, w, crashed: false };
+      fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
     }
-    const m = seaLife.rogue; if (!m) return;
-    const d = m.userData.d; d.t += dt; d.x -= dx * 0.3; d.z += dt * 1.4; // keeps pace beside you and rolls toward you
-    m.position.set(d.x, GROUND + 0.5, d.z);
-    const crest = shapeRogue(m, d), k = d.t / d.T;
-    // spray thrown up where the lip is crashing down right now
-    d.sprayT -= dt;
-    if (d.sprayT <= 0 && k > 0.35 && k < 0.85) {
-      d.sprayT = 0.35;
-      const hit = crest.find((c) => c[2] > 0.85 && c[2] < 0.99) || crest[Math.floor(crest.length * (1 - (k - 0.35) * 1.6))];
-      if (hit) splash(new THREE.Vector3(d.x + hit[0], GROUND + 0.5 + hit[1] * 0.7, d.z + 2), 1.6);
-    }
-    if (k >= 1) { fscene.remove(m); seaLife.rogue = null; }
+    const sp = seaLife.rogue; if (!sp) return;
+    const d = sp.userData; d.t += dt; d.x -= dx * 0.35;
+    const k = d.t / d.T, fi = Math.min(GW.F - 1, Math.floor(k * GW.F));
+    giantTex.offset.set((fi % GW.C) / GW.C, 1 - (Math.floor(fi / GW.C) + 1) / GW.R); // flip to this frame
+    sp.scale.set(d.w, d.w * GW.h / GW.w, 1);
+    sp.position.set(d.x + k * 3, GROUND + 0.2, d.z);
+    sp.material.opacity = 1 - smooth(0.88, 1, k);
+    if (!d.crashed && k > 0.66) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.15, GROUND + d.w * 0.25, d.z + 1), 2.2); side.shake = Math.max(side.shake, 0.12); }
+    if (k >= 1) { fscene.remove(sp); seaLife.rogue = null; }
   }
+
 
   function updateSeaLife(dt, dx) {
     const under = chunkAtX(world.viewW ? world.viewW * 0.4 : 6);
-    updateRogue(dt, dx, under);
+    updateRogue(dt, dx, under); updateFarSea(dt, dx);
     seaLife.t -= dt;
     if (under && under.kind === 'sea' && seaLife.t <= 0 && seaLife.list.length < 2) {
-      // dolphins are a nice surprise; whales are rare
-      const kind = Math.random() < 0.8 ? 'dolphin' : 'whale', J = JUMPERS[kind];
+      // dolphins are a nice surprise; a whale's tail now and then; a full breach is rare
+      const r = Math.random(), kind = r < 0.6 ? 'dolphin' : r < 0.88 ? 'tail' : 'whale', J = JUMPERS[kind];
       const sp = new THREE.Sprite(J.mat); sp.scale.set(J.w, J.h, 1);
-      const x = (world.viewW || 14) * (0.25 + Math.random() * 0.4), z = kind === 'whale' ? -30 - Math.random() * 30 : -8 - Math.random() * 20;
+      const x = (world.viewW || 14) * (0.25 + Math.random() * 0.4), z = kind === 'dolphin' ? -8 - Math.random() * 20 : -26 - Math.random() * 30;
       sp.position.set(x, GROUND, z); sp.userData = { J, t: 0, x, z, splashed: false };
       fscene.add(sp); seaLife.list.push(sp);
-      seaLife.t = kind === 'whale' ? 30 + Math.random() * 30 : 12 + Math.random() * 18;
+      seaLife.t = kind === 'dolphin' ? 12 + Math.random() * 18 : 20 + Math.random() * 25;
+      if (J.tail) sp.center.set(0.5, 0);
       splash(new THREE.Vector3(x, GROUND + 0.8, z), kind === 'whale' ? 1.4 : 0.8);
     }
     for (let k = seaLife.list.length - 1; k >= 0; k--) {
       const sp = seaLife.list[k], d = sp.userData, J = d.J;
       d.t += dt; d.x -= dx;
       const f = d.t / J.secs; // 0..1 along the leap
+      if (J.tail) {
+        // the flukes rise slowly, hang a moment with water pouring off, then slide back under
+        const up = smooth(0, 0.35, f) * (1 - smooth(0.65, 1, f));
+        sp.position.set(d.x, GROUND + 0.5 - J.h * (1 - up) * 0.95, d.z); sp.material.rotation = Math.sin(f * Math.PI) * 0.12;
+        if (!d.splashed && f > 0.8) { d.splashed = true; splash(new THREE.Vector3(d.x, GROUND + 0.8, d.z), 1.2); }
+        if (f >= 1) { fscene.remove(sp); seaLife.list.splice(k, 1); }
+        continue;
+      }
       sp.position.set(d.x + f * J.w * 0.8, GROUND + 0.4 + Math.sin(Math.PI * clamp(f, 0, 1)) * J.height, d.z);
       if (!d.splashed && f > 0.95) { d.splashed = true; splash(new THREE.Vector3(sp.position.x, GROUND + 0.8, d.z), J === JUMPERS.whale ? 1.6 : 0.9); }
       if (f >= 1) { fscene.remove(sp); seaLife.list.splice(k, 1); }
@@ -1225,6 +1285,25 @@
       if (c.road) updateTraffic(c.road, dt);
     }
     waveClock.value = t; // every wave crest in every strip animates on the GPU from this one number
+  }
+  // a shockwave ring and a vapour cone when the bird breaks the sound barrier (golden-white for light speed)
+  const boomRing = new THREE.Sprite(new THREE.SpriteMaterial({ map: paintTex(256, 256, (g, W, H) => {
+    for (let i = 0; i < 3; i++) { g.strokeStyle = `rgba(255,255,255,${0.9 - i * 0.28})`; g.lineWidth = 10 - i * 3; g.beginPath(); g.arc(W / 2, H / 2, W * 0.42 - i * 14, 0, Math.PI * 2); g.stroke(); }
+  }), transparent: true, depthWrite: false, opacity: 0 }));
+  const boomCone = new THREE.Sprite(new THREE.SpriteMaterial({ map: paintTex(256, 128, (g, W, H) => {
+    const gr = g.createLinearGradient(W, 0, 0, 0); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(W * 0.98, H / 2); g.quadraticCurveTo(W * 0.5, 0, 0, H * 0.05); g.lineTo(0, H * 0.95); g.quadraticCurveTo(W * 0.5, H, W * 0.98, H / 2); g.fill();
+  }), transparent: true, depthWrite: false, opacity: 0 }));
+  fscene.add(boomRing, boomCone);
+  function updateBoom(dt) {
+    if (side.boomT == null) { boomRing.visible = boomCone.visible = false; return; }
+    side.boomT += dt; const t = side.boomT;
+    boomRing.visible = boomCone.visible = t < 1.6;
+    if (t >= 1.6) { side.boomT = null; return; }
+    const col = side.boomLight ? '#fff2c0' : '#ffffff';
+    boomRing.material.color.setStyle(col); boomCone.material.color.setStyle(col);
+    boomRing.position.copy(hero.position).add(new THREE.Vector3(-0.5, 0, 0.5)); boomRing.scale.setScalar(2 + t * 16); boomRing.material.opacity = Math.max(0, 1 - t / 1.2);
+    boomCone.position.copy(hero.position).add(new THREE.Vector3(-2.6, 0, 0.3)); boomCone.scale.set(6 + t * 4, 3 + t * 2, 1); boomCone.material.opacity = Math.max(0, 0.85 - t / 1.6);
   }
   function splash(at, size) {
     const sp = sparks.geometry.attributes.position;
@@ -1485,8 +1564,28 @@
     const back = g.createLinearGradient(0, cy - 0.38 * S, 0, cy);
     back.addColorStop(0, shade(b.body, 0.8)); back.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = back; g.beginPath(); g.ellipse(cx, cy - 0.05 * S, 0.8 * S, 0.3 * S, -0.06, Math.PI, Math.PI * 2); g.fill();
+    // dragon: a spade-tipped tail and a row of spines down the back; phoenix: tongues of flame trailing the tail
+    if (opt.dragon) {
+      g.fillStyle = shade(b.body, 0.8);
+      g.beginPath(); g.moveTo(cx - 0.75 * S, cy - 0.06 * S); g.quadraticCurveTo(cx - 1.35 * S, cy + 0.05 * S, cx - 1.75 * S, cy - 0.12 * S);
+      g.lineTo(cx - 1.72 * S, cy - 0.02 * S); g.quadraticCurveTo(cx - 1.3 * S, cy + 0.16 * S, cx - 0.72 * S, cy + 0.08 * S); g.fill();
+      g.beginPath(); g.moveTo(cx - 1.7 * S, cy - 0.08 * S); g.lineTo(cx - 2.0 * S, cy - 0.3 * S); g.lineTo(cx - 1.95 * S, cy - 0.02 * S); g.lineTo(cx - 2.02 * S, cy + 0.14 * S); g.closePath(); g.fill();
+    }
+    if (opt.flame) {
+      const fl = (x, y, len, w, col) => { g.fillStyle = col; g.beginPath(); g.moveTo(x, y - w); g.quadraticCurveTo(x - len * 0.6, y - w * 1.6 + Math.sin(ph * 2 + x) * w, x - len, y + Math.sin(ph * 3 + y) * w * 0.8); g.quadraticCurveTo(x - len * 0.5, y + w * 1.2, x, y + w); g.fill(); };
+      g.save(); g.globalAlpha = 0.85;
+      for (let i = 0; i < 4; i++) fl(cx - 1.25 * S, cy + (i - 1.5) * 0.12 * S, S * (0.9 + 0.3 * Math.sin(ph + i)), 0.08 * S, i % 2 ? '#ffd23a' : '#ff6a1a');
+      g.restore();
+    }
     // head
     const hr = (opt.owl ? 0.44 : opt.bigBeak ? 0.38 : 0.32) * S, hx = cx + (opt.owl ? 0.62 : 0.78) * S, hy = cy - 0.3 * S;
+    if (opt.dragon) {
+      // spines along the back, horns sweeping back from the head
+      g.fillStyle = b.belly;
+      for (let i = 0; i < 6; i++) { const x = cx + (0.5 - i * 0.22) * S, y = cy - 0.34 * S + Math.abs(i - 1) * 0.015 * S; g.beginPath(); g.moveTo(x - 0.08 * S, y + 0.04 * S); g.lineTo(x - 0.02 * S, y - 0.16 * S); g.lineTo(x + 0.06 * S, y + 0.04 * S); g.fill(); }
+      g.fillStyle = '#e8e0c0';
+      for (const o of [0, 0.18]) { g.beginPath(); g.moveTo(hx - hr * (0.1 + o), hy - hr * 0.7); g.quadraticCurveTo(hx - hr * (0.9 + o), hy - hr * 1.5, hx - hr * (1.4 + o), hy - hr * 1.3); g.quadraticCurveTo(hx - hr * (0.8 + o), hy - hr * 1.1, hx - hr * (0.3 + o), hy - hr * 0.4); g.fill(); }
+    }
     // crest (cardinal) and comb (rooster) sit behind the head
     if (opt.crest) { g.fillStyle = b.cap; g.beginPath(); g.moveTo(hx - hr * 0.6, hy - hr * 0.5); g.lineTo(hx - hr * 0.55, hy - hr * 1.7); g.lineTo(hx + hr * 0.35, hy - hr * 0.75); g.fill(); }
     if (opt.comb) { g.fillStyle = '#d8242c'; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(hx - hr * 0.35 + i * hr * 0.32, hy - hr * 0.95, hr * 0.26, 0, Math.PI * 2); g.fill(); } }
@@ -1723,7 +1822,7 @@
       const n = Math.floor((b + CLASH / 2) / CLASH); // fires as each clash peaks
       if (b > 0.3 && b < BATTLE && n !== th.lastHit) {
         th.lastHit = n;
-        featherBurst(d.at, '#f4ece0'); featherBurst(d.at.clone().add(new THREE.Vector3(0.3, 0.2, 0)), '#8a6a48');
+        featherBurst(d.at, th.fire ? '#ff9a2a' : '#f4ece0'); featherBurst(d.at.clone().add(new THREE.Vector3(0.3, 0.2, 0)), th.fire ? '#ff4a1a' : '#8a6a48');
         side.shake = 0.35; Sound.hit();
       }
     } else if (b <= BATTLE) {
@@ -1945,7 +2044,7 @@
     }
     world.clouds = world.clouds.filter((c) => !c.userData.recycle);
     while (world.clouds.length < 16) makeCloud(560 + Math.random() * 120);
-    updateSkyLife(dt, dx); updateSeaLife(dt, dx); updateWaves(dt);
+    updateSkyLife(dt, dx); updateSeaLife(dt, dx); updateWaves(dt); updateBoom(dt);
 
     // streaks show once things get fast
     const want = clamp(Math.floor(Math.log10(1 + v) * 9 - 8) + (S.rush > 0 ? 14 : 0), 0, STREAKS);
@@ -2826,6 +2925,15 @@
     clearTimeout(cineTimer); cineTimer = setTimeout(() => cineEl.classList.remove('on'), secs * 1000);
   }
 
+  // ---------- speed barriers ----------
+  function barrierBroken(which) {
+    const light = which === 'light';
+    cinematic(light ? 'Light speed!' : 'Sound barrier broken!', `+10% speed for ${F.BARRIER_SECS} seconds`, 3.4);
+    $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
+    side.shake = Math.max(side.shake || 0, light ? 0.5 : 0.35); side.boomT = 0; side.boomLight = light;
+    Sound.launch(); Haptic.impact('HEAVY');
+  }
+
   // ---------- photo mode ----------
   // Hides the HUD so the world fills the screen; the shutter saves (or shares) a framed snapshot.
   const photoBar = $('photoBar');
@@ -3073,7 +3181,10 @@
     drawBirdHD(g, THUMB_PH, hidden ? silhouette(b) : b);
     if (hidden) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#b9a8ff'; g.font = "800 54px 'Bricolage Grotesque', sans-serif"; g.textAlign = 'center'; g.fillText('?', 120, 92); }
   }
-  const TIER = { starter: 'Starter', common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' };
+  const TIER = Object.fromEntries(F.RARITY.map((r) => [r.id, r.name]));
+  const TIER_RANK = Object.fromEntries(F.RARITY.map((r, i) => [r.id, i]));
+  const starsOf = (id) => (S && S.stars && S.stars[id]) || 0;
+  const starText = (id) => (starsOf(id) ? ' ' + '★'.repeat(starsOf(id)) : '');
   // mode: 'new' (first flight) or 'migrate'. When migrating, the feathers this
   // run earns can already be spent on a new bird here.
   function buildStart(mode) {
@@ -3084,13 +3195,15 @@
     if (!owns(BIRDS.find((x) => x.id === pickBird) || BIRDS[0])) pickBird = S ? S.bird : 'pigeon';
     if (!S) pickBird = 'pigeon';
     const wrap = $('birdPick'); wrap.innerHTML = '';
-    for (const b of BIRDS) {
+    // your birds first, rarest at the top; egg-only birds you haven't hatched live in the flock book
+    const list = BIRDS.filter((b) => owns(b) || !b.egg).sort((a, b) => (owns(b) - owns(a)) || (TIER_RANK[b.tier] - TIER_RANK[a.tier]));
+    for (const b of list) {
       const have = owns(b), afford = migrating && !have && purse >= b.cost;
       const el = document.createElement('button'); el.className = 'bird tier-' + b.tier; el.type = 'button';
       el.disabled = !have && !afford; el.setAttribute('aria-pressed', b.id === pickBird);
-      el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}</b>
+      el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}${starText(b.id)}</b>
         <small>${have ? b.trait : `${b.secret ? 'Specs unknown · ' : ''}🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
-        ${b.tier !== 'starter' ? `<i class="tier">${TIER[b.tier]}</i>` : ''}`;
+        <i class="tier">${TIER[b.tier]}</i>`;
       birdPreview(el.querySelector('canvas'), b, b.secret && !have);
       el.onclick = () => { pickBird = b.id; wrap.querySelectorAll('.bird').forEach((x) => x.setAttribute('aria-pressed', x === el)); updateGo(); };
       wrap.append(el);
@@ -3138,8 +3251,35 @@
       li.querySelector('button').onclick = () => { if (F.buyPerk(S, p.id)) { save(); openShop(); refreshHud(); refreshUpgrades(); } };
       box.append(li);
     }
+    // golden eggs: hatch a random bird, mostly common and uncommon, rarely more
+    const eggBox = $('shopEggs');
+    eggBox.innerHTML = `<div class="egg-row"><div class="egg-ic" aria-hidden="true">🥚</div>
+      <div><div class="nm">Golden egg</div><div class="fx">Hatches a random bird. A bird you already have earns a ★ (+15% speed and seeds, up to ${F.MAX_STARS}).</div>
+      <div class="odds">${F.RARITY.map((r) => `<span style="color:${r.color}">${r.name} ${r.weight < 1 ? r.weight.toFixed(1) : Math.round(r.weight)}%</span>`).join(' · ')}</div></div>
+      <button class="buy feather" id="btnHatch"${S.feathers < F.EGG_COST ? ' disabled' : ''}><b class="num">🪶 ${F.EGG_COST}</b><small>hatch</small></button></div>`;
+    $('btnHatch').onclick = () => { const r = F.hatchEgg(S); if (r) { save(); showHatch(r); } };
+    // the flock book: every species, grouped by rarity; ones you haven't found are silhouettes
+    const book = $('flockBook'); book.innerHTML = '';
+    const ownedN = BIRDS.filter((b) => F.ownsBird(S, b.id)).length;
+    $('bookCount').textContent = `${ownedN} of ${BIRDS.length}`;
+    for (const r of [...F.RARITY].reverse()) {
+      const group = BIRDS.filter((b) => b.tier === r.id);
+      const h = document.createElement('div'); h.className = 'book-h'; h.style.color = r.color; h.textContent = `${r.name} · ${group.filter((b) => F.ownsBird(S, b.id)).length}/${group.length}`;
+      book.append(h);
+      const grid = document.createElement('div'); grid.className = 'book-grid';
+      for (const b of group) {
+        const have = F.ownsBird(S, b.id), cell = document.createElement('div');
+        cell.className = 'book-cell' + (have ? ' got' : ''); cell.style.setProperty('--tc', r.color);
+        cell.title = have ? `${b.name}: ${b.trait}` : (b.secret ? 'A secret' : 'Not found yet');
+        cell.innerHTML = `<canvas width="72" height="45"></canvas><span>${have ? b.name + starText(b.id) : '?'}</span>`;
+        const g = cell.querySelector('canvas').getContext('2d'); fitBird(g, 72, 45); drawBirdHD(g, THUMB_PH, have ? b : silhouette(b));
+        if (have) cell.onclick = () => toast(`${b.name} (${r.name})${starText(b.id)}: ${b.trait}`);
+        grid.append(cell);
+      }
+      book.append(grid);
+    }
     const birds = $('shopBirds'); birds.innerHTML = '';
-    for (const b of BIRDS.filter((x) => x.cost > 0)) {
+    for (const b of BIRDS.filter((x) => x.cost > 0 && !x.egg)) {
       const have = S.birds.includes(b.id), li = document.createElement('li'); li.className = 'up';
       li.innerHTML = `<div class="ic bird-ic" aria-hidden="true"><canvas width="88" height="55"></canvas></div>
         <div><div class="nm">${b.name} <i class="tier tier-${b.tier}">${TIER[b.tier]}</i></div><div class="fx">${b.secret && !have ? 'Specs unknown until you own it' : b.trait}</div></div>
@@ -3149,6 +3289,23 @@
       birds.append(li);
     }
     open('shopSheet');
+  }
+  // the hatching moment: the egg wobbles, cracks, and the bird bursts out in its rarity's colour
+  function showHatch(r) {
+    const box = $('hatch'), tier = F.RARITY.find((x) => x.id === r.tier), b = r.bird;
+    box.style.setProperty('--tc', tier.color); box.hidden = false; box.className = 'hatch wobble';
+    $('hatchName').textContent = ''; $('hatchInfo').textContent = '';
+    const cv = $('hatchBird'), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+    Sound.chirp && Sound.chirp(); Haptic.impact('LIGHT');
+    const big = TIER_RANK[r.tier] >= 3;
+    setTimeout(() => {
+      box.className = 'hatch open' + (big ? ' big' : '');
+      fitBird(g, cv.width, cv.height); drawBirdHD(g, THUMB_PH, b);
+      $('hatchName').innerHTML = `${b.name} <i style="color:${tier.color}">${tier.name}</i>`;
+      $('hatchInfo').textContent = r.isNew ? `New bird! ${b.trait}` : r.star ? `You have this one: ★ ${r.star} of ${F.MAX_STARS} (+15% speed and seeds)` : `Already at ${F.MAX_STARS} ★: ${Math.round(F.EGG_COST * 0.4)} feathers back`;
+      if (big) { Sound.win(); Haptic.notify('SUCCESS'); } else { Sound.stamp(); Haptic.impact('MEDIUM'); }
+    }, big ? 1600 : 1000);
+    $('hatchOk').onclick = () => { box.hidden = true; openShop(); };
   }
   $('btnShop').onclick = openShop;
   // the trip meter can be minimized to a thin bar; the choice is remembered
@@ -3269,7 +3426,7 @@
     }
     if (!L || side.threat || S.space) return;
     side.bugT -= dt;
-    if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) * (0.75 + Math.random() * 0.5); }
+    if (side.bugT <= 0) { side.bug = { t: 0, caught: false }; side.bugT = F.bugEvery(L) / (F.birdOf(S).bugs || 1) * (0.75 + Math.random() * 0.5); }
   }
 
   // ---------- predators ----------
@@ -3349,7 +3506,8 @@
     return p ? `${line} · spirit +${p}%` : line;
   }
   function startBattle(th) {
-    th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999; th.spirit = 0;
+    th.phase = 'battle'; th.resolved = true; th.ok = th.meter >= 0.999 || (!THREATS[th.type].space && !!F.birdOf(S).fire); th.spirit = 0;
+    th.fire = !THREATS[th.type].space && !!F.birdOf(S).fire; // a dragon breathes fire through the whole fight
     banner.classList.add('fight'); // the FLAP button keeps pulsing: taps still count for spirit
     const name = THREATS[th.type].name, flockUp = S.levels.flock > 0;
     $('threatText').textContent = THREATS[th.type].space
@@ -3805,6 +3963,7 @@
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: e.body, bonus: 0, first: true }); continue; }
         if (e.type === 'eventEnd') { endSpaceEvent(e.event); continue; }
         if (e.type === 'over') { overflight(e); continue; }
+        if (e.type === 'barrier') { barrierBroken(e.which); continue; }
         if (e.type === 'warp') { toast('🌀 Warp jump!'); Sound.launch(); Haptic.impact('HEAVY'); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }

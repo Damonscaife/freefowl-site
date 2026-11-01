@@ -140,17 +140,17 @@
   // seeds and flap strength; some have specials (ocean seeds, longer bug
   // rushes, easier predator fights, fewer predators).
   const BIRDS = [
-    { id: 'pigeon', name: 'Rock Pigeon', cost: 0, tier: 'starter', trait: 'Steady all-rounder: +20% speed and seeds', speed: 1.2, seeds: 1.2, stamina: 1,
+    { id: 'pigeon', name: 'Rock Pigeon', cost: 0, tier: 'common', trait: 'Steady all-rounder: +20% speed and seeds', speed: 1.2, seeds: 1.2, stamina: 1,
       body: '#7d8796', wing: '#5d6674', belly: '#b9c0ca', beak: '#2e2e33', cap: '#4c6a73' },
-    { id: 'sparrow', name: 'House Sparrow', cost: 0, tier: 'starter', trait: '+50% seeds', speed: 1, seeds: 1.5, stamina: 1,
+    { id: 'sparrow', name: 'House Sparrow', cost: 0, tier: 'common', trait: '+50% seeds', speed: 1, seeds: 1.5, stamina: 1,
       body: '#9a6b43', wing: '#6e4a2c', belly: '#e9dcc6', beak: '#3b2a1c', cap: '#7a7f86' },
-    { id: 'swallow', name: 'Barn Swallow', cost: 0, tier: 'starter', trait: '+30% speed', speed: 1.3, seeds: 1, stamina: 1,
+    { id: 'swallow', name: 'Barn Swallow', cost: 0, tier: 'common', trait: '+30% speed', speed: 1.3, seeds: 1, stamina: 1,
       body: '#1f3f8a', wing: '#16285a', belly: '#f1d7b0', beak: '#1a1a1a', cap: '#b4442e' },
-    { id: 'goose', name: 'Canada Goose', cost: 10, tier: 'common', trait: 'Flaps hit 2× harder', speed: 1.2, seeds: 1.2, stamina: 2,
+    { id: 'goose', name: 'Canada Goose', cost: 10, tier: 'uncommon', trait: 'Flaps hit 2× harder', speed: 1.2, seeds: 1.2, stamina: 2,
       body: '#7d6f60', wing: '#4f4539', belly: '#ece6dc', beak: '#161616', cap: '#161616' },
-    { id: 'cardinal', name: 'Northern Cardinal', cost: 25, tier: 'common', trait: '+80% seeds', speed: 1.15, seeds: 1.8, stamina: 1,
+    { id: 'cardinal', name: 'Northern Cardinal', cost: 25, tier: 'uncommon', trait: '+80% seeds', speed: 1.15, seeds: 1.8, stamina: 1,
       body: '#c8202c', wing: '#9e1822', belly: '#d8414a', beak: '#f08a2e', cap: '#c8202c', crest: true, mask: '#1a1a1a' },
-    { id: 'mockingbird', name: 'Mockingbird', cost: 40, tier: 'common', trait: 'Bug rushes last 2× longer, +40% seeds', speed: 1.3, seeds: 1.4, stamina: 1.2, rush: 2,
+    { id: 'mockingbird', name: 'Mockingbird', cost: 40, tier: 'uncommon', trait: 'Bug rushes last 2× longer, +40% seeds', speed: 1.3, seeds: 1.4, stamina: 1.2, rush: 2,
       body: '#8a8f96', wing: '#55595f', belly: '#e9e9e4', beak: '#1e1e1e', cap: '#8a8f96', wingBar: '#f2f2ee' },
     { id: 'tern', name: 'Arctic Tern', cost: 75, tier: 'rare', trait: '+60% speed, +60% seeds', speed: 1.6, seeds: 1.6, stamina: 1,
       body: '#e9eef2', wing: '#b9c4cc', belly: '#ffffff', beak: '#d8342b', cap: '#151515' },
@@ -171,7 +171,102 @@
     // the secret one: its specs stay hidden until it is bought
     { id: 'shadow', name: 'Shadow Falcon', cost: 150000, tier: 'legendary', secret: true, trait: '69× everything', speed: 69, seeds: 69, stamina: 69, fight: 69, camo: 69,
       body: '#2a2340', wing: '#171226', belly: '#3d3360', beak: '#9b8cff', cap: '#120e1f', hook: true, eye: '#b9a8ff' },
+    // ---- hatched from golden eggs only (egg: true) ----
+    // Poor: plain everyday birds
+    E('starling', 'European Starling', 'poor', '+5% speed and seeds', 1.05, 1.05, 1, '#2b2f36', '#1f2228', '#3a3f48', '#e8c84a', '#2b2f36', { wingBar: '#d9d2a8' }),
+    E('grackle', 'Common Grackle', 'poor', '+5% speed and seeds', 1.05, 1.05, 1, '#2a2440', '#1d1830', '#2f2a48', '#151515', '#3c3470', { eye: '#f2e14a' }),
+    E('cowbird', 'Brown-headed Cowbird', 'poor', '+8% seeds', 1, 1.08, 1, '#25262a', '#1c1d20', '#2d2e33', '#2a2a2a', '#6b4a33', { head: '#6b4a33' }),
+    E('dove', 'Mourning Dove', 'poor', '+8% speed', 1.08, 1, 1, '#b9a48c', '#9c8670', '#d8c6b0', '#2a2a2a', '#c4b09a', { longTail: true }),
+    E('songsparrow', 'Song Sparrow', 'poor', '+5% speed and seeds', 1.05, 1.05, 1, '#8a6b52', '#6c5240', '#e6d9c8', '#5a4636', '#8a5a3c', {}),
+    E('dunnock', 'Dunnock', 'poor', '+8% seeds', 1, 1.08, 1, '#7a5a44', '#5e4433', '#9aa0a8', '#2a2a2a', '#7d848c', {}),
+    E('chipping', 'Chipping Sparrow', 'poor', '+5% speed and seeds', 1.05, 1.05, 1, '#9a7a5a', '#7a5c42', '#d9dcdf', '#2a2a2a', '#b5552e', {}),
+    E('feralduck', 'Feral Duck', 'poor', '+10% seeds over ocean', 1, 1.05, 1, '#e9e4d8', '#c9c2b4', '#f4f1ea', '#f0a83a', '#e9e4d8', { stubby: true, ocean: 1.1 }),
+    // Common
+    E('robin', 'American Robin', 'common', '+20% speed and seeds', 1.2, 1.2, 1, '#5a5550', '#45413d', '#d8622e', '#f0c23a', '#2e2c2a', {}),
+    E('bluejay', 'Blue Jay', 'common', '+25% seeds', 1.15, 1.25, 1, '#3a78c9', '#2b5ea3', '#eef1f4', '#1a1a1a', '#3a78c9', { crest: true, wingBar: '#ffffff' }),
+    E('chickadee', 'Black-capped Chickadee', 'common', '+20% speed and seeds', 1.2, 1.2, 1, '#9aa2a8', '#7c848a', '#f2ede2', '#1a1a1a', '#151515', { cheek: '#ffffff' }),
+    E('mallard', 'Mallard', 'common', '+50% seeds over ocean', 1.15, 1.15, 1.2, '#8c6a4c', '#5a4636', '#a8886a', '#e8c43a', '#1f6b3a', { head: '#1f6b3a', stubby: true, ocean: 1.5 }),
+    E('gull', 'Herring Gull', 'common', '+60% seeds over ocean', 1.2, 1.1, 1, '#f2f2ef', '#9aa3ab', '#ffffff', '#f0c23a', '#f2f2ef', { ocean: 1.6 }),
+    E('blackbird', 'Red-winged Blackbird', 'common', '+25% speed', 1.25, 1.1, 1, '#18181c', '#121216', '#202026', '#1a1a1a', '#18181c', { wingBar: '#d8242c' }),
+    E('housefinch', 'House Finch', 'common', '+25% seeds', 1.1, 1.25, 1, '#8a6a58', '#6a5040', '#e6d8c8', '#9a8a7a', '#c8343c', { head: '#c8343c' }),
+    E('flicker', 'Northern Flicker', 'common', 'bugs come 20% more often', 1.2, 1.2, 1, '#a8846a', '#8a6a52', '#efe2cc', '#2a2a2a', '#9aa0a8', { mask: '#d8343c', bugs: 1.2 }),
+    E('killdeer', 'Killdeer', 'common', '+25% speed', 1.25, 1.15, 1, '#9a7a58', '#7a5e44', '#ffffff', '#1a1a1a', '#9a7a58', { mask: '#1a1a1a' }),
+    E('bluebird', 'Eastern Bluebird', 'common', '+20% speed and seeds', 1.2, 1.2, 1, '#3a6fd0', '#2c56a8', '#d87a3a', '#1a1a1a', '#3a6fd0', {}),
+    E('cedar', 'Cedar Waxwing', 'common', '+20% speed and seeds', 1.2, 1.2, 1, '#b39a78', '#8a7a68', '#e8dcae', '#1a1a1a', '#b39a78', { crest: true, mask: '#1a1a1a' }),
+    E('nuthatch', 'Nuthatch', 'common', '+25% seeds', 1.1, 1.25, 1, '#6f87a8', '#556a88', '#f2ede6', '#2a2a2a', '#1f2430', {}),
+    // Uncommon
+    E('goldfinch', 'American Goldfinch', 'uncommon', '+60% seeds', 1.4, 1.6, 1.2, '#f2d02a', '#1a1a1a', '#f6dc4a', '#e89a3a', '#151515', { wingBar: '#ffffff' }),
+    E('oriole', 'Baltimore Oriole', 'uncommon', '+50% speed and seeds', 1.5, 1.5, 1.2, '#f08a1e', '#1a1a1a', '#f59a2e', '#5a5a5a', '#151515', { head: '#151515', wingBar: '#ffffff' }),
+    E('tanager', 'Scarlet Tanager', 'uncommon', '+60% speed', 1.6, 1.4, 1.2, '#d81e2a', '#151515', '#e0303a', '#c8b89a', '#d81e2a', {}),
+    E('kingfisher', 'Belted Kingfisher', 'uncommon', '2× seeds over ocean, bugs 30% more often', 1.4, 1.4, 1.2, '#4a78a8', '#3a5f88', '#ffffff', '#1a1a1a', '#4a78a8', { crest: true, bigBeak: true, ocean: 2, bugs: 1.3 }),
+    E('raven', 'Common Raven', 'uncommon', 'half the flaps to win fights', 1.4, 1.4, 1.4, '#16161c', '#101014', '#1e1e26', '#151515', '#16161c', { bigBeak: true, fight: 1.5 }),
+    E('magpie', 'Eurasian Magpie', 'uncommon', '+70% seeds', 1.4, 1.7, 1.2, '#14161c', '#1e3a6a', '#ffffff', '#151515', '#14161c', { longTail: true, wingBar: '#ffffff' }),
+    E('puffin', 'Atlantic Puffin', 'uncommon', '2.5× seeds over ocean', 1.4, 1.4, 1.2, '#16161c', '#101014', '#ffffff', '#f06a2a', '#16161c', { cheek: '#ffffff', bigBeak: true, stubby: true, ocean: 2.5 }),
+    E('heron', 'Great Blue Heron', 'uncommon', '+50% speed, calm in storms', 1.5, 1.4, 1.4, '#7a8aa0', '#5e6c80', '#c8d0da', '#e8c43a', '#e8ecf0', { longBeak: true, storm: true }),
+    E('woodduck', 'Wood Duck', 'uncommon', '+60% seeds, 1.5× over ocean', 1.4, 1.6, 1.2, '#6a4a3a', '#2a4a5a', '#c89a6a', '#d8342b', '#1f6b4a', { head: '#1f6b4a', crest: true, stubby: true, ocean: 1.5 }),
+    E('bunting', 'Painted Bunting', 'uncommon', '+60% speed and seeds', 1.6, 1.6, 1, '#2a4ad0', '#3aa04a', '#d8302a', '#6a6a6a', '#2a4ad0', { head: '#2a4ad0' }),
+    E('roadrunner', 'Greater Roadrunner', 'uncommon', '+80% speed', 1.8, 1.3, 1.4, '#8a7258', '#5e4c3a', '#d8ccb8', '#2a2a2a', '#3a3028', { crest: true, longTail: true }),
+    E('crane', 'Sandhill Crane', 'uncommon', '+50% speed, +1 golden feather per lap', 1.5, 1.4, 1.4, '#a8a29a', '#8a847c', '#c8c2ba', '#3a3a3a', '#d8342b', { longBeak: true, feathers: 1 }),
+    E('swift', 'Common Swift', 'uncommon', '+90% speed', 1.9, 1.2, 1.2, '#3a3530', '#2a2622', '#4a443e', '#1a1a1a', '#3a3530', { }),
+    E('lark', 'Skylark', 'uncommon', '+60% seeds, bugs 30% more often', 1.4, 1.6, 1.2, '#a8906a', '#8a7454', '#e8dcc4', '#6a5a4a', '#a8906a', { crest: true, bugs: 1.3 }),
+    // Rare
+    E('snowyowl', 'Snowy Owl', 'rare', '2.2× speed and seeds; predators find you half as often', 2.2, 2.2, 1.5, '#f4f4f0', '#e2e2dc', '#ffffff', '#2a2a2a', '#f4f4f0', { owl: true, talons: true, eye: '#f2c230', camo: 2 }),
+    E('hornedowl', 'Great Horned Owl', 'rare', '2× speed and seeds; half the flaps to win fights', 2, 2, 1.5, '#7a5e44', '#5a4432', '#d8c4a8', '#2a2a2a', '#7a5e44', { owl: true, talons: true, eye: '#f29a2a', fight: 2 }),
+    E('toucan', 'Toco Toucan', 'rare', '3× seeds', 1.8, 3, 1.5, '#151515', '#101010', '#ffffff', '#f08a1e', '#151515', { cheek: '#ffffff', bigBeak: true }),
+    E('macaw', 'Scarlet Macaw', 'rare', '2.5× speed and seeds', 2.5, 2.5, 1.5, '#d8202a', '#2a5ad0', '#e83a3a', '#e8e0d0', '#d8202a', { longTail: true, bigBeak: true, wingBar: '#f2d02a' }),
+    E('flamingo', 'American Flamingo', 'rare', '2× speed, 3× seeds over ocean', 2, 2, 1.5, '#f28aa8', '#e85a7a', '#f6a8c0', '#1a1a1a', '#f28aa8', { longBeak: true, ocean: 3 }),
+    E('pelican', 'Brown Pelican', 'rare', '2× speed and seeds, 3.5× over ocean', 2, 2, 1.5, '#8a8076', '#5a524a', '#c8c0b4', '#e8b04a', '#f2e8c8', { head: '#f2e8c8', bigBeak: true, ocean: 3.5 }),
+    E('hummingbird', 'Ruby-throated Hummingbird', 'rare', '3.5× speed', 3.5, 1.6, 2, '#2a8a5a', '#1f6a44', '#e8eee8', '#1a1a1a', '#2a8a5a', { cheek: '#d8202a', longBeak: true, stubby: true }),
+    E('kookaburra', 'Laughing Kookaburra', 'rare', '2.5× seeds, bugs 50% more often', 1.8, 2.5, 1.5, '#8a6a4a', '#4a6a8a', '#efe6d8', '#2a2a2a', '#efe6d8', { head: '#efe6d8', mask: '#5a4232', bigBeak: true, bugs: 1.5 }),
+    E('barnowl', 'Barn Owl', 'rare', '2× speed and seeds; predators find you half as often', 2, 2, 1.5, '#d8b48a', '#c09a6e', '#f8f0e4', '#e8d8c8', '#d8b48a', { owl: true, talons: true, eye: '#1a1a1a', camo: 2 }),
+    E('lyrebird', 'Superb Lyrebird', 'rare', '2.5× seeds, +1 golden feather per lap', 1.8, 2.5, 1.5, '#7a6250', '#5a4838', '#a89480', '#2a2a2a', '#7a6250', { longTail: true, feathers: 1 }),
+    E('secretary', 'Secretary Bird', 'rare', '2.2× speed; half the flaps to win fights', 2.2, 2, 1.5, '#c8ccd0', '#2a2a2a', '#e8eaec', '#e8a83a', '#c8ccd0', { crest: true, hook: true, talons: true, fight: 2 }),
+    // Epic
+    E('harpy', 'Harpy Eagle', 'epic', '4× speed and seeds; wins fights with a third of the flaps', 4, 4, 2.5, '#3a3a40', '#26262c', '#e8e8e8', '#2a2a2a', '#8a8a92', { crest: true, hook: true, talons: true, fight: 3 }),
+    E('quetzal', 'Resplendent Quetzal', 'epic', '5× seeds, +2 golden feathers per lap', 3, 5, 2.5, '#1f9a5a', '#167a46', '#d8202a', '#f2d02a', '#1f9a5a', { crest: true, longTail: true, feathers: 2 }),
+    E('pheasant', 'Golden Pheasant', 'epic', '4× speed and seeds, bugs twice as often', 4, 4, 2.5, '#d8302a', '#2a4a8a', '#f2a03a', '#e8c43a', '#f2d02a', { head: '#f2d02a', crest: true, longTail: true, bugs: 2 }),
+    E('condor', 'Andean Condor', 'epic', '5× speed; storms never slow you', 5, 3, 3, '#1a1a1e', '#141418', '#f2f2f2', '#c8b8a8', '#e8c8b8', { head: '#e8c8b8', hook: true, storm: true }),
+    E('shoebill', 'Shoebill', 'epic', '4× everything; half the flaps to win fights', 4, 4, 4, '#8a96a2', '#6a7682', '#a8b2bc', '#c8b08a', '#8a96a2', { bigBeak: true, fight: 2 }),
+    E('peacock', 'Indian Peafowl', 'epic', '6× seeds', 3, 6, 2.5, '#1e5ad0', '#2a8a7a', '#1e4ab0', '#c8c0b0', '#1e5ad0', { crest: true, longTail: true, wingBar: '#2ad0a8' }),
+    E('frigate', 'Magnificent Frigatebird', 'epic', '4× speed, 6× seeds over ocean, calm in storms', 4, 3, 3, '#18181c', '#121216', '#202026', '#8a8a92', '#18181c', { cheek: '#d8202a', hook: true, longTail: true, ocean: 6, storm: true }),
+    // Legendary: the creatures of legend
+    E('dragon', 'Dragon', 'legendary', '25× everything; Dragonfire wins every fight', 25, 25, 12, '#2f7a3a', '#1f5a2a', '#d8c86a', '#e8e0c0', '#2f7a3a', { dragon: true, hook: true, talons: true, eye: '#f2a01a', fire: true, longTail: true }),
+    E('phoenix', 'Phoenix', 'legendary', '18× speed and seeds; bug rushes last 3×; +5 golden feathers per lap', 18, 18, 10, '#f05a1a', '#d8301a', '#f6b02a', '#f2d02a', '#f05a1a', { flame: true, crest: true, longTail: true, rush: 3, feathers: 5 }),
+    E('thunderbird', 'Thunderbird', 'legendary', '20× everything; storms make it twice as fast', 20, 20, 10, '#2a3a6a', '#1a2448', '#e8d84a', '#f2d02a', '#2a3a6a', { crest: true, hook: true, talons: true, eye: '#8ae8ff', storm: true, surge: true }),
+    E('roc', 'Roc', 'legendary', '30× speed, 15× seeds; predators rarely dare', 30, 15, 12, '#8a5a32', '#6a4424', '#d8b48a', '#3a3a3a', '#8a5a32', { hook: true, talons: true, camo: 4, span: 1.25 }),
   ];
+  // compact maker for the egg-only birds
+  function E(id, name, tier, trait, speed, seeds, stamina, body, wing, belly, beak, cap, extra) {
+    return Object.assign({ id, name, tier, egg: true, trait, speed, seeds, stamina, body, wing, belly, beak, cap }, extra);
+  }
+
+  // ---- rarity, golden eggs and stars ----
+  // Tiers follow the classic loot colours, from Poor (grey) to Legendary (orange).
+  const RARITY = [
+    { id: 'poor', name: 'Poor', color: '#8a8a8a', weight: 15 },
+    { id: 'common', name: 'Common', color: '#4a5568', weight: 45 },
+    { id: 'uncommon', name: 'Uncommon', color: '#1e9e3a', weight: 30 },
+    { id: 'rare', name: 'Rare', color: '#0070dd', weight: 8 },
+    { id: 'epic', name: 'Epic', color: '#a335ee', weight: 1.8 },
+    { id: 'legendary', name: 'Legendary', color: '#ff8000', weight: 0.2 },
+  ];
+  const EGG_COST = 25;          // golden feathers per egg
+  const MAX_STARS = 5;          // a duplicate hatch adds a star: +15% speed and seeds for that bird
+  const starMult = (s, id) => 1 + 0.15 * Math.min(MAX_STARS, (s.stars && s.stars[id]) || 0);
+  const eggPool = (tier) => BIRDS.filter((b) => b.tier === tier && !b.secret);
+  function hatchEgg(s, rnd = Math.random) {
+    if (s.feathers < EGG_COST) return null;
+    s.feathers -= EGG_COST;
+    const total = RARITY.reduce((a, r) => a + r.weight, 0);
+    let x = rnd() * total, tier = RARITY[0];
+    for (const r of RARITY) { x -= r.weight; if (x <= 0) { tier = r; break; } }
+    const pool = eggPool(tier.id), b = pool[Math.floor(rnd() * pool.length)];
+    s.stars = s.stars || {};
+    if (!s.birds.includes(b.id) && !(b.cost === 0)) { s.birds.push(b.id); return { bird: b, tier: tier.id, isNew: true }; }
+    const st = s.stars[b.id] || 0;
+    if (st < MAX_STARS) { s.stars[b.id] = st + 1; return { bird: b, tier: tier.id, star: st + 1 }; }
+    const refund = Math.round(EGG_COST * 0.4); s.feathers += refund; return { bird: b, tier: tier.id, refund };
+  }
 
   // Permanent upgrades bought with golden feathers. They survive every migration.
   const PERKS = [
@@ -191,10 +286,10 @@
   }
   function buyBird(s, id) {
     const b = BIRDS.find((x) => x.id === id);
-    if (!b || s.birds.includes(id) || s.feathers < b.cost) return false;
+    if (!b || b.egg || s.birds.includes(id) || s.feathers < b.cost) return false; // egg birds only hatch
     s.feathers -= b.cost; s.birds.push(id); return true;
   }
-  const ownsBird = (s, id) => !!s && (s.birds || []).includes(id) || BIRDS.find((b) => b.id === id).cost === 0;
+  const ownsBird = (s, id) => !!s && (s.birds || []).includes(id) || (BIRDS.find((b) => b.id === id) || {}).cost === 0;
 
   // Level-milestone doublings, AdVenture Capitalist style.
   const MILESTONES = [10, 25, 50, 100, 150, 200, 300, 400, 500, 750, 1000];
@@ -233,9 +328,11 @@
 
   // A new bird starts at a real bird's pace (0.05 km/s, about 180 km/h); the
   // first few levels ramp it up, and from level 5 on it follows the full curve.
-  const wingSpeed = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L) * Math.min(1, 0.1 + 0.18 * L); // km/s
+  const wingSpeedRaw = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L) * Math.min(1, 0.1 + 0.18 * L); // km/s
+  // Wing Strength's gain is 75% of the curve above (the starting speed is unchanged)
+  const wingSpeed = (L) => wingSpeedRaw(0) + 0.75 * (wingSpeedRaw(L) - wingSpeedRaw(0));
   const forage = (L) => T.k0 * (1 + L) * 2 ** doublings(L);
-  const boostCap = (L) => 0.5 + 0.35 * L;                            // extra speed fraction
+  const boostCap = (L) => 0.5 + 0.2625 * L; // each Stamina level: +26.25% max boost (was +35%)                            // extra speed fraction
   const PRICE = 2; // every upgrade costs double its listed base
   const cost = (u, L) => PRICE * u.base * u.growth ** L;
   // Total price of n levels starting at L (geometric series).
@@ -432,17 +529,21 @@
 
   function baseSpeed(s) {
     const b = birdOf(s);
-    return wingSpeed(s.levels.wings) * b.speed * perkSpeed(s);
+    return wingSpeed(s.levels.wings) * b.speed * starMult(s, b.id) * perkSpeed(s);
   }
+  // Breaking the sound barrier (0.343 km/s) and reaching the speed of light (299,792 km/s)
+  // each give a 10% speed boost for 60 seconds, once per run.
+  const SOUND_KMS = 0.343, LIGHT_KMS = 299792.458, BARRIER_SECS = 60;
+  const barrierMult = (s) => (s.barrierT > 0 ? 1.1 : 1);
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s);
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s) * barrierMult(s);
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
     const oc = overOcean && b.ocean ? b.ocean : 1;
-    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * perkSeeds(s) * solarMult(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s);
+    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * starMult(s, b.id) * perkSeeds(s) * solarMult(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s);
   }
   // Payout for landing in the next city: worth T.arrive seconds of foraging,
   // growing with each city already reached this run.
@@ -458,6 +559,12 @@
   // Advance the sim by dt seconds. Returns a list of events.
   function step(s, dt, overOcean) {
     const ev = [];
+    if (s.barrierT > 0) s.barrierT = Math.max(0, s.barrierT - dt);
+    if (!s.space) {
+      const v = speed(s) / barrierMult(s);
+      if (!s.soundHit && v >= SOUND_KMS) { s.soundHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'sound' }); }
+      if (!s.lightHit && v >= LIGHT_KMS) { s.lightHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'light' }); }
+    }
     s.boost = Math.max(0, s.boost - dt * (0.18 + s.boost * 0.25));
     if (s.rush > 0) s.rush = Math.max(0, s.rush - dt);
     if (s.stun > 0) s.stun = Math.max(0, s.stun - dt);
@@ -540,7 +647,8 @@
         } else if (s.ri >= lapLegs(s)) {
           if (isOrbit(s) || isNonstop(s)) { orbitPay = arrivalBonus(s) * CITIES.length; s.seeds += orbitPay; s.runSeeds += orbitPay; }
           lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
-          s.feathers += FEATHERS_PER_LAP; s.runFeathers = (s.runFeathers || 0) + FEATHERS_PER_LAP;
+          const fl = FEATHERS_PER_LAP + (birdOf(s).feathers || 0); // some birds bring home extra feathers
+          s.feathers += fl; s.runFeathers = (s.runFeathers || 0) + fl;
           s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0; s.overNext = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
@@ -565,11 +673,16 @@
     storm: { name: 'Storm', icon: '⛈️', speed: 0.85, seeds: 1.5, weight: 10, note: 'predators grounded, +50% seeds' },
   };
   // Catch the Wind: tailwinds come more often, last longer and push harder
-  const tailBoost = (L) => 1.5 + 0.125 * L;
-  const tailWeight = (L) => 22 * (1 + 0.2 * L);
-  const tailSecs = (L) => WX_SECS + 2 * L;
+  const tailBoost = (L) => 1.5 + 0.0625 * L;
+  const tailWeight = (L) => 22 * (1 + 0.1 * L);
+  const tailSecs = (L) => WX_SECS + 1 * L;
   const tailShare = (L) => { const tot = Object.keys(WEATHER).reduce((a, k) => a + (k === 'tailwind' ? tailWeight(L) : WEATHER[k].weight), 0); return Math.round(tailWeight(L) / tot * 100); };
-  function wxSpeed(s) { const w = wxOf(s); return w === WEATHER.tailwind ? tailBoost(s.levels.tail || 0) : w.speed; }
+  function wxSpeed(s) {
+    const w = wxOf(s), b = birdOf(s);
+    if (w === WEATHER.tailwind) return tailBoost(s.levels.tail || 0);
+    if (b.surge && w === WEATHER.storm) return 2;   // the Thunderbird rides storms
+    return b.storm ? Math.max(1, w.speed) : w.speed; // storm-hardy birds aren't slowed by bad weather
+  }
   function wxNote(s, type) { return type === 'tailwind' ? `×${fmt(tailBoost(s.levels.tail || 0), 2)} speed` : WEATHER[type].note; }
   function rollWeather(s) {
     const L = (s && s.levels.tail) || 0, wt = (k) => (k === 'tailwind' ? tailWeight(L) : WEATHER[k].weight);
@@ -796,7 +909,7 @@
   function migrateAgain(s, birdId, startIdx) {
     const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
-      birds: s.birds, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, overCount: s.overCount || {} };
+      birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, overCount: s.overCount || {} };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
@@ -829,6 +942,7 @@
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
+    RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
     GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
