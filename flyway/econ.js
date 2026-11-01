@@ -634,8 +634,11 @@
   const LOOP_KM = 2 * 384400 * 1.15; // (the Moon loop; loopKm() covers every world)
   // Every world is a round trip from Earth. Farther worlds take longer per
   // trip but pay many more space rocks.
-  const TRIP_SECS = [60, 90, 120, 130, 150, 160, 170, 240];
-  const DEST_ROCKS = [1, 3, 8, 12, 25, 35, 45, 300];
+  // Space is a real voyage: a first trip to the Moon takes about 5 minutes out and 5 back
+  // (Thrusters and a faster bird cut that down). Farther worlds take longer still. Each trip pays
+  // ten times what it used to, so space earns at the same rate per minute, in bigger hauls.
+  const TRIP_SECS = [600, 900, 1200, 1300, 1500, 1600, 1700, 2400];
+  const DEST_ROCKS = [10, 30, 80, 120, 250, 350, 450, 3000];
   const loopKm = (dest) => 2 * SPACE[dest].km * 1.15;
   // ---- one currency, shown in local units ----
   // Everything the player owns is seeds. In space the same amount is shown in
@@ -654,8 +657,8 @@
   // the worlds the player can loop to now (gear owned)
   const loopTargets = (s) => SPACE.filter((b) => s.gear[b.needs]);
   const SHIP = [
-    { id: 'thrust', name: 'Thrusters', icon: '🔥', base: 2, growth: 1.45, blurb: (L) => `×${fmt(1 + 0.3 * L, 1)} ship speed` },
-    { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt(1 + L, 0)} 🌑 Moon rocks' worth per round trip` },
+    { id: 'thrust', name: 'Thrusters', icon: '🔥', base: 2, growth: 1.45, blurb: (L) => `×${fmt(1 + 0.15 * L, 2)} ship speed` },
+    { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt((1 + L) * DEST_ROCKS[0], 0)} 🌑 Moon rocks' worth per round trip` },
     { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} space rocks` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
@@ -680,7 +683,8 @@
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
-    return loopKm(d) / TRIP_SECS[d] * (1 + 0.6 * Math.log10(1 + baseSpeed(s))) * (1 + 0.3 * shipLv(s, 'thrust'))
+    // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
+    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust'))
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar;
   }
   // ---- space events ----
@@ -694,7 +698,7 @@
   function mine(s) {
     const e = s.space && s.space.event;
     if (!e || e.type !== 'field' || e.mined >= 15) return 0;
-    e.mined++; const r = Math.max(0.1, rocksPerTrip(s) * 0.08), pay = r * MOON_RATE;
+    e.mined++; const r = Math.max(0.1, rocksPerTrip(s) * 0.008), pay = r * MOON_RATE;
     s.seeds += pay; s.runSeeds += pay; s.moon.total += r; return pay;
   }
   // One moon rock is worth a quarter of a city landing on Earth, so a loop
@@ -717,7 +721,7 @@
     if (shipLv(s, 'wing') > 0) { s.moon.lv.wing--; return { lost: 'wingmate' }; }
     const lost = s.seeds * 0.1; s.seeds -= lost; return { lost: 'rocks', seeds: lost };
   }
-  function spaceMiss(s) { const pay = Math.max(0.1, rocksPerTrip(s) * 0.3) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.dodged = (s.dodged || 0) + 1; return pay; }
+  function spaceMiss(s) { const pay = Math.max(0.1, rocksPerTrip(s) * 0.03) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.dodged = (s.dodged || 0) + 1; return pay; }
 
   // ---- daily migration challenge ----
   // One challenge per calendar day, the same for everyone that day. Progress
@@ -727,7 +731,7 @@
     { id: 'cities', text: (n) => `Stamp ${n} cities you have never visited`, n: [4, 6, 8] },
     { id: 'fights', text: (n) => `Win ${n} predator fights`, n: [2, 3, 4] },
     { id: 'bugs', text: (n) => `Catch ${n} bugs`, n: [3, 5, 6] },
-    { id: 'trips', text: (n) => `Make ${n} round trips in space`, n: [3, 5, 8] },
+    { id: 'trips', text: (n) => `Make ${n} round trip${n === 1 ? '' : 's'} in space`, n: [1, 2, 3] },
     { id: 'storm', text: (n) => `Fly through ${n} storms`, n: [1, 2, 3] },
   ];
   function dayKey(d = new Date()) { return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }

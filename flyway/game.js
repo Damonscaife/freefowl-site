@@ -2497,11 +2497,14 @@
   let moonOvalKey = '';
   function ovalFor(dest) {
     const D = dest === 0 ? 7 : 12, r = F.SPACE[dest].star ? 1.2 : dest === 0 ? 0.27 : 0.6;
-    const near = -1.3, far = D - r * 0.95; // the far end sits on the surface
-    return { D, r, A: (far - near) / 2, C: (far + near) / 2, B: dest === 0 ? 1.1 : 1.6 };
+    const near = -1.45, far = D - r * 0.95; // the far end sits on the surface; the near end swings round behind the Earth
+    return { D, r, A: (far - near) / 2, C: (far + near) / 2, B: dest === 0 ? 1.1 : 1.6, Bn: dest === 0 ? 2.05 : 2.5 };
   }
+  // An egg-shaped loop: narrow at the far world, wide at the Earth end so the path wraps
+  // around the planet (clear of its surface) instead of cutting through it.
   function loopPoint(theta, side3, o) {
-    return CHART_DIR.clone().multiplyScalar(o.C).addScaledVector(CHART_DIR, o.A * Math.cos(theta)).addScaledVector(side3, o.B * Math.sin(theta));
+    const c = Math.cos(theta), w = lerp(o.B, o.Bn, (1 - c) / 2);
+    return CHART_DIR.clone().multiplyScalar(o.C + o.A * c).addScaledVector(side3, w * Math.sin(theta));
   }
   function updateLoopChart(dt) {
     const sp = S.space, o = ovalFor(sp.dest);
