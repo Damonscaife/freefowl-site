@@ -2380,7 +2380,7 @@
     ring.visible = !!body.ring; starGlow.visible = !!body.star; spaceEarth.visible = true;
     bodyPlace(spaceEarth, sp.u % 1, 40);
     bodyPlace(target, (sp.u + 0.5) % 1, body.star ? 14 : sp.dest === 0 ? 24 : 34);
-    updateAsteroids(dt);
+    updateAsteroids(dt); updateMoonGear(dt);
     spaceEarth.rotation.y += dt * 0.03; target.rotation.y += dt * 0.02;
     // the shuttle, steady with a little bob
     const bob = Math.sin(side.t * 1.3) * 0.4, jink = fight ? Math.sin(side.t * 5.1) * 1.1 : 0;
@@ -2425,18 +2425,21 @@
       p.needsUpdate = true;
     } else sSparks.material.opacity = 0;
     // star streaks
-    const sp2 = sstreakGeo.attributes.position, speedK = 160 * (fight ? 0.4 : 1);
+    const wk = side.warpK || 0, sp2 = sstreakGeo.attributes.position, speedK = 160 * (fight ? 0.4 : 1) * (1 + 7 * wk);
     for (let i = 0; i < SSTREAK; i++) {
       const d = sstreakData[i]; d.x -= speedK * dt;
       if (d.x < -80) { d.x = 90 + Math.random() * 40; d.y = Math.random() * 60 - 30; d.z = Math.random() * 80 - 70; }
-      sp2.setXYZ(i * 2, d.x, d.y, d.z); sp2.setXYZ(i * 2 + 1, d.x + 6, d.y, d.z);
+      sp2.setXYZ(i * 2, d.x, d.y, d.z); sp2.setXYZ(i * 2 + 1, d.x + 6 + 40 * wk, d.y, d.z);
     }
+    if (wk > 0.01) sstreaks.material.color.setRGB(lerp(0.81, 0.6, wk), lerp(0.89, 0.85, wk), 1);
     sp2.needsUpdate = true; sstreakGeo.setDrawRange(0, SSTREAK * 2);
     // camera pulls back a little during a fight
     side.fightK = lerp(side.fightK || 0, th && b > -0.6 && b < BATTLE + 1.6 ? 1 : 0, 1 - Math.exp(-dt * 2.5));
     const shake = side.shake > 0 ? (side.shake -= dt, side.shake) : 0;
     fcam.position.set(3 - side.fightK * 4 + (Math.random() - 0.5) * shake, 4.2 + side.fightK * 2 + (Math.random() - 0.5) * shake, 22 + side.fightK * 10);
     fcam.lookAt(4 - side.fightK * 3, 0.5, 0);
+    // the warp jump stretches the view
+    const fov = 48 + 16 * wk; if (Math.abs(fcam.fov - fov) > 0.05) { fcam.fov = fov; fcam.updateProjectionMatrix(); }
     for (const m of [shuttle, ...pods, raiderShip, spaceHawk]) faceCamera(m);
     if (lostPod) faceCamera(lostPod);
     fr.render(sscene, fcam);
@@ -2867,10 +2870,10 @@
     else v = birdSprite.position.clone().project(camera);
     return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
   }
-  function flySeeds(amount, label) {
+  function flySeeds(amount, label, from) {
     const now = performance.now(); if (!(amount > 0) || now - flyLast < 300) return; flyLast = now;
     const purse = document.querySelector('.purse .amt'); if (!purse) return;
-    const [x0, y0] = heroScreen(), pr = purse.getBoundingClientRect(), x1 = pr.left + pr.width * 0.5, y1 = pr.top + pr.height * 0.5;
+    const [x0, y0] = from || heroScreen(), pr = purse.getBoundingClientRect(), x1 = pr.left + pr.width * 0.5, y1 = pr.top + pr.height * 0.5;
     const el = document.createElement('div'); el.className = 'seedfly num';
     el.textContent = `+${label || fmt(amount)}`; document.body.appendChild(el);
     const mx = (x0 + x1) / 2 + 40, my = Math.min(y0, y1) - 60;
@@ -3559,17 +3562,20 @@
         <button class="buy rock"><b class="num">0</b><small>buy</small></button>`;
       const btn = li.querySelector('.buy');
       btn.onclick = () => { if (F.buyShip(S, u.id, buyMode === 'max' ? 'max' : buyMode)) { refreshShip(); refreshRocks(); save(); } };
-      shipRows[u.id] = { lv: li.querySelector('.lv'), fx: li.querySelector('.fx'), btn, cost: btn.querySelector('b'), lab: btn.querySelector('small') };
+      shipRows[u.id] = { li, lv: li.querySelector('.lv'), fx: li.querySelector('.fx'), btn, cost: btn.querySelector('b'), lab: btn.querySelector('small') };
       ul.append(li);
     }
   }
   function refreshShip() {
     const looping = !!(S.space && S.space.loop);
     $('ups').hidden = looping; $('shipUps').hidden = !looping;
-    $('drawerTitle').textContent = looping ? 'Ship upgrades' : 'Upgrades';
+    const moonRun = F.onMoonRun(S);
+    $('drawerTitle').textContent = looping ? (moonRun ? 'Moon ship upgrades' : 'Ship upgrades') : 'Upgrades';
     if (!looping) return;
     for (const u of F.SHIP) {
       const r = shipRows[u.id], L = F.shipLv(S, u.id);
+      r.li.hidden = u.moon && !moonRun; // the Moon-run gear only shows on the way to the Moon
+      if (r.li.hidden) continue;
       const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.seeds)) : buyMode, c = F.shipCostN(u, L, n) * F.MOON_RATE;
       r.lv.textContent = L; r.fx.textContent = `${u.blurb(L)}  →  ${u.blurb(L + n)}`;
       r.cost.textContent = money(c); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.seeds;
@@ -3664,6 +3670,81 @@
     sunGlow.scale.setScalar(160 + side.solarK * 220);
     sstreaks.material.color.setStyle(solar ? '#ffc86b' : '#cfe3ff');
   }
+  // ---- Moon-run gear: laser cannons, the tractor beam and the warp drive ----
+  const frags = [], crystals = [];
+  const crystalMat = new THREE.SpriteMaterial({ map: paintTex(128, 128, (g, W, H) => {
+    const gr = g.createRadialGradient(W / 2, H / 2, 4, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(160,240,255,.9)'); gr.addColorStop(1, 'rgba(80,180,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#e8fbff'; g.strokeStyle = '#7fd8ff'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(W / 2, H * 0.18); g.lineTo(W * 0.68, H / 2); g.lineTo(W / 2, H * 0.82); g.lineTo(W * 0.32, H / 2); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(120,210,255,.7)'; g.beginPath(); g.moveTo(W / 2, H * 0.18); g.lineTo(W * 0.68, H / 2); g.lineTo(W / 2, H / 2); g.closePath(); g.fill();
+  }), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 1.6, 1, 20, 1, true), beamMat); beam.visible = false; sscene.add(beam);
+  const screenOf = (v) => { const p = v.clone().project(fcam), r = stage.getBoundingClientRect(); return [r.left + (p.x + 1) / 2 * r.width, r.top + (1 - p.y) / 2 * r.height]; };
+  function updateMoonGear(dt) {
+    const moon = F.onMoonRun(S), fight = side.threat && side.threat.phase === 'battle';
+    const nose = shuttle.position.clone().add(new THREE.Vector3(3.2, 0, 0.3));
+    // laser cannons: lock on to an asteroid ahead and blast it apart (faster inside an asteroid field)
+    const LL = moon ? F.shipLv(S, 'laser') : 0;
+    if (LL > 0 && !fight) {
+      const field = S.space.event && S.space.event.type === 'field';
+      if (rocks.length < 5 + Math.min(9, LL)) if (Math.random() < 0.05) spawnRock(false);
+      side.laserT = (side.laserT ?? 1) - dt * (field ? 3 : 1);
+      if (side.laserT <= 0) {
+        const tgt = rocks.filter((m) => m.position.x > 4 && m.position.x < 45 && m.position.z > -60).sort((a, b) => a.position.x - b.position.x)[0];
+        if (tgt) {
+          side.laserT = F.laserEvery(LL);
+          for (const dy of [-0.35, 0.35]) fireLaser(nose.clone().add(new THREE.Vector3(0, dy, 0)), tgt.position, '#7dff9a');
+          spaceBurst(tgt.position, '#ffb65c', 5); Sound.laser(); Haptic.impact('LIGHT');
+          for (let k = 0; k < 5; k++) {
+            const f = new THREE.Mesh(ROCK_GEO, rockMat); f.scale.setScalar(tgt.scale.x * (0.2 + Math.random() * 0.2)); f.position.copy(tgt.position);
+            f.userData = { v: new THREE.Vector3().randomDirection().multiplyScalar(4 + Math.random() * 6).add(new THREE.Vector3(-tgt.userData.v * 0.6, 0, 0)), life: 1.4, spin: Math.random() * 6 };
+            sscene.add(f); frags.push(f);
+          }
+          flySeeds(F.laserHit(S), null, screenOf(tgt.position));
+          sscene.remove(tgt); rocks.splice(rocks.indexOf(tgt), 1);
+        } else side.laserT = 0.3;
+      }
+    }
+    for (let k = frags.length - 1; k >= 0; k--) {
+      const f = frags[k], d = f.userData; d.life -= dt; f.position.addScaledVector(d.v, dt); f.rotation.x += d.spin * dt; f.rotation.y += d.spin * dt;
+      f.scale.multiplyScalar(1 - dt * 0.6);
+      if (d.life <= 0) { sscene.remove(f); frags.splice(k, 1); }
+    }
+    // tractor beam: a glowing star crystal drifts by and gets reeled into the hold
+    const TL = moon ? F.shipLv(S, 'tractor') : 0;
+    if (TL > 0) {
+      side.tractorT = (side.tractorT ?? 2) - dt;
+      if (side.tractorT <= 0 && crystals.length < 2) {
+        side.tractorT = F.tractorEvery(TL);
+        const c = new THREE.Sprite(crystalMat); c.scale.setScalar(1.6);
+        c.position.set(42, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 4); c.userData = { pull: 0 }; sscene.add(c); crystals.push(c);
+      }
+    }
+    let beamOn = null;
+    for (let k = crystals.length - 1; k >= 0; k--) {
+      const c = crystals[k], d = c.userData;
+      if (d.pull === 0) { c.position.x -= 14 * dt; c.material.rotation += dt; if (c.position.x < 14) d.pull = 0.001; }
+      else {
+        d.pull += dt / 0.9; c.position.lerp(nose, Math.min(1, d.pull * 0.25 + dt * 3)); c.scale.setScalar(1.6 * (1 - 0.7 * d.pull));
+        beamOn = c;
+        if (d.pull >= 1) {
+          spaceBurst(nose, '#9ee8ff', 3); Sound.chirp(); flySeeds(F.tractorCatch(S), null, screenOf(nose));
+          sscene.remove(c); crystals.splice(k, 1); beamOn = null;
+        }
+      }
+      if (c.position.x < -40) { sscene.remove(c); crystals.splice(k, 1); }
+    }
+    if (beamOn) {
+      const a = nose, b = beamOn.position, mid = a.clone().add(b).multiplyScalar(0.5), len = a.distanceTo(b);
+      beam.visible = true; beam.position.copy(mid); beam.scale.set(1, Math.max(0.1, len), 1);
+      beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      beamMat.opacity = 0.28 + 0.12 * Math.sin(side.t * 20);
+    } else { beam.visible = false; }
+    // warp drive: everything stretches while the jump lasts
+    side.warpK = lerp(side.warpK || 0, moon && S.space.warp > 0 ? 1 : 0, 1 - Math.exp(-dt * 5));
+  }
   let spaceEventT = 30;
   function tickSpaceEvents(dt) {
     if (!S.space || !S.space.loop || S.space.event || side.threat) return;
@@ -3718,6 +3799,7 @@
         if (e.type === 'moonpass') { if (e.first) spaceArrival({ body: e.body, bonus: 0, first: true }); continue; }
         if (e.type === 'eventEnd') { endSpaceEvent(e.event); continue; }
         if (e.type === 'over') { overflight(e); continue; }
+        if (e.type === 'warp') { toast('🌀 Warp jump!'); Sound.launch(); Haptic.impact('HEAVY'); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination.'); rebuildRoute(); }

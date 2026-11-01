@@ -466,6 +466,12 @@
     const earned = seedRate(s, overOcean) * dt;
     s.seeds += earned; s.runSeeds += earned;
     if (s.space && s.space.loop) {
+      // the warp drive (Moon run): a short jump at several times the speed, every so often
+      const wl = shipLv(s, 'warp');
+      if (wl > 0 && s.space.dest === 0) {
+        if (s.space.warp > 0) s.space.warp = Math.max(0, s.space.warp - dt);
+        else if ((s.space.warpT = (s.space.warpT ?? warpEvery(wl)) - dt) <= 0) { s.space.warpT = warpEvery(wl); s.space.warp = WARP_SECS; ev.push({ type: 'warp' }); }
+      }
       const body = SPACE[s.space.dest], v = loopSpeed(s), before = s.space.u;
       if (s.space.event) { s.space.event.left -= dt; if (s.space.event.left <= 0) { ev.push({ type: 'eventEnd', event: s.space.event }); s.space.event = null; } }
       s.space.u += v * dt / loopKm(s.space.dest); s.totalKm += v * dt;
@@ -662,7 +668,22 @@
     { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} space rocks` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
+    // Moon-run gear: the eight-upgrade set for the trip to the Moon (other worlds get their own sets)
+    { id: 'laser', name: 'Laser Cannons', icon: '🔫', base: 6, growth: 1.6, moon: true,
+      blurb: (L) => (L ? `blast an asteroid every ${fmt(laserEvery(L), 1)}s · ${fmt(laserPayK(L) * 100, 2)}% of a trip's rocks each` : 'auto-fire at passing asteroids for bonus rocks') },
+    { id: 'tractor', name: 'Tractor Beam', icon: '🧲', base: 5, growth: 1.6, moon: true,
+      blurb: (L) => (L ? `reel in a star crystal every ${fmt(tractorEvery(L), 1)}s · ${fmt(tractorPayK(L) * 100, 2)}% of a trip each` : 'pull in glowing star crystals as you fly') },
+    { id: 'warp', name: 'Warp Drive', icon: '🌀', base: 12, growth: 1.9, moon: true,
+      blurb: (L) => (L ? `a ${WARP_SECS}s warp jump at ×${fmt(warpMult(L), 1)} speed every ${fmt(warpEvery(L), 0)}s` : 'jump to warp speed now and then') },
   ];
+  // Moon gear numbers (shared by the blurbs above, the sim and the visuals)
+  const laserEvery = (L) => 5 / (1 + 0.35 * L), laserPayK = (L) => 0.0012 * (1 + 0.25 * L);
+  const tractorEvery = (L) => 9 / (1 + 0.3 * L), tractorPayK = (L) => 0.0015 * (1 + 0.3 * L);
+  const WARP_SECS = 3, warpMult = (L) => 2 + 0.4 * L, warpEvery = (L) => 75 / (1 + 0.12 * L);
+  const onMoonRun = (s) => !!(s.space && s.space.loop && s.space.dest === 0);
+  // laser and tractor payouts, in seeds (the visuals call these when a shot lands or a crystal is caught)
+  function laserHit(s) { const pay = rocksPerTrip(s) * laserPayK(shipLv(s, 'laser')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
+  function tractorCatch(s) { const pay = rocksPerTrip(s) * tractorPayK(shipLv(s, 'tractor')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
   const shipLv = (s, id) => (s.moon && s.moon.lv[id]) || 0;
   const shipCost = (u, L) => Math.ceil(u.base * u.growth ** L);
   const shipCostN = (u, L, n) => { let c = 0; for (let k = 0; k < n; k++) c += shipCost(u, L + k); return c; };
@@ -683,9 +704,10 @@
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
+    const warp = s.space && s.space.warp > 0 ? warpMult(shipLv(s, 'warp')) : 1;
     // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
     return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust'))
-      * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar;
+      * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar * warp;
   }
   // ---- space events ----
   // Asteroid field: tap BOOST to mine bonus rocks (up to 15 hauls per field).
@@ -806,6 +828,7 @@
 
   root.Flyway = {
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
+    laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
