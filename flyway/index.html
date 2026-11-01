@@ -267,6 +267,9 @@ body.photo .hud, body.photo .flap, body.photo #labels, body.photo .threat, body.
 .seedfly { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; font-weight: 800; font-size: 22px; color: #ffe08a;
   text-shadow: 0 2px 0 #9b6c12, 0 4px 12px rgba(0,0,0,.45); white-space: nowrap; margin: -14px 0 0 -20px; }
 .purse .amt.bump { animation: bump .35s cubic-bezier(.3,1.6,.5,1); }
+#btnShop.bump { animation: bump .5s cubic-bezier(.3,1.6,.5,1); }
+.book-cell .mast { display: block; font-style: normal; font-size: 10px; letter-spacing: 1px; color: #e0a020; line-height: 1; margin-top: 1px; }
+.book-cell.cur { outline: 3px solid var(--blue); outline-offset: -1px; }
 @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); color: #ffe08a; } 100% { transform: scale(1); } }
 .purse .amt { display: inline-block; transform-origin: left center; }
 /* ---------- drawer ---------- */
@@ -514,6 +517,8 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <ul class="ups shop" id="shopList"></ul>
     <h4 class="shop-h">Golden eggs</h4>
     <div id="shopEggs"></div>
+    <h4 class="shop-h" id="shopSpaceH" hidden>Space flyers</h4>
+    <div id="shopSpace" hidden></div>
     <h4 class="shop-h">Birds</h4>
     <ul class="ups shop" id="shopBirds"></ul>
     <h4 class="shop-h">Flock book <span class="book-count" id="bookCount"></span></h4>

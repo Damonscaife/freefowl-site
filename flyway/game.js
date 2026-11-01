@@ -2670,22 +2670,192 @@
     g.fillStyle = '#cf2e3a'; g.fillRect(x0 + L * 0.1, cy + H * 0.12, L * 0.6, H * 0.1); // stripe
     g.fillStyle = '#2557a7'; g.fillRect(x0 + L * 0.1, cy + H * 0.24, L * 0.6, H * 0.06);
     // window with the bird inside
-    const wx = x0 + L * 0.68, wy = cy - H * 0.45, wr = H * 0.62;
-    g.fillStyle = '#0f1a33'; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.fill();
-    g.save(); g.beginPath(); g.arc(wx, wy, wr * 0.95, Math.PI, 0); g.clip();
+    birdDome(g, x0 + L * 0.68, cy - H * 0.45, H * 0.62);
+  }
+  // the bird's head in a glass dome (or porthole when round), looking ahead
+  function birdHead(g, wx, wy, wr) {
     const b = shuttleBirdDef;
     g.fillStyle = b.body; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.08, wr * 0.55, 0, Math.PI * 2); g.fill();
     g.fillStyle = b.cap; g.beginPath(); g.arc(wx - wr * 0.05, wy - wr * 0.08, wr * 0.55, Math.PI * 1.05, Math.PI * 1.95); g.fill();
     g.fillStyle = '#fff'; g.beginPath(); g.arc(wx + wr * 0.18, wy - wr * 0.14, wr * 0.12, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#111'; g.beginPath(); g.arc(wx + wr * 0.21, wy - wr * 0.14, wr * 0.07, 0, Math.PI * 2); g.fill();
     g.fillStyle = b.beak; g.beginPath(); g.moveTo(wx + wr * 0.42, wy - wr * 0.12); g.lineTo(wx + wr * 0.75, wy - wr * 0.04); g.lineTo(wx + wr * 0.42, wy + wr * 0.02); g.fill();
-    g.restore();
-    g.strokeStyle = 'rgba(200,230,255,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(wx, wy, wr, Math.PI, 0); g.stroke();
+  }
+  function birdDome(g, wx, wy, wr, round) {
+    const a0 = round ? 0 : Math.PI, a1 = round ? Math.PI * 2 : 0;
+    g.fillStyle = '#0f1a33'; g.beginPath(); g.arc(wx, wy, wr, a0, a1); g.fill();
+    g.save(); g.beginPath(); g.arc(wx, wy, wr * 0.95, a0, a1); g.clip(); birdHead(g, wx, wy + (round ? wr * 0.25 : 0), wr); g.restore();
+    g.strokeStyle = 'rgba(200,230,255,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(wx, wy, wr, a0, a1); g.stroke();
     g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.ellipse(wx - wr * 0.4, wy - wr * 0.55, wr * 0.18, wr * 0.08, -0.6, 0, Math.PI * 2); g.fill();
   }
-  const shuttleAtlas = makeAtlas(drawShuttle, 2, 2, 1);
+  // a rocket flame pointing back (left) from x, centred on y; i flickers it
+  function flame(g, x, y, h, len, i, hot = '#fff6d0', mid = 'rgba(255,170,60,.85)') {
+    const fl = len * (0.75 + (i % 2) * 0.35);
+    const fg = g.createLinearGradient(x - fl, 0, x, 0);
+    fg.addColorStop(0, 'rgba(255,120,40,0)'); fg.addColorStop(0.5, mid); fg.addColorStop(1, hot);
+    g.fillStyle = fg; g.beginPath(); g.moveTo(x, y - h / 2); g.quadraticCurveTo(x - fl * 0.66, y, x, y + h / 2);
+    g.quadraticCurveTo(x - fl, y, x, y - h / 2); g.fill();
+  }
+  const poly = (g, fill, pts) => { g.fillStyle = fill; g.beginPath(); pts.forEach(([x, y], k) => (k ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill(); };
+  const vgrad = (g, y0, y1, stops) => { const gr = g.createLinearGradient(0, y0, 0, y1); stops.forEach((c, k) => gr.addColorStop(k / (stops.length - 1), c)); return gr; };
+  // Each space flyer, side on, nose to the right, the bird aboard. Two frames: flames flicker.
+  const FLYER_DRAW = {
+    shuttle: (g, i) => drawShuttle(g, i),
+    cardboard: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.55, L = FW * 0.5, H = FH * 0.22, x0 = cx - L / 2;
+      flame(g, x0, cy, H * 0.6, L * 0.5, i);
+      poly(g, '#b8864a', [[x0 + L * 0.05, cy - H / 2], [x0 - L * 0.05, cy - H * 1.1], [x0 + L * 0.22, cy - H / 2]]);
+      poly(g, '#b8864a', [[x0 + L * 0.05, cy + H / 2], [x0 - L * 0.05, cy + H * 1.1], [x0 + L * 0.22, cy + H / 2]]);
+      g.fillStyle = vgrad(g, cy - H / 2, cy + H / 2, ['#e0b070', '#c8955a', '#9c703e']); g.fillRect(x0, cy - H / 2, L * 0.8, H);
+      poly(g, '#c8955a', [[x0 + L * 0.8, cy - H / 2], [x0 + L * 1.05, cy], [x0 + L * 0.8, cy + H / 2]]);
+      g.fillStyle = 'rgba(240,230,190,.85)'; g.fillRect(x0 + L * 0.3, cy - H / 2, L * 0.06, H); g.fillRect(x0 + L * 0.62, cy - H / 2, L * 0.05, H); // tape
+      g.strokeStyle = '#d8302a'; g.lineWidth = 3; g.beginPath(); g.moveTo(x0 + L * 0.08, cy + H * 0.2); g.lineTo(x0 + L * 0.24, cy + H * 0.05); g.lineTo(x0 + L * 0.2, cy + H * 0.3); g.stroke(); // crayon zigzag
+      birdDome(g, x0 + L * 0.48, cy, H * 0.38, true);
+    },
+    bottle: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.58, L = FW * 0.5, H = FH * 0.22, x0 = cx - L / 2;
+      // a spray of water for exhaust
+      g.fillStyle = 'rgba(160,215,255,.8)';
+      for (let k = 0; k < 14; k++) { const t = ((k * 37 + i * 11) % 100) / 100; g.beginPath(); g.arc(x0 - t * L * 0.55, cy + Math.sin(k * 2.3) * H * 0.35 * t, 3 + 4 * (1 - t), 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = 'rgba(120,200,170,.55)'; g.beginPath(); g.roundRect(x0, cy - H / 2, L * 0.78, H, H * 0.3); g.fill();
+      poly(g, 'rgba(120,200,170,.55)', [[x0 + L * 0.78, cy - H / 2], [x0 + L * 0.95, cy - H * 0.18], [x0 + L * 0.95, cy + H * 0.18], [x0 + L * 0.78, cy + H / 2]]);
+      g.fillStyle = '#e8463a'; g.fillRect(x0 + L * 0.95, cy - H * 0.22, L * 0.07, H * 0.44); // cap
+      g.fillStyle = 'rgba(255,255,255,.4)'; g.fillRect(x0 + L * 0.05, cy - H * 0.36, L * 0.65, H * 0.1);
+      g.fillStyle = '#f2f2f2'; g.fillRect(x0 + L * 0.25, cy - H * 0.15, L * 0.3, H * 0.3); g.fillStyle = '#2557a7'; g.font = `bold ${H * 0.22}px sans-serif`; g.fillText('FIZZ', x0 + L * 0.29, cy + H * 0.08);
+      poly(g, '#e8463a', [[x0 + L * 0.02, cy - H / 2], [x0 - L * 0.08, cy - H], [x0 + L * 0.18, cy - H / 2]]);
+      // the bird rides on top
+      birdDome(g, x0 + L * 0.45, cy - H * 0.5, H * 0.45);
+    },
+    jetpack: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.5;
+      g.save(); g.translate(cx - FW * 0.06, cy - FH * 0.06); g.scale(0.62, 0.62); g.translate(-FW / 2, -FH / 2); drawBirdHD(g, 1.2, shuttleBirdDef); g.restore();
+      const px = cx - FW * 0.2, py = cy - FH * 0.02;
+      g.fillStyle = vgrad(g, py - 30, py + 34, ['#d8dde4', '#9aa3ad']); g.beginPath(); g.roundRect(px - 16, py - 30, 32, 64, 10); g.fill();
+      g.fillStyle = '#d8302a'; g.fillRect(px - 16, py - 6, 32, 8);
+      flame(g, px - 12, py + 40, 22, 60, i); // flames point down-back
+      g.save(); g.translate(px - 4, py + 34); g.rotate(-Math.PI / 2.6); flame(g, 0, 0, 20, 70, i + 1); g.restore();
+    },
+    pod: (g, i) => {
+      const cx = FW * 0.52, cy = FH * 0.55, R = FH * 0.24;
+      flame(g, cx - R * 0.95, cy, R * 0.5, R * 1.4, i);
+      g.fillStyle = vgrad(g, cy - R, cy + R, ['#ffffff', '#d4dae2', '#8e98a6']); g.beginPath(); g.ellipse(cx, cy, R * 1.05, R, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f2a03a'; g.fillRect(cx - R * 1.05, cy + R * 0.35, R * 2.1, R * 0.14);
+      birdDome(g, cx + R * 0.15, cy - R * 0.1, R * 0.55, true);
+    },
+    roadster: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.58, L = FW * 0.66, H = FH * 0.16, x0 = cx - L / 2;
+      flame(g, x0 + L * 0.02, cy - H * 0.05, H * 0.55, L * 0.45, i);
+      // body: a low red convertible
+      g.fillStyle = vgrad(g, cy - H, cy + H * 0.6, ['#ff5a4a', '#d8231e', '#8e1210']);
+      g.beginPath(); g.moveTo(x0, cy - H * 0.35); g.quadraticCurveTo(x0 + L * 0.1, cy - H * 0.75, x0 + L * 0.35, cy - H * 0.6);
+      g.lineTo(x0 + L * 0.62, cy - H * 0.55); g.quadraticCurveTo(x0 + L * 0.95, cy - H * 0.5, x0 + L, cy - H * 0.05); g.lineTo(x0 + L * 0.98, cy + H * 0.4); g.lineTo(x0 + L * 0.02, cy + H * 0.4); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(200,230,255,.7)'; poly(g, 'rgba(200,230,255,.7)', [[x0 + L * 0.56, cy - H * 0.58], [x0 + L * 0.5, cy - H * 1.25], [x0 + L * 0.53, cy - H * 1.25], [x0 + L * 0.62, cy - H * 0.58]]); // windscreen
+      g.fillStyle = '#1a1a1a'; for (const wx of [0.2, 0.8]) { g.beginPath(); g.arc(x0 + L * wx, cy + H * 0.42, H * 0.42, 0, Math.PI * 2); g.fill(); g.fillStyle = '#c8ccd2'; g.beginPath(); g.arc(x0 + L * wx, cy + H * 0.42, H * 0.18, 0, Math.PI * 2); g.fill(); g.fillStyle = '#1a1a1a'; }
+      g.fillStyle = '#fff6c0'; g.beginPath(); g.arc(x0 + L * 0.97, cy - H * 0.05, H * 0.1, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#9aa3ad'; g.fillRect(x0 - L * 0.02, cy - H * 0.3, L * 0.07, H * 0.5); // booster
+      // the bird in the driver's seat, in a bubble helmet
+      birdDome(g, x0 + L * 0.42, cy - H * 0.62, H * 0.75);
+    },
+    scooter: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.66, L = FW * 0.5, x0 = cx - L / 2;
+      const glow = g.createRadialGradient(cx, cy + 10, 4, cx, cy + 10, L * 0.55); glow.addColorStop(0, i % 2 ? 'rgba(120,230,255,.75)' : 'rgba(120,230,255,.55)'); glow.addColorStop(1, 'rgba(120,230,255,0)');
+      g.fillStyle = glow; g.beginPath(); g.ellipse(cx, cy + 12, L * 0.55, 18, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = vgrad(g, cy - 8, cy + 10, ['#f2f4f7', '#7a8494']); g.beginPath(); g.roundRect(x0, cy - 8, L, 18, 9); g.fill();
+      g.strokeStyle = '#3a4250'; g.lineWidth = 7; g.beginPath(); g.moveTo(x0 + L * 0.85, cy - 6); g.lineTo(x0 + L * 0.78, cy - FH * 0.32); g.lineTo(x0 + L * 0.68, cy - FH * 0.32); g.stroke();
+      birdDome(g, x0 + L * 0.45, cy - FH * 0.2, FH * 0.17);
+      g.fillStyle = '#2bd0ff'; g.fillRect(x0 + L * 0.1, cy + 4, L * 0.8, 3);
+    },
+    retro: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.55, L = FW * 0.6, H = FH * 0.24, x0 = cx - L / 2;
+      flame(g, x0 + L * 0.04, cy, H * 0.5, L * 0.5, i);
+      poly(g, '#d8302a', [[x0 + L * 0.08, cy - H * 0.3], [x0 - L * 0.04, cy - H * 1.2], [x0 + L * 0.3, cy - H * 0.4]]);
+      poly(g, '#d8302a', [[x0 + L * 0.08, cy + H * 0.3], [x0 - L * 0.04, cy + H * 1.2], [x0 + L * 0.3, cy + H * 0.4]]);
+      g.fillStyle = vgrad(g, cy - H / 2, cy + H / 2, ['#ffffff', '#e2e6ec', '#a8b0bc']);
+      g.beginPath(); g.moveTo(x0 + L * 0.05, cy - H * 0.3); g.quadraticCurveTo(x0 + L * 0.5, cy - H * 0.75, x0 + L, cy); g.quadraticCurveTo(x0 + L * 0.5, cy + H * 0.75, x0 + L * 0.05, cy + H * 0.3); g.closePath(); g.fill();
+      g.fillStyle = '#d8302a'; g.beginPath(); g.moveTo(x0 + L * 0.82, cy - H * 0.28); g.quadraticCurveTo(x0 + L * 0.95, cy - H * 0.12, x0 + L, cy); g.quadraticCurveTo(x0 + L * 0.95, cy + H * 0.12, x0 + L * 0.82, cy + H * 0.28); g.fill();
+      birdDome(g, x0 + L * 0.55, cy, H * 0.34, true);
+      poly(g, '#d8302a', [[x0 + L * 0.35, cy - H * 0.05], [x0 + L * 0.2, cy + H * 0.05], [x0 + L * 0.35, cy + H * 0.12]]);
+    },
+    lander: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.5, W = FW * 0.28, H = FH * 0.3;
+      flame(g, cx - W * 0.55, cy + H * 0.1, H * 0.35, W * 0.9, i);
+      g.strokeStyle = '#8a8f98'; g.lineWidth = 5;
+      for (const sx of [-1, 1]) { g.beginPath(); g.moveTo(cx + sx * W * 0.35, cy + H * 0.3); g.lineTo(cx + sx * W * 0.7, cy + H * 0.85); g.lineTo(cx + sx * W * 0.82, cy + H * 0.85); g.stroke(); }
+      g.fillStyle = vgrad(g, cy, cy + H * 0.45, ['#f6d36a', '#d8a020', '#9a6a10']); g.fillRect(cx - W * 0.5, cy + H * 0.05, W, H * 0.35); // gold foil stage
+      g.fillStyle = vgrad(g, cy - H * 0.5, cy + H * 0.1, ['#eef1f5', '#b8c0cb']); g.beginPath(); g.moveTo(cx - W * 0.4, cy + H * 0.08); g.lineTo(cx - W * 0.45, cy - H * 0.25); g.lineTo(cx - W * 0.1, cy - H * 0.5); g.lineTo(cx + W * 0.4, cy - H * 0.4); g.lineTo(cx + W * 0.45, cy + H * 0.08); g.closePath(); g.fill();
+      g.strokeStyle = '#c8ccd2'; g.lineWidth = 3; g.beginPath(); g.moveTo(cx - W * 0.25, cy - H * 0.45); g.lineTo(cx - W * 0.35, cy - H * 0.8); g.stroke();
+      g.fillStyle = '#e8ecf0'; g.beginPath(); g.ellipse(cx - W * 0.38, cy - H * 0.82, W * 0.12, W * 0.05, -0.4, 0, Math.PI * 2); g.fill();
+      birdDome(g, cx + W * 0.12, cy - H * 0.16, H * 0.2, true);
+    },
+    glider: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.55, L = FW * 0.7, H = FH * 0.12, x0 = cx - L / 2;
+      flame(g, x0 + L * 0.06, cy, H * 0.6, L * 0.35, i, '#e6f6ff', 'rgba(90,180,255,.85)');
+      poly(g, '#2a5fb8', [[x0 + L * 0.25, cy], [x0 + L * 0.05, cy + H * 2.6], [x0 + L * 0.2, cy + H * 2.6], [x0 + L * 0.6, cy + H * 0.2]]);
+      g.fillStyle = vgrad(g, cy - H, cy + H, ['#7ab8ff', '#2a6fd8', '#183f88']);
+      g.beginPath(); g.moveTo(x0 + L * 0.05, cy - H * 0.6); g.lineTo(x0 + L * 0.7, cy - H * 0.7); g.quadraticCurveTo(x0 + L * 0.95, cy - H * 0.4, x0 + L, cy); g.lineTo(x0 + L * 0.7, cy + H * 0.6); g.lineTo(x0 + L * 0.05, cy + H * 0.6); g.closePath(); g.fill();
+      poly(g, '#183f88', [[x0 + L * 0.06, cy - H * 0.6], [x0 + L * 0.02, cy - H * 2], [x0 + L * 0.2, cy - H * 0.65]]);
+      birdDome(g, x0 + L * 0.68, cy - H * 0.6, H * 1.05);
+    },
+    saucer: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.58, R = FW * 0.3;
+      g.fillStyle = 'rgba(160,255,200,.18)'; poly(g, 'rgba(160,255,200,.16)', [[cx - R * 0.25, cy + 8], [cx + R * 0.25, cy + 8], [cx + R * 0.45, cy + FH * 0.4], [cx - R * 0.45, cy + FH * 0.4]]); // a faint beam
+      birdDome(g, cx, cy - R * 0.12, R * 0.38);
+      g.fillStyle = vgrad(g, cy - R * 0.2, cy + R * 0.2, ['#e8ecf2', '#a8b2c0', '#5a6474']); g.beginPath(); g.ellipse(cx, cy, R, R * 0.2, 0, 0, Math.PI * 2); g.fill();
+      for (let k = 0; k < 7; k++) { const a = -0.9 + k * 0.3, on = (k + i) % 2; g.fillStyle = on ? '#ffe04a' : '#ff5a8a'; g.beginPath(); g.arc(cx + Math.sin(a) * R * 0.85, cy + Math.cos(a) * R * 0.06, 6, 0, Math.PI * 2); g.fill(); }
+    },
+    comet: (g, i) => {
+      const cx = FW * 0.62, cy = FH * 0.6, R = FH * 0.15;
+      const tail = g.createLinearGradient(cx - FW * 0.55, 0, cx, 0); tail.addColorStop(0, 'rgba(140,220,255,0)'); tail.addColorStop(1, 'rgba(200,240,255,.9)');
+      g.fillStyle = tail; g.beginPath(); g.moveTo(cx, cy - R); g.quadraticCurveTo(cx - FW * 0.3, cy - R * (i % 2 ? 1.6 : 1.3), cx - FW * 0.55, cy); g.quadraticCurveTo(cx - FW * 0.3, cy + R * 1.4, cx, cy + R); g.fill();
+      const head = g.createRadialGradient(cx, cy, 2, cx, cy, R * 1.3); head.addColorStop(0, '#ffffff'); head.addColorStop(0.5, '#cfeeff'); head.addColorStop(1, 'rgba(160,220,255,0)');
+      g.fillStyle = head; g.beginPath(); g.arc(cx, cy, R * 1.3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#b8d8ec'; g.beginPath(); g.arc(cx, cy, R * 0.85, 0, Math.PI * 2); g.fill();
+      birdDome(g, cx - R * 0.1, cy - R * 0.85, R * 0.75);
+    },
+    cruiser: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.55, L = FW * 0.74, H = FH * 0.15, x0 = cx - L / 2;
+      for (const dy of [-0.3, 0.3]) flame(g, x0 + L * 0.02, cy + dy * H, H * 0.45, L * 0.32, i + (dy > 0 ? 1 : 0), '#f0e6ff', 'rgba(170,110,255,.85)');
+      poly(g, '#4a2a8a', [[x0 + L * 0.2, cy + H * 0.4], [x0 + L * 0.08, cy + H * 1.6], [x0 + L * 0.45, cy + H * 0.45]]);
+      g.fillStyle = vgrad(g, cy - H, cy + H, ['#c8b8ff', '#6a48c8', '#2a1a5a']);
+      g.beginPath(); g.moveTo(x0, cy - H * 0.6); g.lineTo(x0 + L * 0.75, cy - H * 0.55); g.lineTo(x0 + L, cy + H * 0.05); g.lineTo(x0 + L * 0.75, cy + H * 0.6); g.lineTo(x0, cy + H * 0.6); g.closePath(); g.fill();
+      g.fillStyle = '#ffe9a8'; for (let k = 0; k < 6; k++) g.fillRect(x0 + L * (0.12 + k * 0.09), cy + H * 0.08, L * 0.035, H * 0.16);
+      poly(g, '#2a1a5a', [[x0 + L * 0.02, cy - H * 0.6], [x0 - L * 0.02, cy - H * 1.5], [x0 + L * 0.2, cy - H * 0.58]]);
+      birdDome(g, x0 + L * 0.7, cy - H * 0.52, H * 0.8);
+    },
+    whale: (g, i) => {
+      const cx = FW * 0.5, cy = FH * 0.58, L = FW * 0.66, H = FH * 0.28, x0 = cx - L / 2;
+      g.fillStyle = 'rgba(255,240,170,.85)'; for (let k = 0; k < 10; k++) { const t = ((k * 29 + i * 13) % 100) / 100; g.beginPath(); g.arc(x0 - t * L * 0.4, cy + Math.sin(k * 1.9) * H * 0.4, 2 + 3 * (1 - t), 0, Math.PI * 2); g.fill(); }
+      // tail fluke
+      const tf = i % 2 ? 0.08 : -0.08;
+      poly(g, '#2a4a9a', [[x0 + L * 0.12, cy], [x0 - L * 0.05, cy - H * (0.65 + tf)], [x0 + L * 0.02, cy], [x0 - L * 0.05, cy + H * (0.55 - tf)]]);
+      g.fillStyle = vgrad(g, cy - H / 2, cy + H / 2, ['#5a8ae0', '#2f5cb8', '#1c3a80']);
+      g.beginPath(); g.moveTo(x0 + L * 0.1, cy); g.quadraticCurveTo(x0 + L * 0.35, cy - H * 0.62, x0 + L * 0.8, cy - H * 0.45); g.quadraticCurveTo(x0 + L * 1.02, cy - H * 0.3, x0 + L, cy + H * 0.05);
+      g.quadraticCurveTo(x0 + L * 0.95, cy + H * 0.45, x0 + L * 0.6, cy + H * 0.45); g.quadraticCurveTo(x0 + L * 0.3, cy + H * 0.4, x0 + L * 0.1, cy); g.fill();
+      g.fillStyle = '#d8e6f8'; g.beginPath(); g.moveTo(x0 + L * 0.5, cy + H * 0.42); g.quadraticCurveTo(x0 + L * 0.8, cy + H * 0.5, x0 + L * 0.98, cy + H * 0.12); g.quadraticCurveTo(x0 + L * 0.8, cy + H * 0.3, x0 + L * 0.5, cy + H * 0.42); g.fill();
+      g.fillStyle = 'rgba(255,240,170,.9)'; for (const [sx, sy] of [[0.3, -0.15], [0.45, -0.3], [0.6, -0.12], [0.38, 0.05], [0.7, -0.3]]) { g.beginPath(); g.arc(x0 + L * sx, cy + H * sy, 3, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#111'; g.beginPath(); g.arc(x0 + L * 0.86, cy - H * 0.05, 4, 0, Math.PI * 2); g.fill();
+      birdDome(g, x0 + L * 0.55, cy - H * 0.5, H * 0.32);
+    },
+  };
+  const rideAtlas = makeAtlas((g, i) => FLYER_DRAW.shuttle(g, i), 2, 2, 1);
+  const shuttleAtlas = rideAtlas;
+  let rideKey = null;
+  // redraw the ride when the bird or the chosen flyer changes
+  function refreshRide() {
+    const f = F.flyerOf(S), key = S.bird + '|' + f.id;
+    if (rideKey === key) return; rideKey = key; shuttleBirdDef = F.birdOf(S);
+    const c = rideAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+    for (let i = 0; i < 2; i++) { g.save(); g.translate(i * FW, 0); g.beginPath(); g.rect(0, 0, FW, FH); g.clip(); (FLYER_DRAW[f.id] || FLYER_DRAW.shuttle)(g, i); g.restore(); }
+    shuttle.userData.tex.needsUpdate = true;
+  }
+  // a stand-alone thumbnail of a flyer (for the hangar and the hatch reveal)
+  function drawFlyerThumb(g, w, h, f, dim) {
+    const keep = shuttleBirdDef; shuttleBirdDef = F.birdOf(S);
+    g.save(); g.scale(w / FW, h / FH); (FLYER_DRAW[f.id] || FLYER_DRAW.shuttle)(g, 0); g.restore();
+    shuttleBirdDef = keep;
+    if (dim) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = '#2a3242'; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over'; }
+  }
   const shuttle = cutout(shuttleAtlas, 9); sscene.add(shuttle);
-  let shuttleBird = null;
   const SSTREAK = 60;
   const sstreakGeo = new THREE.BufferGeometry(); sstreakGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SSTREAK * 6), 3));
   const sstreaks = new THREE.LineSegments(sstreakGeo, new THREE.LineBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.7 }));
@@ -2695,13 +2865,7 @@
   function updateSpace(dt) {
     const sp = S.space, body = F.SPACE[sp.dest];
     setTarget(body); labelsEl.style.display = 'none';
-    // redraw the shuttle once per bird so the right bird is in the window
-    if (shuttleBird !== S.bird) {
-      shuttleBird = S.bird; shuttleBirdDef = F.birdOf(S);
-      const c = shuttleAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
-      for (let i = 0; i < 2; i++) { g.save(); g.translate(i * FW, 0); g.beginPath(); g.rect(0, 0, FW, FH); g.clip(); drawShuttle(g, i); g.restore(); }
-      shuttle.userData.tex.needsUpdate = true;
-    }
+    refreshRide(); // the right bird aboard the chosen flyer
     side.t += dt;
     const p = sp.arrived ? 1 : clamp(sp.km / body.km, 0, 1);
     const e = p * p * (3 - 2 * p), grow = Math.pow(p, 2.2);
@@ -2888,12 +3052,7 @@
   function updateLoop(dt) {
     const sp = S.space, body = F.SPACE[sp.dest];
     setTarget(body); labelsEl.style.display = 'none';
-    if (shuttleBird !== S.bird) {
-      shuttleBird = S.bird; shuttleBirdDef = F.birdOf(S);
-      const c = shuttleAtlas.tex.image, g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
-      for (let i = 0; i < 2; i++) { g.save(); g.translate(i * FW, 0); g.beginPath(); g.rect(0, 0, FW, FH); g.clip(); drawShuttle(g, i); g.restore(); }
-      shuttle.userData.tex.needsUpdate = true;
-    }
+    refreshRide();
     side.t += dt;
     const fight = side.threat && side.threat.phase === 'battle';
     ring.visible = !!body.ring; starGlow.visible = !!body.star; spaceEarth.visible = true;
@@ -3619,7 +3778,7 @@
       const el = document.createElement('button'); el.className = 'bird tier-' + b.tier; el.type = 'button';
       el.disabled = !have && !afford; el.setAttribute('aria-pressed', b.id === pickBird);
       el.innerHTML = `<canvas aria-hidden="true"></canvas><b>${b.name}${starText(b.id)}</b>
-        <small>${have ? b.trait : `${b.secret ? 'Specs unknown · ' : ''}🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
+        <small>${have ? b.trait + (S ? (() => { const m = F.masteryOf(S, 'bird', b.id); return m.next ? ` · mastery ${'★'.repeat(m.level)}${'☆'.repeat(m.max - m.level)}` : ' · mastered'; })() : '') : `${b.secret ? 'Specs unknown · ' : ''}🪶 ${fmt(b.cost, 0)}${afford ? ' · tap to unlock' : ''}`}</small>
         <i class="tier">${TIER[b.tier]}</i>`;
       birdPreview(el.querySelector('canvas'), b, b.secret && !have);
       el.onclick = () => { pickBird = b.id; wrap.querySelectorAll('.bird').forEach((x) => x.setAttribute('aria-pressed', x === el)); updateGo(); };
@@ -3673,8 +3832,37 @@
     eggBox.innerHTML = `<div class="egg-row"><div class="egg-ic" aria-hidden="true">🥚</div>
       <div><div class="nm">Golden egg</div><div class="fx">Hatches a random bird. A bird you already have earns a ★ (+15% speed and seeds, up to ${F.MAX_STARS}).</div>
       <div class="odds">${F.RARITY.map((r) => `<span style="color:${r.color}">${r.name} ${r.weight < 1 ? r.weight.toFixed(1) : Math.round(r.weight)}%</span>`).join(' · ')}</div></div>
-      <button class="buy feather" id="btnHatch"${S.feathers < F.EGG_COST ? ' disabled' : ''}><b class="num">🪶 ${F.EGG_COST}</b><small>hatch</small></button></div>`;
+      ${S.freeEggs > 0 ? `<button class="buy feather" id="btnHatch"><b class="num">Free ×${S.freeEggs}</b><small>hatch</small></button>`
+        : `<button class="buy feather" id="btnHatch"${S.feathers < F.EGG_COST ? ' disabled' : ''}><b class="num">🪶 ${F.EGG_COST}</b><small>hatch</small></button>`}</div>`;
     $('btnHatch').onclick = () => { const r = F.hatchEgg(S); if (r) { save(); showHatch(r); } };
+    // space flyers: what the bird rides beyond Earth (opens once the bird has had a shuttle)
+    const sp = $('shopSpace'), open_ = F.spaceOpen(S);
+    $('shopSpaceH').hidden = !open_; sp.hidden = !open_; sp.innerHTML = '';
+    if (open_) {
+      const owned = F.FLYERS.filter((f) => F.ownsFlyer(S, f.id));
+      sp.innerHTML = `<div class="egg-row"><div class="egg-ic" aria-hidden="true">🪐</div>
+        <div><div class="nm">Space egg</div><div class="fx">Hatches a random space flyer for your bird to ride beyond Earth. Round trips pay 🪶 golden feathers: ${fmt(F.TRIP_FEATHERS[0], 0)} a Moon trip, more for each world farther out.</div>
+        <div class="odds">${F.RARITY.map((r) => `<span style="color:${r.color}">${r.name} ${r.weight < 1 ? r.weight.toFixed(1) : Math.round(r.weight)}%</span>`).join(' · ')}</div></div>
+        ${S.freeSpaceEggs > 0 ? `<button class="buy feather" id="btnSpaceHatch"><b class="num">Free ×${S.freeSpaceEggs}</b><small>hatch</small></button>`
+          : `<button class="buy feather" id="btnSpaceHatch"${S.feathers < F.SPACE_EGG_COST ? ' disabled' : ''}><b class="num">🪶 ${F.SPACE_EGG_COST}</b><small>hatch</small></button>`}</div>
+        <div class="book-h">Hangar · ${owned.length} of ${F.FLYERS.length} · tap one to fly it</div>`;
+      const grid = document.createElement('div'); grid.className = 'book-grid';
+      for (const r of [...F.RARITY].reverse()) for (const f of F.FLYERS.filter((x) => x.tier === r.id)) {
+        const have = F.ownsFlyer(S, f.id), cur = F.flyerOf(S).id === f.id, m = F.masteryOf(S, 'flyer', f.id), cell = document.createElement('div');
+        cell.className = 'book-cell' + (have ? ' got' : '') + (cur ? ' cur' : ''); cell.style.setProperty('--tc', r.color);
+        cell.title = have ? `${f.name}: ${f.trait}` : 'Not found yet';
+        cell.innerHTML = `<canvas width="72" height="45"></canvas><span>${have ? f.name + flyerStars(f.id) : '?'}</span>${have ? `<i class="mast">${'★'.repeat(m.level)}${'☆'.repeat(m.max - m.level)}</i>` : ''}`;
+        drawFlyerThumb(cell.querySelector('canvas').getContext('2d'), 72, 45, f, !have);
+        if (have) cell.onclick = () => {
+          F.pickFlyer(S, f.id); save(); rideKey = null;
+          toast(`${f.name} (${r.name})${flyerStars(f.id)}: ${f.trait}. ${m.next ? `Mastery: ${m.count} of ${m.next.n} trips.` : 'Fully mastered.'}`);
+          openShop();
+        };
+        grid.append(cell);
+      }
+      sp.append(grid);
+      $('btnSpaceHatch').onclick = () => { const r = F.hatchSpaceEgg(S); if (r) { save(); rideKey = null; showHatch(r); } };
+    }
     // the flock book: every species, grouped by rarity; ones you haven't found are silhouettes
     const book = $('flockBook'); book.innerHTML = '';
     const ownedN = BIRDS.filter((b) => F.ownsBird(S, b.id)).length;
@@ -3688,9 +3876,10 @@
         const have = F.ownsBird(S, b.id), cell = document.createElement('div');
         cell.className = 'book-cell' + (have ? ' got' : ''); cell.style.setProperty('--tc', r.color);
         cell.title = have ? `${b.name}: ${b.trait}` : (b.secret ? 'A secret' : 'Not found yet');
-        cell.innerHTML = `<canvas width="72" height="45"></canvas><span>${have ? b.name + starText(b.id) : '?'}</span>`;
+        const bm = F.masteryOf(S, 'bird', b.id);
+        cell.innerHTML = `<canvas width="72" height="45"></canvas><span>${have ? b.name + starText(b.id) : '?'}</span>${have ? `<i class="mast">${'★'.repeat(bm.level)}${'☆'.repeat(bm.max - bm.level)}</i>` : ''}`;
         const g = cell.querySelector('canvas').getContext('2d'); fitBird(g, 72, 45); drawBirdHD(g, THUMB_PH, have ? b : silhouette(b));
-        if (have) cell.onclick = () => toast(`${b.name} (${r.name})${starText(b.id)}: ${b.trait}`);
+        if (have) cell.onclick = () => toast(`${b.name} (${r.name})${starText(b.id)}: ${b.trait}. ${bm.next ? `Mastery: ${bm.count} of ${bm.next.n} laps${b.id === S.bird ? '' : ' (migrate to fly it)'}.` : 'Fully mastered.'}`);
         grid.append(cell);
       }
       book.append(grid);
@@ -3708,8 +3897,10 @@
     open('shopSheet');
   }
   // the hatching moment: the egg wobbles, cracks, and the bird bursts out in its rarity's colour
+  const flyerStars = (id) => { const n = (S.moon && S.moon.fstars && S.moon.fstars[id]) || 0; return n ? ' ' + '★'.repeat(n) : ''; };
   function showHatch(r) {
-    const box = $('hatch'), tier = F.RARITY.find((x) => x.id === r.tier), b = r.bird;
+    const box = $('hatch'), tier = F.RARITY.find((x) => x.id === r.tier), b = r.bird || r.flyer, isFlyer = !!r.flyer;
+    box.querySelector('.hatch-egg').textContent = isFlyer ? '🪐' : '🥚';
     box.style.setProperty('--tc', tier.color); box.hidden = false; box.className = 'hatch wobble';
     $('hatchName').textContent = ''; $('hatchInfo').textContent = '';
     const cv = $('hatchBird'), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
@@ -3717,9 +3908,10 @@
     const big = TIER_RANK[r.tier] >= 3;
     setTimeout(() => {
       box.className = 'hatch open' + (big ? ' big' : '');
-      fitBird(g, cv.width, cv.height); drawBirdHD(g, THUMB_PH, b);
+      if (isFlyer) drawFlyerThumb(g, cv.width, cv.height, b); else { fitBird(g, cv.width, cv.height); drawBirdHD(g, THUMB_PH, b); }
       $('hatchName').innerHTML = `${b.name} <i style="color:${tier.color}">${tier.name}</i>`;
-      $('hatchInfo').textContent = r.isNew ? `New bird! ${b.trait}` : r.star ? `You have this one: ★ ${r.star} of ${F.MAX_STARS} (+15% speed and seeds)` : `Already at ${F.MAX_STARS} ★: ${Math.round(F.EGG_COST * 0.4)} feathers back`;
+      const cost = isFlyer ? F.SPACE_EGG_COST : F.EGG_COST;
+      $('hatchInfo').textContent = r.isNew ? `New ${isFlyer ? 'flyer' : 'bird'}! ${b.trait}${isFlyer ? '. Pick it in the hangar.' : ''}` : r.star ? `You have this one: ★ ${r.star} of ${F.MAX_STARS} (+15% ${isFlyer ? 'ship speed and rocks' : 'speed and seeds'})` : `Already at ${F.MAX_STARS} ★: ${Math.round(cost * 0.4)} feathers back`;
       if (big) { Sound.win(); Haptic.notify('SUCCESS'); } else { Sound.stamp(); Haptic.impact('MEDIUM'); }
     }, big ? 1600 : 1000);
     $('hatchOk').onclick = () => { box.hidden = true; openShop(); };
@@ -3997,7 +4189,7 @@
   }
   function refreshWeatherChip() {
     const el = $('wx');
-    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${F.SPACE[S.space.dest].short} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · ${F.CURRENCY[S.space.dest].icon} ${F.CURRENCY[S.space.dest].name}` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${F.SPACE[S.space.dest].short} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${F.wxNote(S, wx)}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
@@ -4100,7 +4292,7 @@
         moonOvalKey = '';
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
-        toast(`${switching ? 'Course set' : 'Liftoff'}: ${F.SPACE[k].name} and back. Every round trip brings home space rocks.`); Sound.launch();
+        toast(`${switching ? 'Course set' : 'Liftoff'}: ${F.SPACE[k].name} and back. Every round trip brings home space rocks and ${fmt(F.tripFeathers(S, k), 0)} 🪶 golden feathers.`); Sound.launch();
       });
       const t1 = $('btnTrade1'), ta = $('btnTradeAll');
       if (bl) bl.onclick = () => {
@@ -4113,7 +4305,7 @@
         F.returnToEarth(S); $('eventChip').hidden = true; flapBtn.classList.remove('alarm'); for (const m of rocks) sscene.remove(m); rocks.length = 0; leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); save();
         toast(`Back on Earth over ${F.legFrom(S).name}.`);
       };
-      if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(`${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
+      if (bg) bg.onclick = () => { if (F.buyGear(S, g.id)) { toast(g.id === 'shuttle' ? `${g.icon} Shuttle ready! Every Moon round trip pays ${fmt(F.TRIP_FEATHERS[0], 0)} 🪶 golden feathers, far more than laps on Earth. Space eggs are open in the feather shop.` : `${g.icon} ${g.name} ready.`); expoKey = ''; refreshExpo(); save(); } };
     }
     const bg = $('btnGear'); if (bg && g) bg.disabled = S.seeds < g.cost;
     refreshRocks();
@@ -4123,9 +4315,17 @@
   }
   let lastTripToast = 0;
   function tripDone(e) {
-    const now = performance.now();
     refreshRocks(); refreshShip();
+    if (e.feathers) { toast(`Round trip done: +${fmt(e.feathers, 0)} 🪶 golden feathers!`); bumpFeathers(); }
   }
+  // mastery: flying a bird or a flyer long enough pays free eggs and feathers
+  function masteryDone(e) {
+    const name = e.kind === 'bird' ? (BIRDS.find((b) => b.id === e.id) || {}).name : (F.FLYERS.find((f) => f.id === e.id) || {}).name;
+    const r = e.reward, got = r.eggs ? `${r.eggs} free golden egg${r.eggs > 1 ? 's' : ''} 🥚` : r.spaceEggs ? `${r.spaceEggs} free space egg${r.spaceEggs > 1 ? 's' : ''} 🛸` : `+${r.feathers} 🪶`;
+    toast(`${name} mastery ${'★'.repeat(e.level)}: ${got}. ${e.kind === 'bird' ? 'Fly other birds to master them too.' : 'Try another flyer to master it too.'}`);
+    Sound.win && Sound.win(); bumpFeathers();
+  }
+  function bumpFeathers() { const el = document.getElementById('btnShop'); if (el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } }
   function orbitUnlocked() {
     toast(ORBIT_MSG);
     if (!S.space && !F.isNonstop(S)) { const f = F.legFrom(S); S.route = F.genLap(S, f.v ? f : f.i); S.ri = 0; S.legKm = 0; rebuildRoute(); resetSide(); }
@@ -4403,6 +4603,7 @@
         if (e.type === 'barrier') { barrierBroken(e.which); continue; }
         if (e.type === 'warp') { toast('🌀 Warp jump!'); Sound.launch(); Haptic.impact('HEAVY'); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
+        if (e.type === 'mastery') { masteryDone(e); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination. You can switch back to city hopping in the menu.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
@@ -4505,5 +4706,5 @@
   }
 
   // for testing in the console
-  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world, kindAt, lookahead, chunkAtX, draws: () => fr.info.render.calls, quality: () => qLevel };
+  window.__flyway = { get S() { return S; }, setZoom: (z) => { Z = ZT = z; }, F, layers: { clouds, atmo, earth }, forceBug: () => { side.bugT = 0; }, drawBirdHD, FW, FH, heroCount: () => fscene.children.filter((o) => o.isMesh && o.userData && o.userData.atlas && o.visible).map((o) => (o === hero ? "HERO:" : "") + Object.keys(birdAtlases).find((k) => birdAtlases[k] === o.userData.atlas)).join(","), birdScreen: () => { const p = birdSprite.position.clone().project(camera); return [Math.round((p.x + 1) / 2 * SW), Math.round((1 - p.y) / 2 * SH)]; }, setWeather: (type) => { S.wx = { type, left: 30 }; }, atlasFor, seaLife: () => seaLife, space: () => S.space, forceThreat: (type) => { side.threatT = 0; if (type) side.forceType = type; }, side, fscene, world, kindAt, lookahead, chunkAtX, draws: () => fr.info.render.calls, flyerThumb: drawFlyerThumb, quality: () => qLevel };
 })();

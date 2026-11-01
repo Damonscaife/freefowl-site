@@ -255,8 +255,9 @@
   const starMult = (s, id) => 1 + 0.15 * Math.min(MAX_STARS, (s.stars && s.stars[id]) || 0);
   const eggPool = (tier) => BIRDS.filter((b) => b.tier === tier && !b.secret);
   function hatchEgg(s, rnd = Math.random) {
-    if (s.feathers < EGG_COST) return null;
-    s.feathers -= EGG_COST;
+    if (s.freeEggs > 0) s.freeEggs--; // mastery rewards come as free eggs
+    else if (s.feathers >= EGG_COST) s.feathers -= EGG_COST;
+    else return null;
     const total = RARITY.reduce((a, r) => a + r.weight, 0);
     let x = rnd() * total, tier = RARITY[0];
     for (const r of RARITY) { x -= r.weight; if (x <= 0) { tier = r; break; } }
@@ -599,7 +600,10 @@
         s.space.u -= trips; s.space.trips += trips;
         const r = rocksPerTrip(s) * trips, pay = r * MOON_RATE;
         s.seeds += pay; s.runSeeds += pay; s.moon.total += r; s.moon.trips += trips;
-        ev.push({ type: 'trip', rocks: r, pay, trips });
+        const fl = tripFeathers(s, s.space.dest) * trips;
+        s.feathers += fl; s.runFeathers = (s.runFeathers || 0) + fl;
+        ev.push({ type: 'trip', rocks: r, pay, trips, feathers: fl });
+        addMastery(s, 'flyer', flyerOf(s).id, trips, ev);
       }
       return ev;
     }
@@ -653,6 +657,7 @@
           lapDone = true; s.lapsFlown++; s.lapsTotal = (s.lapsTotal || 0) + 1;
           const fl = FEATHERS_PER_LAP + (birdOf(s).feathers || 0); // some birds bring home extra feathers
           s.feathers += fl; s.runFeathers = (s.runFeathers || 0) + fl;
+          addMastery(s, 'bird', s.bird, 1, ev);
           s.route = genLap(s, s.route[s.route.length - 1]); s.ri = 0; s.overNext = 0;
         }
         // a new forecast only once the current one (or a calm spell) has run its course
@@ -816,16 +821,92 @@
   // every planet reached beyond the Moon (ever) multiplies space rocks per trip by 1.5
   const planetsReached = (s) => (s.cosmos || []).filter((id) => id !== 'moon').length;
   const planetMult = (s) => 1.5 ** planetsReached(s);
-  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest]);
+  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s));
   const solarMult = (s) => (s.space ? 1 + 0.5 * shipLv(s, 'solar') : 1);
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
     const warp = s.space && s.space.warp > 0 ? warpMult(shipLv(s, 'warp')) : 1;
     // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
-    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust'))
+    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust')) * flyerSpeed(s)
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar * warp;
   }
+  // ---- space flyers ----
+  // What the bird rides in space. Hatched from space eggs (bought with golden feathers once
+  // the shuttle has been owned), with the same rarity odds as golden eggs. They're kept
+  // through every migration; pick any owned one at any time. A duplicate adds a star.
+  const FLYERS = [
+    { id: 'shuttle', name: 'Shuttle', tier: 'common', trait: 'the trusty starter ship', speed: 1, rocks: 1, starter: true },
+    { id: 'cardboard', name: 'Cardboard Rocket', tier: 'poor', trait: '+5% space rocks (somehow)', speed: 1, rocks: 1.05 },
+    { id: 'bottle', name: 'Bottle Rocket', tier: 'common', trait: '+15% ship speed', speed: 1.15, rocks: 1 },
+    { id: 'jetpack', name: 'Jet Pack', tier: 'common', trait: '+20% space rocks', speed: 1, rocks: 1.2 },
+    { id: 'pod', name: 'Escape Pod', tier: 'common', trait: '+10% ship speed and rocks', speed: 1.1, rocks: 1.1 },
+    { id: 'roadster', name: 'Flying Roadster', tier: 'uncommon', trait: '+35% ship speed', speed: 1.35, rocks: 1 },
+    { id: 'scooter', name: 'Hover Scooter', tier: 'uncommon', trait: '+30% space rocks', speed: 1, rocks: 1.3 },
+    { id: 'retro', name: 'Retro Rocket', tier: 'uncommon', trait: '+25% ship speed and rocks', speed: 1.25, rocks: 1.25 },
+    { id: 'lander', name: 'Lunar Lander', tier: 'rare', trait: '+60% space rocks, +5 golden feathers a trip', speed: 1, rocks: 1.6, feathers: 5 },
+    { id: 'glider', name: 'Star Glider', tier: 'rare', trait: '+70% ship speed', speed: 1.7, rocks: 1 },
+    { id: 'saucer', name: 'Flying Saucer', tier: 'epic', trait: '2.2× ship speed and rocks', speed: 2.2, rocks: 2.2 },
+    { id: 'comet', name: 'Comet Rider', tier: 'epic', trait: '2.5× ship speed, +10 golden feathers a trip', speed: 2.5, rocks: 1.5, feathers: 10 },
+    { id: 'cruiser', name: 'Warp Cruiser', tier: 'legendary', trait: '3.5× ship speed, 3× rocks, +20 golden feathers a trip', speed: 3.5, rocks: 3, feathers: 20 },
+    { id: 'whale', name: 'Star Whale', tier: 'legendary', trait: '4× ship speed and rocks, +30 golden feathers a trip', speed: 4, rocks: 4, feathers: 30 },
+  ];
+  const SPACE_EGG_COST = 60;
+  const flyerOf = (s) => FLYERS.find((f) => f.id === (s.moon && s.moon.flyer)) || FLYERS[0];
+  const ownsFlyer = (s, id) => id === 'shuttle' || !!(s.moon && s.moon.flyers && s.moon.flyers.includes(id));
+  const flyerStar = (s, id) => 1 + 0.15 * Math.min(MAX_STARS, (s.moon && s.moon.fstars && s.moon.fstars[id]) || 0);
+  const flyerSpeed = (s) => flyerOf(s).speed * flyerStar(s, flyerOf(s).id);
+  const flyerRocks = (s) => flyerOf(s).rocks * flyerStar(s, flyerOf(s).id);
+  // space eggs open once the bird has had a shuttle (in any run)
+  const spaceOpen = (s) => !!(s.gear && s.gear.shuttle) || !!(s.moon && s.moon.trips > 0);
+  function hatchSpaceEgg(s, rnd = Math.random) {
+    if (!spaceOpen(s)) return null;
+    if (s.freeSpaceEggs > 0) s.freeSpaceEggs--;
+    else if (s.feathers >= SPACE_EGG_COST) s.feathers -= SPACE_EGG_COST;
+    else return null;
+    const total = RARITY.reduce((a, r) => a + r.weight, 0);
+    let x = rnd() * total, tier = RARITY[0];
+    for (const r of RARITY) { x -= r.weight; if (x <= 0) { tier = r; break; } }
+    const pool = FLYERS.filter((f) => f.tier === tier.id && !f.starter), f = pool[Math.floor(rnd() * pool.length)];
+    s.moon.flyers = s.moon.flyers || []; s.moon.fstars = s.moon.fstars || {};
+    if (!s.moon.flyers.includes(f.id)) { s.moon.flyers.push(f.id); return { flyer: f, tier: tier.id, isNew: true }; }
+    const st = s.moon.fstars[f.id] || 0;
+    if (st < MAX_STARS) { s.moon.fstars[f.id] = st + 1; return { flyer: f, tier: tier.id, star: st + 1 }; }
+    const refund = Math.round(SPACE_EGG_COST * 0.4); s.feathers += refund; return { flyer: f, tier: tier.id, refund };
+  }
+  function pickFlyer(s, id) { if (!ownsFlyer(s, id)) return false; s.moon.flyer = id; return true; }
+
+  // Golden feathers for each round trip: about three times what the same time earns on Earth,
+  // more for each world farther out. Some flyers (and feather birds) bring home extra.
+  const TRIP_FEATHERS = [50, 120, 220, 280, 380, 460, 540, 1500];
+  const tripFeathers = (s, dest) => TRIP_FEATHERS[dest] + (flyerOf(s).feathers || 0) + (birdOf(s).feathers || 0);
+
+  // ---- mastery ----
+  // Flying a bird (laps) or a space flyer (round trips) earns rewards along the way: free eggs
+  // and feathers. Every bird and flyer has its own track, so switching (and migrating to fly a
+  // different bird) keeps paying off.
+  const MASTERY = {
+    bird: [{ n: 3, eggs: 1 }, { n: 10, feathers: 40 }, { n: 25, eggs: 2 }],
+    flyer: [{ n: 2, spaceEggs: 1 }, { n: 6, feathers: 80 }, { n: 15, spaceEggs: 2 }],
+  };
+  function masteryOf(s, kind, id) {
+    const m = (s.mastery && s.mastery[kind] && s.mastery[kind][id]) || 0, steps = MASTERY[kind];
+    const lv = steps.filter((x) => m >= x.n).length;
+    return { count: m, level: lv, max: steps.length, next: steps[lv] || null };
+  }
+  function addMastery(s, kind, id, n, ev) {
+    s.mastery = s.mastery || { bird: {}, flyer: {} }; s.mastery[kind] = s.mastery[kind] || {};
+    const before = s.mastery[kind][id] || 0, after = before + n; s.mastery[kind][id] = after;
+    MASTERY[kind].forEach((st, i) => {
+      if (before < st.n && after >= st.n) {
+        if (st.eggs) s.freeEggs = (s.freeEggs || 0) + st.eggs;
+        if (st.spaceEggs) s.freeSpaceEggs = (s.freeSpaceEggs || 0) + st.spaceEggs;
+        if (st.feathers) { s.feathers += st.feathers; s.runFeathers = (s.runFeathers || 0) + st.feathers; }
+        ev.push({ type: 'mastery', kind, id, level: i + 1, reward: st });
+      }
+    });
+  }
+
   // ---- space events ----
   // Asteroid field: tap BOOST to mine bonus rocks (up to 15 hauls per field).
   // Solar wind: double ship speed while it blows.
@@ -842,7 +923,7 @@
   }
   // One moon rock is worth a quarter of a city landing on Earth, so a loop
   // with a few cargo and wingmate upgrades earns about twice what Earth does.
-  // Golden feathers and bird upgrades are still Earth-only.
+  // Golden feathers come from Earth laps and (far faster) from space round trips.
   const rockValue = (s) => arrivalBonus(s) * 0.25;
   function tradeRocks(s, n) {
     n = Math.min(Math.floor(n), s.moon.rocks); if (n <= 0) return 0;
@@ -913,7 +994,8 @@
   function migrateAgain(s, birdId, startIdx) {
     const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
-      birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {} };
+      birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {},
+      mastery: s.mastery || { bird: {}, flyer: {} }, freeEggs: s.freeEggs || 0, freeSpaceEggs: s.freeSpaceEggs || 0 };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
@@ -947,7 +1029,7 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
-    GEAR, SPACE, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
