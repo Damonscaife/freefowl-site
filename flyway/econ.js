@@ -270,13 +270,13 @@
 
   // Permanent upgrades bought with golden feathers. They survive every migration.
   const PERKS = [
-    { id: 'swift', name: 'Swift Wings', icon: '💨', base: 5, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} speed` },
+    { id: 'swift', name: 'Swift Wings', icon: '💨', base: 10, growth: 1.15, blurb: (L) => `×${fmt(1.05 ** L, 2)} speed` }, // 2× the price, half the effect per level
     { id: 'gold', name: 'Golden Beak', icon: '🌰', base: 5, growth: 1.15, blurb: (L) => `×${fmt(1.1 ** L, 2)} seeds` },
     { id: 'nest', name: 'Nest Egg', icon: '🥚', base: 10, growth: 2.5, max: 12, blurb: (L) => L ? `start each migration with ${fmt(nestEgg(L))} seeds` : 'start each migration with seeds in hand' },
   ];
   const nestEgg = (L) => (L ? 100 * 10 ** (L - 1) : 0);
   const perkCost = (p, L) => Math.ceil(p.base * p.growth ** L);
-  const perkSpeed = (s) => 1.1 ** ((s.perks && s.perks.swift) || 0);
+  const perkSpeed = (s) => 1.05 ** ((s.perks && s.perks.swift) || 0);
   const perkSeeds = (s) => 1.1 ** ((s.perks && s.perks.gold) || 0);
   function buyPerk(s, id) {
     const p = PERKS.find((x) => x.id === id), L = s.perks[id] || 0;
