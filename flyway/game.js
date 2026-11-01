@@ -74,18 +74,22 @@
       (L > 37 && L < 45 && O > 78 && O < 110) ||
       (L > -30 && L < -20 && O > 120 && O < 142);
     if (desert) return 'desert';
+    // the great mountain ranges: Rockies, Andes, Himalaya and Tibet, Alps
+    const alpine = (L > 36 && L < 58 && O > -124 && O < -106) || (L > -48 && L < 6 && O > -79 && O < -66) ||
+      (L > 27 && L < 38 && O > 72 && O < 98) || (L > 44 && L < 48 && O > 6 && O < 15);
+    if (alpine) return 'alpine';
     if (a + jt * 0.6 < 14) return 'tropic';
     if (a + jt * 0.8 > 50) return 'boreal';
     return 'temperate';
   }
   const BIOME_RGB = {
-    ice: [233, 238, 243], tundra: [128, 132, 104], desert: [210, 178, 122], tropic: [56, 112, 58], boreal: [74, 104, 72], temperate: [104, 146, 74],
+    ice: [233, 238, 243], tundra: [128, 132, 104], desert: [210, 178, 122], tropic: [40, 98, 44], boreal: [74, 104, 72], temperate: [104, 146, 74], alpine: [112, 118, 96],
   };
 
   // The globe's painted texture. Painting every land pixel's biome is the slowest thing at
   // startup, so: draw the sea and a plain land fill instantly, paint the biomes at half size
   // in small slices between frames, then remember the finished picture for next launch.
-  const EARTH_KEY = 'flyway.earth.v2';
+  const EARTH_KEY = 'flyway.earth.v3';
   function buildEarthTexture() {
     const c = document.createElement('canvas'); c.width = TW; c.height = TH;
     const g = c.getContext('2d');
@@ -468,13 +472,20 @@
   }
 
   // land height at a world position; heights are continuous across strips
-  function landHeight(wx, z) {
+  function landHeight0(wx, z) {
     const far = smooth(-60, -330, z);
     const n = fbm(wx / 70, z / 70 + 9);
     const ridge = Math.pow(fbm(wx / 160 + 40, z / 160), 2.2) * 40 * far;
     return 3 + n * (12 + far * 18) + ridge;
   }
-  function vertColor(b, h, wx, z) {
+  // How far across a strip its own landscape has taken over from the previous strip's: 0 at the
+  // left edge, 1 well before the right, with a ragged noisy front so the change isn't a straight line.
+  const biomeBlend = (dl, wx, z) => smooth(0, 1, clamp((dl / CW) * 1.6 - 0.3 + (fbm(wx / 28 + 11, z / 28) - 0.5) * 0.5, 0, 1));
+  function vertColor(b, h, wx, z, pb, t) {
+    if (pb && pb !== b && t < 1) {
+      const a = vertColor(pb, h, wx, z), c2 = vertColor(b, h, wx, z);
+      return a.map((v, i) => lerp(v, c2[i], t));
+    }
     let c = BIOME_RGB[b];
     if (b !== 'ice' && h > 30) c = [128, 124, 118];              // bare rock
     if (b === 'ice' || h > 46) c = [236, 240, 244];               // snow
@@ -484,7 +495,7 @@
   // the ground height a strip actually uses at local x / depth z, coast slopes included,
   // so trees, lakes and clouds sit on (or above) the same surface the mesh draws
   // ---- roads and traffic ----
-  let curRoad = null; // the road of the strip being built, so its trees and towers keep clear
+  let curRoad = null, curHwy = null; // the roads of the strip being built, so its trees and towers keep clear
   let liteBuild = false; // true while building strips at extreme speed: far less scenery, since it flashes past
   const roadTex = (() => {
     const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
@@ -498,40 +509,74 @@
   const cabGeo = new THREE.BoxGeometry(1, 0.55, 0.9).translate(-0.1, 1.2, 0);
   const CAR_MATS = ['#d6453d', '#f2f2f2', '#2f6fd1', '#f0b429', '#3a3d45', '#3fa36b', '#9aa3ad'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.2 });
-  function addRoad(grp, seed, hAt, highway) {
-    const xs = (hash(seed, 71) - 0.5) * (CW - 30), bend = 30 + hash(seed, 72) * 25, width = highway ? 7 : 4;
-    // from just in front of the camera, away into the distance, bending off to the left
-    const pts = [];
-    for (let i = 0; i <= 56; i++) { const s = i / 56; pts.push(new THREE.Vector3(xs - bend * Math.pow(s, 1.6), 0, 45 - 285 * s)); } // starts behind the camera, so it never ends at the bottom of the screen
+  // One ribbon of road along a path of points, with traffic. fade: cars shrink away at the ends
+  // (used where a highway runs on into the next strip, so they don't pop at the seam).
+  function roadMesh(grp, pts, width, hAt, wide, seed, nCars, fade) {
     let len = 0; const lens = [0];
     for (let i = 1; i < pts.length; i++) { len += pts[i].distanceTo(pts[i - 1]); lens.push(len); }
     const pos = [], uv = [], idx = [];
     pts.forEach((p, i) => {
-      const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)], tx = q.x - o.x, tz = q.z - o.z, tl = Math.hypot(tx, tz);
+      const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)], tx = q.x - o.x, tz = q.z - o.z, tl = Math.hypot(tx, tz) || 1;
       const nx = -tz / tl * width / 2, nz = tx / tl * width / 2;
       const y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
       p.y = y;
-      pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (highway ? 10 : 7), 1, lens[i] / (highway ? 10 : 7));
+      pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (wide ? 10 : 7), 1, lens[i] / (wide ? 10 : 7));
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     });
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx); g.computeVertexNormals();
     grp.add(new THREE.Mesh(g, roadMat));
-    // traffic both ways
-    const cars = [], n = highway ? 10 : 5;
-    for (let i = 0; i < n; i++) {
+    const cars = [];
+    for (let i = 0; i < nCars; i++) {
       const car = new THREE.Group(), mat = CAR_MATS[Math.floor(hash(seed + i, 73) * CAR_MATS.length)];
       const body = new THREE.Mesh(carGeo, mat), cab = new THREE.Mesh(cabGeo, glassMat);
       body.userData.shared = cab.userData.shared = true; car.add(body, cab); grp.add(car);
-      const dir = i % 2 ? 1 : -1, lanes = highway ? 2 : 1, lane = (0.5 + Math.floor(hash(i, seed) * lanes)) / lanes;
-      cars.push({ car, s: hash(seed, i + 80) * len, dir, off: dir * lane * width / 2 * 0.9, v: (highway ? 9 : 6) + hash(i, seed + 81) * 4 });
+      const dir = i % 2 ? 1 : -1, lanes = wide ? 2 : 1, lane = (0.5 + Math.floor(hash(i, seed) * lanes)) / lanes;
+      cars.push({ car, s: hash(seed, i + 80) * len, dir, off: dir * lane * width / 2 * 0.9, v: (wide ? 9 : 6) + hash(i, seed + 81) * 4 });
     }
-    return { pts, lens, len, cars };
+    return { pts, lens, len, cars, width, fade };
+  }
+  // A country road (or a city avenue) from behind the camera, curving left into the distance.
+  // It ends where it meets the highway, or runs right to the back of the land, so its end never shows.
+  function addRoad(grp, seed, hAt, wide, hwy) {
+    const bend = 30 + hash(seed, 72) * 25, width = wide ? 7 : 4;
+    const xs = lerp(-CW / 2 + 8 + bend, CW / 2 - 8, hash(seed, 71)); // keeps the whole road inside this strip
+    const zEnd = hwy ? HWY_Z : -356, n = 56, pts = [];
+    for (let i = 0; i <= n; i++) { const t = i / n; pts.push(new THREE.Vector3(xs - bend * Math.pow(t, 1.6), 0, 45 + (zEnd - 45) * t)); }
+    return roadMesh(grp, pts, width, hAt, wide, seed, wide ? 10 : 5, false);
+  }
+  // The highway: runs along the bird's direction of travel, joined up strip to strip. Where the
+  // highway country starts or ends it sweeps in from (or away to) the far distance.
+  const HWY_Z = -95;
+  const hwyFlag = (wx0) => fbm(wx0 * 0.0021 + 5.3, 3.7) > 0.47;
+  function addHighway(grp, seed, hAt, prevHw, nextHw) {
+    const pts = [], n = 40;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, x = -CW / 2 + CW * t;
+      let z = HWY_Z;
+      if (!prevHw) z = lerp(-356, HWY_Z, smooth(0, 0.6, t));
+      if (!nextHw) z = lerp(z, -356, smooth(0.4, 1, t));
+      pts.push(new THREE.Vector3(x, 0, z));
+    }
+    return roadMesh(grp, pts, 7, hAt, true, seed + 999, 6, prevHw || nextHw);
+  }
+  // keep trees, lakes and buildings off the road and the highway
+  function segDist(px, pz, a, b) {
+    const vx = b.x - a.x, vz = b.z - a.z, l2 = vx * vx + vz * vz || 1;
+    const t = clamp(((px - a.x) * vx + (pz - a.z) * vz) / l2, 0, 1);
+    return Math.hypot(px - (a.x + vx * t), pz - (a.z + vz * t));
   }
   function nearRoad(x, z, r) {
-    const road = curRoad; if (!road) return false;
-    for (const p of road.pts) if (Math.abs(p.z - z) < r + 6 && Math.hypot(p.x - x, p.z - z) < r + 0) return true;
+    for (const road of [curRoad, curHwy]) {
+      if (!road) continue;
+      const pts = road.pts, need = r + road.width / 2 + 1;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        if (Math.min(a.z, b.z) - need > z || Math.max(a.z, b.z) + need < z) continue;
+        if (segDist(x, z, a, b) < need) return true;
+      }
+    }
     return false;
   }
   function updateTraffic(road, dt) {
@@ -543,6 +588,7 @@
       const tx = b.x - a.x, tz = b.z - a.z, tl = Math.hypot(tx, tz) || 1;
       c.car.position.set(lerp(a.x, b.x, k) - tz / tl * c.off, lerp(a.y, b.y, k), lerp(a.z, b.z, k) + tx / tl * c.off);
       c.car.rotation.y = -Math.atan2(tz * c.dir, tx * c.dir);
+      if (road.fade) c.car.scale.setScalar(clamp(Math.min(c.s, len - c.s) / 4, 0.001, 1)); // slip out of sight at a strip's edge
     }
   }
   const HARBOUR = 10; // width of the harbour basin between a seaside city's quay and the open sea
@@ -554,9 +600,13 @@
   const coastOff = (edgeX, z) => clamp((fbm(edgeX * 0.0137 + 3.1, z / 70 + 1.7) - 0.5) * 70, -20, 35); // + = out into the sea
   const shoreRise = (t) => t * t * (3 - 2 * t); // a soft beach at the bottom, a rounded brow at the top
   const shoreWidth = (z) => 22 + 34 * smooth(-60, -330, z); // gentler slopes in the far, high country
-  function stripHeight(kind, prevKind, nextKind, wx0, lx, z) {
+  // How tall the land is: mountain regions get much bigger relief. Each strip blends from the
+  // previous strip's relief at its left edge to its own at the right, so the ground stays continuous.
+  const reliefOf = (b) => (b === 'alpine' ? 2.2 : b === 'tropic' ? 1.15 : 1);
+  function stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL = 1, ampR = 1) {
     const wx = wx0 + lx + CW / 2;
     const dl = lx + CW / 2, dr = CW / 2 - lx;
+    const amp = lerp(ampL, ampR, dl / CW), landHeight = (x, zz) => 3 + (landHeight0(x, zz) - 3) * amp;
     if (kind === 'sea') {
       // headlands and spits from a neighbouring land strip can reach into the sea strip
       let reach = 0;
@@ -588,35 +638,39 @@
     }
     return -6 + (h + 6) * t;
   }
-  function buildChunk(kind, geo, prevKind, nextKind, name, atWx) {
+  function buildChunk(kind, geo, prevKind, nextKind, name, atWx, ampL, prevBiome) {
     const wx0 = atWx ?? world.cursor; if (atWx == null) world.cursor += CW;
-    const b = geo ? biome(geo.lat, geo.lon) : 'temperate';
+    const b = geo ? biome(geo.lat, geo.lon) : 'temperate', ampR = reliefOf(b), pb = prevBiome || b;
+    if (ampL == null) ampL = ampR;
     const g = new THREE.PlaneGeometry(CW, DEPTH, 16, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const lx = p.getX(i), z = p.getZ(i), wx = wx0 + lx + CW / 2;
       // cities sit on a plain; open land gets hills and far ranges, sloping down to any sea beside it
-      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z);
+      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR);
       p.setY(i, GROUND + h);
-      col.set(h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z), i * 3); // seabed, sandy beach, land
+      col.set(h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z, pb, biomeBlend(lx + CW / 2, wx, z)), i * 3); // seabed, sandy beach, land (blending in from the last strip's landscape)
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.computeVertexNormals();
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
-    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z);
+    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR);
     liteBuild = world.u > 120; // a strip crosses the screen in well under a second
     // a paved road (a highway through cities) running away from you and curving off to the left
     const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
-    curRoad = !liteBuild && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hash(wx0, 70) < 0.3)
-      ? addRoad(grp, wx0, hAt, kind === 'city') : null;
+    curHwy = kind === 'land' && hwyFlag(wx0)
+      ? addHighway(grp, wx0, hAt, prevKind === 'land' && hwyFlag(wx0 - CW), nextKind === 'land' && hwyFlag(wx0 + CW)) : null;
+    curRoad = !liteBuild && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : curHwy ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < 0.3)
+      ? addRoad(grp, wx0, hAt, kind === 'city', curHwy) : null;
     if (kind === 'city') addCity(grp, name, wx0, hAt, prevKind === 'sea', nextKind === 'sea');
     // now and then the bird swoops right down between the towers of a city it passes
     if (fly) addCanyon(grp, wx0, hAt);
-    if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt); if (kind === 'land') addLake(grp, b, wx0, hAt); }
+    if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt, pb); if (kind === 'land' && b !== 'ice') addLake(grp, b, wx0, hAt); }
     else addSea(grp, wx0);
-    const road = curRoad; curRoad = null;
-    return { grp, kind, wx0, hAt, fly, road, geo, name, prevKind, nextKind };
+    addProps(grp, b, kind, wx0, hAt, geo);
+    const road = curRoad, hwy = curHwy; curRoad = curHwy = null;
+    return { grp, kind, wx0, hAt, fly, road, hwy, geo, name, prevKind, nextKind, ampL, ampR, biome: b, prevBiome: pb };
   }
   // a seaside city's waterfront: wooden piers into the basin, boats tied up, and dock cranes on the quay
   const pierMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.9 });
@@ -659,6 +713,19 @@
   }
   function addCity(grp, name, seed, hAt, seaL, seaR) {
     if (seaL || seaR) addHarbour(grp, seed, seaL, seaR);
+    // a few buildings right in the foreground, between you and the bird: their roofs show when it dips low
+    {
+      const spots = [];
+      for (let x = -CW / 2 + 8; x < CW / 2 - 8; x += 9 + hash(seed, x) * 9) if (hash(x, seed + 21) < 0.6) spots.push(x);
+      const fi = new THREE.InstancedMesh(towerGeo, canyonMat, Math.max(1, spots.length)), fm = new THREE.Matrix4(), col = new THREE.Color();
+      spots.forEach((x, i) => {
+        const z = 4 + hash(seed + i, 23) * 4, h0 = hAt(x, z);
+        const ok = h0 > 1.5 && !nearRoad(x, z, 4), w = 3 + hash(i, seed + 24) * 2.5, top = GROUND + h0 + 6 + hash(seed, i + 25) * 9;
+        fm.compose(new THREE.Vector3(x, GROUND + h0 - 0.6, z), new THREE.Quaternion(), new THREE.Vector3(w, ok ? top - (GROUND + h0 - 0.6) : 0.001, w * 0.9));
+        fi.setMatrixAt(i, fm); fi.setColorAt(i, col.setStyle(TOWER_TINTS[Math.floor(hash(seed + i, 26) * TOWER_TINTS.length)]));
+      });
+      if (spots.length) grp.add(fi);
+    }
     const n = 90, inst = new THREE.InstancedMesh(towerGeo, towerMat, n), m = new THREE.Matrix4();
     for (let i = 0; i < n; i++) {
       const x = (hash(seed, i) - 0.5) * (CW - 10), z = -30 - hash(i, seed) * 130;
@@ -745,12 +812,12 @@
     // a cliff or a straight seam. Rebuild it to match while it's still far off.
     if (prev && prev.nextKind !== kind) {
       if (world.building || prev.grp.position.x > (world.viewW || 14) * 2 + CW / 2) {
-        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0);
+        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome);
         r.grp.position.x = prev.grp.position.x; fscene.add(r.grp);
         world.chunks[world.chunks.length - 1] = r; disposeChunk(prev);
       } else if (kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
     }
-    const c = buildChunk(kind, geo, prev ? prev.kind : kind, world.nextType, name);
+    const c = buildChunk(kind, geo, prev ? prev.kind : kind, world.nextType, name, undefined, prev ? prev.ampR : undefined, prev ? prev.biome : undefined);
     c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
 
@@ -819,6 +886,25 @@
   }
   // trees for each kind of land
   const TREE_KINDS = {
+    // jungle giant: a tall pale trunk under layered dark canopies, with hanging vines
+    jungle: (g, W, H) => {
+      g.fillStyle = '#8a7a5a'; g.fillRect(W * 0.45, H * 0.35, W * 0.1, H * 0.65);
+      const blob = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, r, r * 0.6, 0, 0, Math.PI * 2); g.fill(); };
+      blob(W * 0.5, H * 0.3, W * 0.46, '#1f5a2a'); blob(W * 0.3, H * 0.24, W * 0.26, '#2a6e34'); blob(W * 0.7, H * 0.22, W * 0.26, '#2a6e34'); blob(W * 0.5, H * 0.13, W * 0.24, '#3a8a40');
+      g.strokeStyle = '#2f6a2a'; g.lineWidth = 3; for (const x of [0.22, 0.36, 0.64, 0.78]) { g.beginPath(); g.moveTo(W * x, H * 0.36); g.quadraticCurveTo(W * (x + 0.04), H * 0.55, W * x, H * (0.6 + x * 0.2)); g.stroke(); }
+    },
+    fern: (g, W, H) => {
+      g.strokeStyle = '#2f7a34'; g.lineWidth = W * 0.05; g.lineCap = 'round';
+      for (let k = 0; k < 7; k++) { const a = -Math.PI / 2 + (k - 3) * 0.32; g.beginPath(); g.moveTo(W / 2, H); g.quadraticCurveTo(W / 2 + Math.cos(a) * W * 0.3, H * 0.75 + Math.sin(a) * H * 0.2, W / 2 + Math.cos(a) * W * 0.48, H * 0.5 + Math.sin(a) * H * 0.42); g.stroke(); }
+    },
+    snowpine: (g, W, H) => {
+      g.fillStyle = '#5a3d24'; g.fillRect(W * 0.46, H * 0.78, W * 0.08, H * 0.22);
+      for (let k = 0; k < 4; k++) {
+        const y0 = H * (0.08 + k * 0.19), w = W * (0.22 + k * 0.08);
+        g.fillStyle = k % 2 ? '#2a5240' : '#33604a'; g.beginPath(); g.moveTo(W / 2, y0); g.lineTo(W / 2 + w, y0 + H * 0.3); g.lineTo(W / 2 - w, y0 + H * 0.3); g.closePath(); g.fill();
+        g.fillStyle = '#f4f8fb'; g.beginPath(); g.moveTo(W / 2, y0); g.lineTo(W / 2 + w * 0.55, y0 + H * 0.15); g.lineTo(W / 2 - w * 0.55, y0 + H * 0.15); g.closePath(); g.fill();
+      }
+    },
     pine: (g, W, H) => {
       g.fillStyle = '#5a3d24'; g.fillRect(W * 0.46, H * 0.78, W * 0.08, H * 0.22);
       for (let k = 0; k < 4; k++) {
@@ -889,12 +975,14 @@
   const TREE_KEYS = Object.keys(TREE_KINDS);
   const treeAtlas = paintTex(128 * TREE_KEYS.length, 192, (g) => TREE_KEYS.forEach((k, i) => { g.save(); g.translate(i * 128, 0); g.beginPath(); g.rect(0, 0, 128, 192); g.clip(); TREE_KINDS[k](g, 128, 192); g.restore(); }));
   const treeMat = billboardMat(treeAtlas);
-  const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine'], tundra: ['pine'], tropic: ['palm', 'round'], desert: ['cactus'] };
-  function addTrees(grp, b, wx0, kind, hAt) {
-    const kinds = TREES_FOR[b]; if (!kinds) return;
+  const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine', 'pine', 'snowpine'], tundra: ['snowpine', 'pine'], tropic: ['jungle', 'jungle', 'palm', 'fern'], desert: ['cactus'], alpine: ['snowpine', 'pine', 'pine'] };
+  function addTrees(grp, b, wx0, kind, hAt, pb = b) {
+    const kinds0 = TREES_FOR[b], prevKinds = TREES_FOR[pb]; if (!kinds0 && !prevKinds) return;
+    const kinds = kinds0 || prevKinds;
     // some stretches of land are proper forest: dense, and the trees grow bigger
-    const forest = kind === 'land' && (b === 'temperate' || b === 'boreal' || b === 'tropic') && hash(wx0, 60) < 0.3;
-    let n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? 160 : 34;
+    // jungle is almost always thick; elsewhere some stretches are forest
+    const forest = kind === 'land' && (b === 'temperate' || b === 'boreal' || b === 'tropic' || b === 'alpine') && hash(wx0, 60) < (b === 'tropic' ? 0.8 : 0.3);
+    let n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? (b === 'tropic' ? 230 : 160) : b === 'tropic' ? 70 : 34;
     if (liteBuild) n = Math.ceil(n / 4); // at extreme speed a tree is on screen for a blink: plant far fewer
     const items = [];
     for (let i = 0; i < n; i++) {
@@ -907,11 +995,93 @@
       const X0 = -CW / 2 + i0 * sx, Z0 = ZC + DEPTH / 2 - j0 * sz;
       const h = lerp(lerp(hAt(X0, Z0), hAt(X0 + sx, Z0), fx), lerp(hAt(X0, Z0 - sz), hAt(X0 + sx, Z0 - sz), fx), fz);
       if (h > 30 || h < 0.5 || nearRoad(lx, z, 3.5)) continue; // no trees on bare rock and snow, at the waterline or on the road
-      const ki = TREE_KEYS.indexOf(kinds[Math.floor(hash(i, wx0) * kinds.length)]);
+      // trees change over gradually too: near the left edge they belong to the last strip's landscape
+      const own = hash(i + 3, wx0 + 1) < biomeBlend(lx + CW / 2, wx0 + lx + CW / 2, z), set = own ? kinds0 : prevKinds;
+      if (!set) continue; // e.g. no trees on the ice
+      const ki = TREE_KEYS.indexOf(set[Math.floor(hash(i, wx0) * set.length)]);
       const size = (3 + hash(wx0 + i, 7) * 4) * (forest ? 1.25 : 1);
       items.push({ x: lx, y: GROUND + h - 0.25, z, w: size * 0.67, h: size, cy: 0.02, u0: ki / TREE_KEYS.length + 0.002, u1: (ki + 1) / TREE_KEYS.length - 0.002 });
     }
+    // now and then a tree or two right in the foreground, between you and the bird: seen when the
+    // bird dips low (catching a bug, swooping), they frame the view
+    if (kind === 'land' && !liteBuild && hash(wx0, 61) < 0.55) {
+      const fn = 1 + Math.floor(hash(wx0, 62) * 3);
+      for (let i = 0; i < fn; i++) {
+        const lx = (hash(wx0 + 7, i) - 0.5) * (CW - 10), z = 3 + hash(i, wx0 + 9) * 6, h = hAt(lx, z);
+        if (h < 0.8 || nearRoad(lx, z, 4)) continue;
+        const ki = TREE_KEYS.indexOf(kinds[Math.floor(hash(i + 5, wx0) * kinds.length)]), size = 7 + hash(wx0 + i, 11) * 5;
+        items.push({ x: lx, y: GROUND + h - 0.4, z, w: size * 0.67, h: size, cy: 0.02, u0: ki / TREE_KEYS.length + 0.002, u1: (ki + 1) / TREE_KEYS.length - 0.002 });
+      }
+    }
     if (items.length) { items.sort((a, b) => a.z - b.z); grp.add(billboardMesh(items, treeMat)); }
+  }
+  // ---- creatures and ice for each climate: one batched mesh per strip ----
+  const PROP_KINDS = {
+    goat: (g, W, H) => {
+      g.fillStyle = '#f2efe8'; g.beginPath(); g.ellipse(W * 0.48, H * 0.55, W * 0.26, H * 0.14, 0, 0, Math.PI * 2); g.fill();
+      g.fillRect(W * 0.28, H * 0.6, W * 0.05, H * 0.3); g.fillRect(W * 0.38, H * 0.6, W * 0.05, H * 0.3); g.fillRect(W * 0.56, H * 0.6, W * 0.05, H * 0.3); g.fillRect(W * 0.64, H * 0.6, W * 0.05, H * 0.3);
+      g.beginPath(); g.ellipse(W * 0.76, H * 0.42, W * 0.08, H * 0.09, -0.4, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#2a2a2a'; g.lineWidth = 3; g.beginPath(); g.moveTo(W * 0.74, H * 0.35); g.lineTo(W * 0.7, H * 0.24); g.stroke();
+    },
+    bear: (g, W, H) => {
+      g.fillStyle = '#f4f1e6'; g.beginPath(); g.ellipse(W * 0.46, H * 0.56, W * 0.3, H * 0.18, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.24, 0.34, 0.56, 0.66]) { g.beginPath(); g.ellipse(W * x, H * 0.76, W * 0.05, H * 0.13, 0, 0, Math.PI * 2); g.fill(); }
+      g.beginPath(); g.ellipse(W * 0.8, H * 0.5, W * 0.11, H * 0.09, 0.2, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#1a1a1a'; g.beginPath(); g.arc(W * 0.9, H * 0.5, W * 0.018, 0, Math.PI * 2); g.fill();
+    },
+    penguin: (g, W, H) => {
+      for (const [x, s] of [[0.3, 0.9], [0.5, 1], [0.7, 0.85]]) {
+        g.fillStyle = '#1b1d24'; g.beginPath(); g.ellipse(W * x, H * (0.62 + (1 - s) * 0.2), W * 0.08 * s, H * 0.28 * s, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#f6f4ee'; g.beginPath(); g.ellipse(W * (x + 0.02), H * (0.66 + (1 - s) * 0.2), W * 0.05 * s, H * 0.2 * s, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#f08a2e'; g.fillRect(W * (x + 0.05), H * (0.44 + (1 - s) * 0.2), W * 0.04, H * 0.02);
+      }
+    },
+    seal: (g, W, H) => {
+      g.fillStyle = '#6a6e76'; g.beginPath(); g.moveTo(W * 0.1, H * 0.8); g.quadraticCurveTo(W * 0.4, H * 0.55, W * 0.72, H * 0.52); g.quadraticCurveTo(W * 0.86, H * 0.5, W * 0.86, H * 0.62);
+      g.quadraticCurveTo(W * 0.6, H * 0.86, W * 0.1, H * 0.8); g.fill(); g.fillStyle = '#1a1a1a'; g.beginPath(); g.arc(W * 0.8, H * 0.56, 2.5, 0, Math.PI * 2); g.fill();
+    },
+    iceberg: (g, W, H) => {
+      g.fillStyle = '#eaf6fc'; g.beginPath(); g.moveTo(W * 0.04, H); g.lineTo(W * 0.2, H * 0.4); g.lineTo(W * 0.36, H * 0.5); g.lineTo(W * 0.52, H * 0.1); g.lineTo(W * 0.7, H * 0.35); g.lineTo(W * 0.82, H * 0.3); g.lineTo(W * 0.96, H); g.fill();
+      g.fillStyle = '#b8dcef'; g.beginPath(); g.moveTo(W * 0.52, H * 0.1); g.lineTo(W * 0.7, H * 0.35); g.lineTo(W * 0.82, H * 0.3); g.lineTo(W * 0.96, H); g.lineTo(W * 0.6, H); g.fill();
+      g.fillStyle = 'rgba(120,190,225,.6)'; g.fillRect(W * 0.04, H * 0.9, W * 0.92, H * 0.1);
+    },
+    floe: (g, W, H) => {
+      g.fillStyle = '#f2f8fb'; g.beginPath(); g.ellipse(W * 0.5, H * 0.82, W * 0.46, H * 0.12, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#c4e2f0'; g.beginPath(); g.ellipse(W * 0.5, H * 0.88, W * 0.46, H * 0.07, 0, 0, Math.PI); g.fill();
+    },
+    glacier: (g, W, H) => {
+      const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#9fd0ea');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(0, H); g.lineTo(W * 0.08, H * 0.3); g.lineTo(W * 0.3, H * 0.2); g.lineTo(W * 0.55, H * 0.28); g.lineTo(W * 0.8, H * 0.15); g.lineTo(W, H * 0.35); g.lineTo(W, H); g.fill();
+      g.strokeStyle = 'rgba(80,150,200,.55)'; g.lineWidth = 3; for (let i = 0; i < 7; i++) { const x = W * (0.12 + i * 0.12); g.beginPath(); g.moveTo(x, H * 0.4); g.lineTo(x + 6, H * 0.95); g.stroke(); }
+    },
+  };
+  const PROP_KEYS = Object.keys(PROP_KINDS);
+  const propAtlas = paintTex(160 * PROP_KEYS.length, 160, (g) => PROP_KEYS.forEach((k, i) => { g.save(); g.translate(i * 160, 0); g.beginPath(); g.rect(0, 0, 160, 160); g.clip(); PROP_KINDS[k](g, 160, 160); g.restore(); }));
+  const propMat = billboardMat(propAtlas);
+  const prop = (k, x, y, z, w, h) => { const i = PROP_KEYS.indexOf(k); return { x, y, z, w, h, cy: 0.02, u0: i / PROP_KEYS.length + 0.002, u1: (i + 1) / PROP_KEYS.length - 0.002 }; };
+  function addProps(grp, b, kind, wx0, hAt, geo) {
+    if (liteBuild) return;
+    const items = [], south = geo && geo.lat < 0, R = (i, k) => hash(wx0 + k, i);
+    if (kind === 'sea' && (b === 'ice' || b === 'tundra')) {
+      // polar sea: icebergs and floes, some with seals, penguins or a bear riding them
+      const nb = 2 + Math.floor(R(1, 3) * 4);
+      for (let i = 0; i < nb; i++) { const w = 8 + R(i, 4) * 16; items.push(prop('iceberg', (R(i, 5) - 0.5) * CW, GROUND + 0.1, -20 - R(i, 6) * 230, w, w * 0.65)); }
+      const nf = 3 + Math.floor(R(2, 7) * 5);
+      for (let i = 0; i < nf; i++) {
+        const x = (R(i, 8) - 0.5) * CW, z = -10 - R(i, 9) * 120, w = 5 + R(i, 10) * 4;
+        items.push(prop('floe', x, GROUND + 0.2, z, w, w * 0.5));
+        const who = R(i, 11);
+        if (who < 0.6) items.push(prop(south ? 'penguin' : who < 0.3 ? 'bear' : 'seal', x, GROUND + 0.75, z + 0.05, 3, 2.2));
+      }
+    } else if (kind === 'land' && b === 'ice') {
+      // the ice: glaciers in the distance, polar bears or penguin colonies up close
+      for (let i = 0; i < 4; i++) { const x = (R(i, 12) - 0.5) * CW, z = -70 - R(i, 13) * 150, w = 20 + R(i, 14) * 18; items.push(prop('glacier', x, GROUND + hAt(x, z) - 1, z, w, w * 0.45)); }
+      for (let i = 0; i < 5; i++) { const x = (R(i, 15) - 0.5) * (CW - 10), z = -10 - R(i, 16) * 60, h = hAt(x, z); if (h > 1) items.push(prop(south ? 'penguin' : 'bear', x, GROUND + h - 0.2, z, 3.4, 2.5)); }
+    } else if (kind === 'land' && b === 'alpine') {
+      // mountain goats up on the slopes
+      for (let i = 0; i < 4; i++) { const x = (R(i, 17) - 0.5) * (CW - 10), z = -15 - R(i, 18) * 90, h = hAt(x, z); if (h > 6 && h < 40 && !nearRoad(x, z, 2)) items.push(prop('goat', x, GROUND + h - 0.2, z, 2.6, 2.2)); }
+    }
+    if (items.length) { items.sort((a, c) => a.z - c.z); grp.add(billboardMesh(items, propMat)); }
   }
   // lakes: flat water in a hollow, some land strips get one
   const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fc0, roughness: 0.25, metalness: 0.1 });
@@ -921,7 +1091,7 @@
     const lx = (hash(wx0, 5) - 0.5) * (CW - 30), z = -40 - hash(wx0, 6) * 90, r = 6 + hash(wx0, 7) * 8;
     let lo = Infinity;
     for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; lo = Math.min(lo, hAt(lx + Math.cos(a) * r, z + Math.sin(a) * r * 0.6)); }
-    if (lo < 1) return; // too near the shore for a lake
+    if (lo < 1 || nearRoad(lx, z, r)) return; // too near the shore (or a road) for a lake
     const m = new THREE.Mesh(lakeGeo, lakeMat); m.scale.set(r, 1, r * 0.6);
     m.position.set(lx, GROUND + lo + 0.4, z); m.userData.shared = true; grp.add(m);
   }
@@ -1178,10 +1348,16 @@
     if (!seaLife.rogue && under && under.kind === 'sea' && seaLife.rogueT <= 0) {
       const sp = new THREE.Sprite(giantMat); sp.center.set(0.5, (GW.padBot + GW.h * 0.06) / GW.ch); // anchored at the waterline
       const W = world.viewW || 14, w = 34 + Math.random() * 12;
-      sp.userData = { t: 0, T: 6, x: W * (0.75 + Math.random() * 0.4), z: -24 - Math.random() * 12, w, crashed: false };
+      // usually it rolls the same way as the bird (sometimes lagging well behind); now and then it comes the other way
+      let dir = Math.random() < 0.3 ? -1 : 1;
+      // don't start one already on top of a shore: it should have open water to build up over
+      const openAt = (x) => { const c = chunkAtX(x); return !c || (c.kind === 'sea' && c.hAt(x - c.grp.position.x, -30) < -3); };
+      const x0 = W * 0.95;
+      if (!openAt(x0 + dir * w * 0.9)) dir = -dir;
+      sp.userData = { t: 0, T: 6, x: W * (0.75 + Math.random() * 0.4), z: -24 - Math.random() * 12, w, crashed: false, dir, drift: dir > 0 ? 0.25 + Math.random() * 0.5 : 1.08 };
       fscene.add(sp); seaLife.rogue = sp; seaLife.rogueT = 30 + Math.random() * 40;
       // often there's a boat right in its path
-      const bx = sp.userData.x + w * (0.7 + Math.random() * 0.3), host = chunkAtX(bx);
+      const bx = sp.userData.x + dir * w * (0.6 + Math.random() * 0.3), host = chunkAtX(bx);
       if (host && host.kind === 'sea' && Math.random() < 0.7) {
         const kind = Math.random() < 0.75 ? 'fishing' : 'cruise', sh = SHIPS[kind], b = new THREE.Sprite(sh.mat);
         b.center.set(0.5, 0.12); b.scale.set(sh.w, sh.h, 1); b.userData = { ship: kind, baseY: GROUND + 0.6 };
@@ -1189,13 +1365,23 @@
       }
     }
     const sp = seaLife.rogue; if (!sp) return;
-    const d = sp.userData; d.t += dt; d.x -= dx * 0.35;
+    const d = sp.userData; d.t += dt;
+    d.x -= dx * (d.landed ? 1 : d.drift); // once it has hit the shore it stays put with the land
+    // rolling into land: it breaks right there on the shore instead of sliding on over the ground
+    if (!d.landed && d.t < 0.62 * d.T) {
+      const fx = d.x + d.dir * d.w * 0.35, c = chunkAtX(fx);
+      if (c && (c.kind !== 'sea' || c.hAt(fx - c.grp.position.x, d.z) > -2)) {
+        d.landed = true; d.t = Math.max(d.t, 0.62 * d.T);
+        splash(new THREE.Vector3(fx, GROUND + 4, d.z + 1), 2.6); side.shake = Math.max(side.shake, 0.2); Sound.hit();
+      }
+    }
     const k = d.t / d.T;
     paintGiant(Math.min(1, k), d.t); // smooth: a fresh picture every frame
     sp.scale.set(d.w * GW.cw / GW.w, d.w * GW.ch / GW.w, 1);
-    sp.position.set(d.x + k * 3, GROUND + 0.2, d.z);
+    giantTex.repeat.x = d.dir; giantTex.offset.x = d.dir < 0 ? 1 : 0; // mirrored when it comes the other way (sprites ignore a negative scale)
+    sp.position.set(d.x + d.dir * k * 3, GROUND + 0.2, d.z);
     sp.material.opacity = 1 - smooth(0.88, 1, k);
-    if (!d.crashed && k > 0.66) { d.crashed = true; splash(new THREE.Vector3(d.x + d.w * 0.15, GROUND + d.w * 0.25, d.z + 1), 2.2); side.shake = Math.max(side.shake, 0.12); }
+    if (!d.crashed && k > 0.66) { d.crashed = true; splash(new THREE.Vector3(d.x + d.dir * d.w * 0.15, GROUND + d.w * 0.25, d.z + 1), 2.2); side.shake = Math.max(side.shake, 0.12); }
     waveHitsShips(d, k, dt);
     if (k >= 1) { fscene.remove(sp); seaLife.rogue = null; }
   }
@@ -1203,12 +1389,12 @@
   // under the crashing lip capsize and sink, big ones list hard and are pushed sideways.
   function waveHitsShips(d, k, dt) {
     const rise = smooth(0, 0.45, k), curl = smooth(0.3, 0.7, k), fall = smooth(0.72, 1, k);
-    const crestX = d.x + k * 3 + d.w * (0.1 + 0.12 * curl), reach = d.w * 0.5, peak = d.w * 0.32 * rise * (1 - 0.8 * fall);
+    const crestX = d.x + d.dir * (k * 3 + d.w * (0.1 + 0.12 * curl)), reach = d.w * 0.5, peak = d.w * 0.32 * rise * (1 - 0.8 * fall);
     for (const c of world.chunks) {
       if (c.kind !== 'sea') continue;
       for (const sp of c.grp.children) {
         const u = sp.userData; if (!u || !u.ship || u.sunk) continue;
-        const wx = c.grp.position.x + sp.position.x, rel = (wx - crestX) / reach;
+        const wx = c.grp.position.x + sp.position.x, rel = d.dir * (wx - crestX) / reach; // measured along the wave's travel
         if (Math.abs(rel) > 1.2 || Math.abs(sp.position.z - d.z) > 22) continue;
         if (!u.own) { sp.material = sp.material.clone(); sp.userData.shared = true; u.own = true; u.rot = 0; }
         const big = u.ship === 'cruise' || u.ship === 'warship';
@@ -1216,8 +1402,8 @@
         if (!u.capsize && k > 0.6 && k < 0.85 && Math.abs(rel) < 0.35 && !big) { u.capsize = 0.001; u.dir = Math.random() < 0.5 ? -1 : 1; splash(new THREE.Vector3(wx, GROUND + 2, sp.position.z), 1.6); Sound.hit(); }
         if (u.capsize) continue; // the capsize animation (below) takes over
         sp.position.y = u.baseY + lift;
-        sp.position.x += (1 - Math.abs(rel)) * (big ? 3 : 7) * dt * (rel < 0.4 ? 1 : 0.3); // shoved along with the water
-        u.rot = lerp(u.rot, -rel * (big ? 0.35 : 0.8) * rise, 1 - Math.exp(-dt * 6));       // bow up on the face, down on the back
+        sp.position.x += d.dir * (1 - Math.abs(rel)) * (big ? 3 : 7) * dt * (rel < 0.4 ? 1 : 0.3); // shoved along with the water
+        u.rot = lerp(u.rot, -d.dir * rel * (big ? 0.35 : 0.8) * rise, 1 - Math.exp(-dt * 6)); // bow up on the face, down on the back
         sp.material.rotation = u.rot;
       }
     }
@@ -1345,6 +1531,7 @@
     for (const c of world.chunks) {
       if (c.grp.userData.naval) updateNaval(c, c.grp.userData.naval, dt);
       if (c.road) updateTraffic(c.road, dt);
+      if (c.hwy) updateTraffic(c.hwy, dt);
     }
     waveClock.value = t; // every wave crest in every strip animates on the GPU from this one number
   }
@@ -1748,7 +1935,7 @@
   function chunkAtX(x) { return world.chunks.find((c) => x >= c.grp.position.x - CW / 2 && x < c.grp.position.x + CW / 2); }
   function groundYAt(x, z) {
     const c = chunkAtX(x); if (!c || c.kind === 'sea') return GROUND;
-    return GROUND + (c.kind === 'city' ? 3 : landHeight(c.wx0 + (x - c.grp.position.x) + CW / 2, z));
+    return GROUND + c.hAt(x - c.grp.position.x, z);
   }
   // ---- the sky battle ----
   // Phases (game logic sets th.phase): 'warn' while the player acts, then a
@@ -2128,7 +2315,15 @@
     // gliding holds the wings level; otherwise play the flap flipbook
     const heroPh = glide > 0.55 ? 0.35 : side.flap;
     setFrame(hero, phaseFrame(heroPh, BIRD_FRAMES));
-    side.swoop = lerp(side.swoop || 0, swoopNow(), 1 - Math.exp(-dt * 6));
+    // now and then the bird drops low on its own for a while (a scenic stretch, or keeping under a
+    // circling predator's eye), bringing the foreground trees and rooftops into view
+    side.lowT = (side.lowT ?? 25) - dt;
+    if (side.lowT <= 0 && !side.low) { side.low = { t: 0, T: 7 + Math.random() * 6, depth: 0.5 + Math.random() * 0.3 }; side.lowT = 40 + Math.random() * 50; }
+    let lowK = 0;
+    if (side.low) { const L = side.low; L.t += dt; lowK = smooth(0, 1.6, L.t) * (1 - smooth(L.T - 1.6, L.T, L.t)) * L.depth; if (L.t > L.T) side.low = null; }
+    if (side.threat && side.threat.phase === 'warn') lowK = Math.max(lowK, 0.4); // duck low when a predator shows up
+    if (side.bug || (side.threat && side.threat.phase !== 'warn')) lowK = 0;
+    side.swoop = lerp(side.swoop || 0, Math.max(swoopNow(), lowK), 1 - Math.exp(-dt * 3));
     const dive = (side.bug ? diveOffset(side.bug.t) : 0) + threatOffset() - SWOOP * side.swoop;
     const wobble = S.stun > 0 ? Math.sin(side.t * 14) * 0.25 : 0;
     hero.position.set(0, Math.sin(side.t * 1.6) * 0.35 * (dive ? 0.3 : 1) - Math.sin(side.flap) * 0.08 + dive + wobble, 0);
