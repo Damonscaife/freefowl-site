@@ -110,6 +110,8 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .planet-label.dest { color: #ffd36b; }
 .planet-label.sun { color: #ffe9a8; transform: translate(-50%, -260%); }
 .loop-btn b i { font-style: normal; font-weight: 600; font-size: .78em; opacity: .8; }
+.shiptab { margin: 0 14px 8px; padding: 9px 14px; border-radius: 10px; background: var(--paper-2); color: var(--ink); font-weight: 700; font-size: 14px; width: calc(100% - 28px); text-align: left; }
+.workshop { margin: 0 14px 6px; font-size: 12.5px; color: var(--ink-2); }
 [hidden] { display: none !important; }
 .rockico { font-size: 22px; line-height: 1; width: auto !important; height: auto !important; }
 .chip.event { background: #5b3d8a; border-color: transparent; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
@@ -479,6 +481,8 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
       <div class="daily-track"><i id="dailyBar"></i></div>
     </section>
     <section class="expo" id="expo" aria-label="Expedition" hidden></section>
+    <button class="shiptab" id="btnShipTab" hidden>🚀 Ship upgrades</button>
+    <p class="workshop" id="shipWorkshop" hidden></p>
     <ul class="ups" id="ups"></ul>
     <ul class="ups" id="shipUps" hidden></ul>
   </section>

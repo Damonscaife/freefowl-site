@@ -3234,10 +3234,12 @@
   // The oval runs from just behind Earth out to the far world, and its far
   // end touches that world's surface, as if the shuttle skims or lands on it.
   let moonOvalKey = '';
+  // The Moon loop is drawn close; a planet loop runs all the way out to that planet's real place
+  // on the solar-system map, so zooming out never shows the planet twice.
   function ovalFor(dest) {
-    const D = dest === 0 ? 7 : 12, r = F.SPACE[dest].star ? 1.2 : dest === 0 ? 0.27 : 0.6;
-    const near = -1.45, far = D - r * 0.95; // the far end sits on the surface; the near end swings round behind the Earth
-    return { D, r, A: (far - near) / 2, C: (far + near) / 2, B: dest === 0 ? 1.1 : 1.6, Bn: dest === 0 ? 2.05 : 2.5 };
+    if (dest === 0) { const D = 7, r = 0.27, near = -1.45, far = D - r * 0.95; return { D, r, A: (far - near) / 2, C: (far + near) / 2, B: 1.1, Bn: 2.05 }; }
+    const P = solarNow()[F.SPACE[dest].id], D = P ? P.p.length() : 300, near = -1.45, far = D;
+    return { D, r: 0, A: (far - near) / 2, C: (far + near) / 2, B: 1 + D * 0.03, Bn: 2.5 + D * 0.05, map: true };
   }
   // An egg-shaped loop: narrow at the far world, wide at the Earth end so the path wraps
   // around the planet (clear of its surface) instead of cutting through it.
@@ -3249,27 +3251,31 @@
     const sp = S.space, o = ovalFor(sp.dest), DIR = chartDirFor(sp.dest);
     setTarget(F.SPACE[sp.dest]);
     const up = new THREE.Vector3(0, 1, 0), side3 = up.clone().cross(DIR).normalize(), tilt = side3.clone().applyAxisAngle(DIR, 0.5);
-    if (moonOvalKey !== 'd' + sp.dest) {
-      moonOvalKey = 'd' + sp.dest;
+    if (moonOvalKey !== 'd' + sp.dest + ':' + Math.round(o.D)) {
+      moonOvalKey = 'd' + sp.dest + ':' + Math.round(o.D);
       const pts = []; for (let k = 0; k < 200; k++) pts.push(loopPoint(k / 200 * Math.PI * 2, tilt, o, DIR));
       loopGeo.setFromPoints(pts); moonOval.computeLineDistances();
     }
     // one continuous pull-back: wingtip → Earth and its world → the inner planets → the whole solar system
-    const k = solarK(), chartK = 1 - smooth(0.25, 0.7, k);
+    const k = solarK(), chartK = o.map ? 1 : 1 - smooth(0.25, 0.7, k);
     const P = DIR.clone().multiplyScalar(o.D);
-    chartBody.visible = chartK > 0.02; chartBody.scale.setScalar(o.r); chartBody.position.copy(P); chartLine.visible = false;
+    // a planet is drawn by the map itself, at its real place; only the Moon gets a body here
+    chartBody.visible = !o.map && chartK > 0.02; chartBody.scale.setScalar(o.r); chartBody.position.copy(P); chartLine.visible = false;
     moonOval.visible = chartK > 0.02; moonOval.material.opacity = 0.85 * chartK;
     moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
     // theta = pi is the Earth end, 0 the far world: u = 0.5 is the swing past it
     const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt, o, DIR);
     birdSprite.position.copy(at);
-    const q = clamp(Z / SIDE_B, 0, 1), near = (o.A + 1) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
+    // from beside the bird, out until the whole loop fits, then on out to the whole system
+    const q = clamp(Z / SIDE_B, 0, 1), fit = (o.A + 1) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) * (o.map ? 1.35 : 1);
+    const closeK = o.map ? smooth(0.62, 1, q) : 0;
+    const near = o.map ? Math.exp(lerp(Math.log(fit), Math.log(4), closeK)) : fit + 10 * Math.pow(1 - q, 2);
     // far enough to fit the system out to Pluto's orbit (or Alpha Centauri, once it's in reach)
     const fitR = (S.gear.warp ? CENTAURI.R * 0.75 : mapR(39.5)) * 1.15, far = fitR / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.4));
-    const dist = Math.exp(lerp(Math.log(near), Math.log(far), Math.pow(k, 1.15)));
-    birdSprite.scale.setScalar(0.05 + Math.min(dist, 60) * 0.01);
+    const dist = Math.exp(lerp(Math.log(near), Math.log(Math.max(far, near)), Math.pow(k, 1.15)));
+    birdSprite.scale.setScalar(o.map ? dist * 0.03 : 0.05 + Math.min(dist, 60) * 0.01);
     const sunP = solarNow().sun;
-    const focus = DIR.clone().multiplyScalar(o.C).lerp(at, smooth(0.75, 1, q)).lerp(sunP, smooth(0.15, 1, k));
+    const focus = DIR.clone().multiplyScalar(o.C).lerp(at, o.map ? smooth(0, 0.45, closeK) : smooth(0.75, 1, q)).lerp(sunP, smooth(0.15, 1, k));
     // the view tips over to look down on the plane of the planets as it pulls out
     const back = side3.clone().multiplyScalar(-1).lerp(new THREE.Vector3(0.15, 0, 1).normalize(), smooth(0.2, 1, k)).normalize();
     camera.position.copy(focus).addScaledVector(back, dist).add(new THREE.Vector3(0, dist * lerp(0.45, 0.85, k), 0));
@@ -3279,7 +3285,7 @@
     if (Math.abs(camera.far - wantFar) > wantFar * 0.05 || Math.abs(camera.near - wantNear) > wantNear * 0.2) { camera.far = wantFar; camera.near = wantNear; camera.updateProjectionMatrix(); }
     if (globeStars) globeStars.position.copy(camera.position);
     sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
-    updateSolar(k, dist);
+    updateSolar(k, dist, o.map);
     renderer.render(scene, camera);
   }
 
@@ -3378,8 +3384,10 @@
     el.style.display = 'block'; if (el.innerHTML !== html) el.innerHTML = html; el.className = 'label3d planet-label' + (cls ? ' ' + cls : '');
     el.style.left = ((v.x + 1) / 2 * SW) + 'px'; el.style.top = ((1 - v.y) / 2 * SH) + 'px';
   }
-  function updateSolar(k, camDist) {
-    solar.visible = k > 0.02; solarLabels.style.display = k > 0.25 ? '' : 'none';
+  function updateSolar(k, camDist, trip) {
+    // on a planet trip the map is always there: the planet you're flying to is its dot on the map
+    solar.visible = trip || k > 0.02; solarLabels.style.display = trip || k > 0.25 ? '' : 'none';
+    const fewLabels = trip && k < 0.25;
     if (!solar.visible) return;
     const P = solarNow(), pulse = 1 + 0.18 * Math.sin(performance.now() / 300);
     solar.position.copy(P.sun);
@@ -3387,8 +3395,8 @@
     // dots keep a readable size on screen however far out the camera is
     const px = camDist * 0.022;
     sunBall.scale.setScalar(Math.max(1, px / 6)); sunHalo.scale.setScalar(Math.max(90, px * 9));
-    orbitMat.opacity = 0.28 * k;
-    placeSolarLabel(sunLabel, P.sun, 'Sun', 'sun');
+    orbitMat.opacity = 0.28 * Math.max(k, trip ? 0.6 : 0);
+    if (fewLabels) sunLabel.style.display = 'none'; else placeSolarLabel(sunLabel, P.sun, 'Sun', 'sun');
     const dest = S.space ? F.SPACE[S.space.dest] : null;
     for (const d of Object.values(planetDots)) {
       const o = d.o, at = P[o.id], local = at.p.clone().sub(P.sun);
@@ -3404,6 +3412,7 @@
         : `${o.name}${o.dwarf ? ' <small>dwarf planet</small>' : ''}${body ? ` <small>${kmWords(at.km)}</small>` : ''}`;
       // fully zoomed out the inner planets crowd the Sun: only Earth and the worlds you can fly to keep a label
       if (k > 0.8 && !body && o.id !== 'earth') { d.label.style.display = 'none'; continue; }
+      if (fewLabels && !isDest && o.id !== 'earth') { d.label.style.display = 'none'; continue; }
       placeSolarLabel(d.label, at.p, html, (mystery ? 'mystery' : '') + (isDest ? ' dest' : ''));
     }
     const cMystery = !(S.cosmos.includes('centauri'));
@@ -3411,9 +3420,9 @@
     cenDot.known.visible = !cMystery; cenDot.unknown.visible = cMystery;
     cenDot.known.position.copy(cl); cenDot.unknown.position.copy(cl);
     cenDot.known.scale.setScalar(px * 1.6); cenDot.unknown.scale.setScalar(px * 2.6 * pulse);
-    placeSolarLabel(cenDot.label, P.centauri.p, cMystery ? `? <small>≈ ${kmWords(P.centauri.km)} · beyond the Sun's planets</small>` : 'Alpha Centauri <small>the nearest star · 4.4 light years</small>', cMystery ? 'mystery' : '');
+    if (fewLabels && !(dest && dest.id === 'centauri')) cenDot.label.style.display = 'none'; else placeSolarLabel(cenDot.label, P.centauri.p, cMystery ? `? <small>≈ ${kmWords(P.centauri.km)} · beyond the Sun's planets</small>` : 'Alpha Centauri <small>the nearest star · 4.4 light years</small>', cMystery ? 'mystery' : '');
     // the route to today's destination, with the bird's progress along it
-    if (S.space && S.space.loop && S.space.dest > 0) {
+    if (false) { // the loop's own line shows the route now
       const tgt = P[dest.id].p.clone().sub(P.sun), earthL = P.earth.p.clone().sub(P.sun);
       routeLineGeo.setFromPoints([earthL, tgt]); routeLine.computeLineDistances(); routeLine.visible = true;
       routeLine.material.dashSize = px * 1.2; routeLine.material.gapSize = px * 0.9;
@@ -3423,7 +3432,7 @@
   function chartDirFor(dest) {
     const b = F.SPACE[dest]; if (!b || b.id === 'moon') return CHART_DIR;
     const P = solarNow()[b.id]; if (!P) return CHART_DIR;
-    return P.p.clone().normalize().add(new THREE.Vector3(0, 0.22, 0)).normalize();
+    return P.p.clone().normalize();
   }
 
   function leaveSpaceChart() {
@@ -4580,6 +4589,7 @@
 
   // ---------- ship upgrades (shown in place of bird upgrades while looping the Moon) ----------
   const shipRows = {};
+  $('btnShipTab').onclick = () => { shipTab = !shipTab; refreshShip(); refreshUpgrades(); };
   function buildShip() {
     const ul = $('shipUps'); ul.innerHTML = '';
     for (const u of F.SHIP) {
@@ -4593,18 +4603,27 @@
       ul.append(li);
     }
   }
+  // on Earth, the ship can still be upgraded (at 60% strength) once the bird has had a shuttle
+  let shipTab = false;
   function refreshShip() {
     const looping = !!(S.space && S.space.loop);
-    $('ups').hidden = looping; $('shipUps').hidden = !looping;
-    const moonRun = F.onMoonRun(S);
-    $('drawerTitle').textContent = looping ? (moonRun ? 'Moon ship upgrades' : 'Ship upgrades') : 'Upgrades';
-    if (!looping) return;
+    if (looping || !F.spaceOpen(S)) shipTab = false;
+    const ship = looping || shipTab;
+    $('ups').hidden = ship; $('shipUps').hidden = !ship;
+    const moonRun = F.onMoonRun(S), w = F.shipWeight(S), where = F.shipWhere(S);
+    const shop = where < 0 ? 'Earth' : worldKnown(F.SPACE[where]) ? F.SPACE[where].short : 'this world';
+    $('drawerTitle').textContent = ship ? `${moonRun ? 'Moon ship' : 'Ship'} upgrades` : 'Upgrades';
+    const wk = $('shipWorkshop');
+    if (wk) { wk.hidden = !ship; wk.textContent = `🔧 ${shop} workshop: every level fitted here counts ×${fmt(w, 2)}${where < 0 ? ' (fly farther out for stronger ones)' : where < F.SPACE.length - 1 ? ' · farther worlds build them stronger' : ''}`; }
+    const tb = $('btnShipTab');
+    if (tb) { tb.hidden = looping || !F.spaceOpen(S); tb.textContent = shipTab ? '🐦 Bird upgrades' : '🚀 Ship upgrades'; }
+    if (!ship) return;
     for (const u of F.SHIP) {
-      const r = shipRows[u.id], L = F.shipLv(S, u.id);
+      const r = shipRows[u.id], L = F.shipLv(S, u.id), P = F.shipPow(S, u.id);
       r.li.hidden = u.moon && !moonRun; // the Moon-run gear only shows on the way to the Moon
       if (r.li.hidden) continue;
       const n = buyMode === 'max' ? Math.max(1, F.shipMax(u, L, S.seeds)) : buyMode, c = F.shipCostN(u, L, n) * F.MOON_RATE;
-      r.lv.textContent = L; r.fx.textContent = `${u.blurb(L)}  →  ${u.blurb(L + n)}`;
+      r.lv.textContent = L; r.fx.textContent = `${u.blurb(P)}  →  ${u.blurb(P + n * w)}`;
       r.cost.textContent = money(c); r.lab.textContent = n > 1 ? `buy ${n}` : 'buy'; r.btn.disabled = c > S.seeds;
     }
   }
@@ -4732,7 +4751,7 @@
     const moon = F.onMoonRun(S), fight = side.threat && side.threat.phase === 'battle';
     const nose = shuttle.position.clone().add(new THREE.Vector3(3.2, 0, 0.3));
     // laser cannons: lock on to an asteroid ahead and blast it apart (faster inside an asteroid field)
-    const LL = moon ? F.shipLv(S, 'laser') : 0;
+    const LL = moon ? F.shipPow(S, 'laser') : 0;
     if (LL > 0 && !fight) {
       const field = S.space.event && S.space.event.type === 'field';
       if (rocks.length < 5 + Math.min(9, LL)) if (Math.random() < 0.05) spawnRock(false);
@@ -4759,7 +4778,7 @@
       if (d.life <= 0) { sscene.remove(f); frags.splice(k, 1); }
     }
     // tractor beam: a glowing star crystal drifts by and gets reeled into the hold
-    const TL = moon ? F.shipLv(S, 'tractor') : 0;
+    const TL = moon ? F.shipPow(S, 'tractor') : 0;
     if (TL > 0) {
       side.tractorT = (side.tractorT ?? 2) - dt;
       if (side.tractorT <= 0 && crystals.length < 2) {

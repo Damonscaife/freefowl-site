@@ -585,7 +585,7 @@
     s.seeds += earned; s.runSeeds += earned;
     if (s.space && s.space.loop) {
       // the warp drive (Moon run): a short jump at several times the speed, every so often
-      const wl = shipLv(s, 'warp');
+      const wl = shipPow(s, 'warp');
       if (wl > 0 && s.space.dest === 0) {
         if (s.space.warp > 0) s.space.warp = Math.max(0, s.space.warp - dt);
         else if ((s.space.warpT = (s.space.warpT ?? warpEvery(wl)) - dt) <= 0) { s.space.warpT = warpEvery(wl); s.space.warp = WARP_SECS; ev.push({ type: 'warp' }); }
@@ -793,7 +793,7 @@
   const SHIP = [
     { id: 'thrust', name: 'Thrusters', icon: '🔥', base: 2, growth: 1.45, blurb: (L) => `×${fmt(1 + 0.15 * L, 2)} ship speed` },
     { id: 'cargo', name: 'Cargo Hold', icon: '📦', base: 3, growth: 1.55, blurb: (L) => `${fmt((1 + L) * DEST_ROCKS[0], 0)} 🌑 Moon rocks' worth per round trip` },
-    { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `${L} escort pod${L === 1 ? '' : 's'} · ×${fmt(1 + 0.5 * L, 1)} space rocks` },
+    { id: 'wing', name: 'Wingmates', icon: '🛸', base: 8, growth: 2.1, blurb: (L) => `×${fmt(1 + 0.5 * L, 2)} space rocks from escort pods` },
     { id: 'shield', name: 'Deflector Shields', icon: '🛡️', base: 5, growth: 1.9, blurb: (L) => `${fmt(2 + 0.5 * L, 1)}s raider warning · ${Math.max(2, 8 - L)} taps to evade` },
     { id: 'solar', name: 'Solar Panels', icon: '☀️', base: 4, growth: 1.7, blurb: (L) => `×${fmt(1 + 0.5 * L, 1)} seeds while in space` },
     // Moon-run gear: the eight-upgrade set for the trip to the Moon (other worlds get their own sets)
@@ -810,31 +810,41 @@
   const WARP_SECS = 3, warpMult = (L) => 2 + 0.4 * L, warpEvery = (L) => 75 / (1 + 0.12 * L);
   const onMoonRun = (s) => !!(s.space && s.space.loop && s.space.dest === 0);
   // laser and tractor payouts, in seeds (the visuals call these when a shot lands or a crystal is caught)
-  function laserHit(s) { const pay = rocksPerTrip(s) * laserPayK(shipLv(s, 'laser')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
-  function tractorCatch(s) { const pay = rocksPerTrip(s) * tractorPayK(shipLv(s, 'tractor')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
+  function laserHit(s) { const pay = rocksPerTrip(s) * laserPayK(shipPow(s, 'laser')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
+  function tractorCatch(s) { const pay = rocksPerTrip(s) * tractorPayK(shipPow(s, 'tractor')) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.moon.total += pay / MOON_RATE; return pay; }
   const shipLv = (s, id) => (s.moon && s.moon.lv[id]) || 0;
   const shipCost = (u, L) => Math.ceil(u.base * u.growth ** L);
   const shipCostN = (u, L, n) => { let c = 0; for (let k = 0; k < n; k++) c += shipCost(u, L + k); return c; };
   // ship upgrades are priced in Moon rocks and paid from the one balance
   function shipMax(u, L, seeds) { const rocks = seeds / MOON_RATE; let n = 0, c = 0; while (n < 500) { const nx = shipCost(u, L + n); if (c + nx > rocks) break; c += nx; n++; } return n; }
+  // Where a ship upgrade is fitted matters: a farther world's workshop builds it stronger
+  // (Moon ×1, Mars ×1.25, Jupiter ×1.5 … Alpha Centauri ×2.75). Back on Earth it can still be
+  // fitted, at ×0.6. Each upgrade's strength is the sum of what every level it got was worth.
+  const shipWhere = (s) => (s.space && s.space.loop ? s.space.dest : -1); // -1 = Earth
+  const shipWeight = (s, where = shipWhere(s)) => (where < 0 ? 0.6 : 1 + 0.25 * where);
+  const shipPow = (s, id) => { const p = s.moon && s.moon.pw && s.moon.pw[id]; return p != null ? p : shipLv(s, id); };
   function buyShip(s, id, n) {
     const u = SHIP.find((x) => x.id === id), L = shipLv(s, id);
     if (n === 'max') n = shipMax(u, L, s.seeds);
     if (!n) return 0;
     const c = shipCostN(u, L, n) * MOON_RATE; if (c > s.seeds) return 0;
+    s.moon.pw = s.moon.pw || {}; s.moon.pw[id] = shipPow(s, id) + n * shipWeight(s);
     s.seeds -= c; s.moon.lv[id] = L + n; return n;
   }
+  // Earth training carries into space, in part: a faster bird makes a faster ship, though much
+  // less than one for one (×1 at the start, about ×1.6 at a thousand km/s).
+  const earthShip = (s) => 1 + 0.15 * Math.log10(Math.max(1, baseSpeed(s) / 0.06));
   // every planet reached beyond the Moon (ever) multiplies space rocks per trip by 1.5
   const planetsReached = (s) => (s.cosmos || []).filter((id) => id !== 'moon').length;
   const planetMult = (s) => 1.5 ** planetsReached(s);
-  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s) * legacyMult(s));
-  const solarMult = (s) => (s.space ? 1 + 0.5 * shipLv(s, 'solar') : 1);
+  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipPow(s, 'cargo')) * (1 + 0.5 * shipPow(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s) * legacyMult(s));
+  const solarMult = (s) => (s.space ? 1 + 0.5 * shipPow(s, 'solar') : 1);
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
-    const warp = s.space && s.space.warp > 0 ? warpMult(shipLv(s, 'warp')) : 1;
+    const warp = s.space && s.space.warp > 0 ? warpMult(shipPow(s, 'warp')) : 1;
     // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
-    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust')) * flyerSpeed(s) * legacyMult(s)
+    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipPow(s, 'thrust')) * earthShip(s) * flyerSpeed(s) * legacyMult(s)
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar * warp;
   }
   // ---- space flyers ----
@@ -944,7 +954,7 @@
   // raiders in space: lose an escort pod, or a tenth of the rocks
   function spaceHit(s) {
     s.stun = THREAT.STUN; s.caught = (s.caught || 0) + 1;
-    if (shipLv(s, 'wing') > 0) { s.moon.lv.wing--; return { lost: 'wingmate' }; }
+    if (shipLv(s, 'wing') > 0) { const L = shipLv(s, 'wing'); if (s.moon.pw && s.moon.pw.wing != null) s.moon.pw.wing *= (L - 1) / L; s.moon.lv.wing--; return { lost: 'wingmate' }; }
     const lost = s.seeds * 0.1; s.seeds -= lost; return { lost: 'rocks', seeds: lost };
   }
   function spaceMiss(s) { const pay = Math.max(0.1, rocksPerTrip(s) * 0.03) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.dodged = (s.dodged || 0) + 1; return pay; }
@@ -1036,7 +1046,7 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
-    LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipPow, shipWeight, shipWhere, earthShip, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
