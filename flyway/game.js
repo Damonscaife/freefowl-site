@@ -588,44 +588,67 @@
   // early: the next strip is sea, so turn away inland well before the shore
   const hwyZ = (lx, prevHw, nextHw, early) => {
     const t = (lx + CW / 2) / CW; let z = HWY_Z;
-    if (!prevHw) z = lerp(-356, HWY_Z, smooth(0, 0.6, t));
-    if (!nextHw) z = lerp(z, -356, early ? smooth(0.05, 0.5, t) : smooth(0.4, 1, t));
+    // where the highway begins or ends it sweeps off to the far back edge of the land well inside
+    // the strip, and stops there at the horizon (so it never runs up a hillside at a strip's edge)
+    if (!prevHw) z = lerp(-356, HWY_Z, smooth(0.3, 0.6, t));
+    if (!nextHw) z = lerp(z, -356, early ? smooth(0.3, 0.75, t) : smooth(0.4, 0.7, t));
     return z;
   };
   function planHighway(prevHw, nextHw, early) {
     const pts = [], n = 40;
     for (let i = 0; i <= n; i++) {
       const x = -CW / 2 + CW * i / n;
-      if (early && i > n * 0.5) break; // it has already gone off into the distance
-      pts.push(new THREE.Vector3(x, 0, hwyZ(x, prevHw, nextHw, early)));
+      const z = hwyZ(x, prevHw, nextHw, early);
+      // drop the stretch lying along the far edge, keeping just the one point where it gets there
+      if (z < -355.5) { const prevZ = pts.length ? pts[pts.length - 1].z : null; if (prevZ !== null && prevZ < -355.5) continue; if (prevZ === null && hwyZ(x + CW / n, prevHw, nextHw, early) < -355.5) continue; }
+      pts.push(new THREE.Vector3(x, 0, z));
     }
     return pts;
   }
   function addHighway(grp, seed, hAt, pts, prevHw, nextHw) {
-    return roadMesh(grp, pts, 7, hAt, true, seed + 999, 6, prevHw || nextHw);
+    return roadMesh(grp, pts, 7, hAt, true, seed + 999, 6, true);
   }
   // Roads never climb over a mountain: the ground sinks into a valley along them, with a flat
   // floor under the road and slopes rising to the hills either side.
   const valleyFloor = (wx, z) => 1.8 + fbm(wx / 70 + 9.1, z / 70 + 2.3) * 2.2;
-  function makeCarve(wx0, road, hw) {
+  // The valley walls widen with the height of the hills around them (a 35-unit peak gets a long,
+  // sloping valley side, not a cliff), distance is measured to the real road line (so the bends of
+  // a highway sweeping off into the distance carve a proper curving valley), and where a road runs
+  // off to the far edge of the land its valley closes gently there, so the road never climbs a peak.
+  function makeCarve(wx0, road, hw, hwPts) {
     if (!road && !hw) return null;
+    let line = null;
+    if (hw && hwPts) { // the highway, sampled about every unit along its length
+      line = [];
+      for (let i = 1; i < hwPts.length; i++) {
+        const a = hwPts[i - 1], b = hwPts[i], n = Math.max(1, Math.ceil(a.distanceTo(b)));
+        for (let j = 0; j < n; j++) { const t = j / n; line.push([lerp(a.x, b.x, t), lerp(a.z, b.z, t)]); }
+      }
+      const e = hwPts[hwPts.length - 1]; line.push([e.x, e.z]);
+    }
     return (lx, z, h) => {
       const dl = lx + CW / 2, dr = CW / 2 - lx, outer = 12 + 12 * smooth(-60, -330, z);
+      const f = Math.min(h, valleyFloor(wx0 + dl, z)), wall = 1.1 * Math.max(0, h - f); // taller hills, longer valley sides
       let k = 0;
       if (road && z > road.zEnd - 2) {
         const x0 = roadX(road, z), s = (roadX(road, z - 1) - roadX(road, z + 1)) / 2;
         const d = Math.abs(lx - x0) / Math.sqrt(1 + s * s);
-        k = Math.max(k, (1 - smooth(road.width / 2 + 1.5, road.width / 2 + outer, d)) * smooth(0, 12, dl) * smooth(0, 12, dr));
+        k = Math.max(k, (1 - smooth(road.width / 2 + 1.5, road.width / 2 + outer + wall, d)) * smooth(0, 12, dl) * smooth(0, 12, dr) * smooth(-356, -300, z));
       }
-      if (hw && !(hw.early && lx > 0)) {
-        const z0 = hwyZ(lx, hw.prev, hw.next, hw.early), s = (hwyZ(lx + 0.5, hw.prev, hw.next, hw.early) - hwyZ(lx - 0.5, hw.prev, hw.next, hw.early));
-        const d = Math.abs(z - z0) / Math.sqrt(1 + s * s);
+      if (line) {
+        let best = Infinity, bz = 0;
+        for (let i = 0; i < line.length; i++) { const dx = lx - line[i][0], dz = z - line[i][1], q = dx * dx + dz * dz; if (q < best) { best = q; bz = line[i][1]; } }
+        const d = Math.sqrt(best), z0 = hwyZ(lx, hw.prev, hw.next, hw.early);
         // the near side opens out into a broad, low valley, so the hills in front don't hide the highway
-        const reach = z > z0 ? 60 : outer;
-        k = Math.max(k, (1 - smooth(5, 3.5 + reach, d)) * (hw.prev ? 1 : smooth(0, 12, dl)) * (hw.next ? 1 : smooth(0, 12, dr)));
+        // (the far side is capped so a bend sweeping off into the distance can't reach across to a
+        // strip edge where the next strip's straight highway valley has to meet it exactly)
+        const reach = z > z0 ? 60 + wall : Math.min(22, outer + wall);
+        // and it fades out toward a side where the next strip has no highway, so the ground still meets there
+        // the valley follows the highway all the way out to the haze at the back of the land, so where
+        // it sweeps off into the distance it stays down on the valley floor instead of climbing a peak
+        k = Math.max(k, (1 - smooth(5, 5 + reach, d)) * smooth(-392, -352, bz) * (hw.prev ? 1 : smooth(0, 24, dl)) * (hw.next ? 1 : smooth(0, 24, dr)));
       }
       if (k <= 0) return h;
-      const f = Math.min(h, valleyFloor(wx0 + dl, z));
       return h + (f - h) * k;
     };
   }
@@ -723,7 +746,7 @@
     const lite = world.u > 120;
     const rPlan = !lite && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hwPts ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < 0.3)
       ? planRoad(wx0, kind === 'city', hwPts) : null;
-    const carve = makeCarve(wx0, rPlan, haveHw ? { prev: prevHw, next: nextHw, early } : null);
+    const carve = makeCarve(wx0, rPlan, haveHw ? { prev: prevHw, next: nextHw, early } : null, hwPts);
     const g = new THREE.PlaneGeometry(CW, DEPTH, GRID_X, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
