@@ -1002,7 +1002,7 @@
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
       birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {},
       mastery: s.mastery || { bird: {}, flyer: {} }, freeEggs: s.freeEggs || 0, freeSpaceEggs: s.freeSpaceEggs || 0,
-      legacy: (s.legacy || 0) + legacyGain(s) };
+      legacy: (s.legacy || 0) + legacyGain(s), funnel: s.funnel || {} };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);

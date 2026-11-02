@@ -103,6 +103,13 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .label3d { position: absolute; left: 0; top: 0; color: #fff; font-size: 12px; font-weight: 700;
   text-shadow: 0 1px 4px #000, 0 0 2px #000; pointer-events: none; white-space: nowrap; transform: translate(-50%, -150%); }
 
+#solarLabels { position: absolute; inset: 0; pointer-events: none; }
+.planet-label { font-size: 11.5px; transform: translate(-50%, -165%); text-align: center; line-height: 1.15; }
+.planet-label small { display: block; font-size: 10px; font-weight: 600; opacity: .8; }
+.planet-label.mystery { color: #cbbcff; text-shadow: 0 0 8px rgba(140,110,255,.9), 0 1px 3px #000; }
+.planet-label.dest { color: #ffd36b; }
+.planet-label.sun { color: #ffe9a8; transform: translate(-50%, -260%); }
+.loop-btn b i { font-style: normal; font-weight: 600; font-size: .78em; opacity: .8; }
 [hidden] { display: none !important; }
 .rockico { font-size: 22px; line-height: 1; width: auto !important; height: auto !important; }
 .chip.event { background: #5b3d8a; border-color: transparent; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
@@ -561,6 +568,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     </div>
     <div class="admin" id="admin" hidden>
       <h4>Admin (testing)</h4>
+      <p class="admin-funnel" id="adminFunnel"></p>
       <div class="admin-row"><input id="adminAmt" inputmode="decimal" autocomplete="off" placeholder="Seeds, e.g. 5000 or 2e12" aria-label="Seeds to add"><button id="adminAdd">Add</button></div>
       <div class="admin-btns">
         <button data-seeds="1e3">+1K</button><button data-seeds="1e6">+1M</button><button data-seeds="1e9">+1B</button>

@@ -253,6 +253,7 @@
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.7); scene.add(sun);
 
   // stars + a moon, so the far zoom really is "from the moon"
+  let globeStars;
   {
     const n = 1400, pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
@@ -260,7 +261,8 @@
       pos.set([v.x, v.y, v.z], i * 3);
     }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xdfe8ff, size: 1.4, sizeAttenuation: false })));
+    globeStars = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xdfe8ff, size: 1.4, sizeAttenuation: false }));
+    scene.add(globeStars);
   }
   const moon = new THREE.Mesh(new THREE.SphereGeometry(0.27, 32, 24), new THREE.MeshPhongMaterial({ color: 0xc9c6bd, shininess: 2 }));
   moon.position.set(-22, 9, -26); scene.add(moon);
@@ -2587,7 +2589,7 @@
   const ssun = new THREE.DirectionalLight(0xfff4e0, 2.4); ssun.position.set(-300, 120, 200); sscene.add(ssun);
   // Background stars in two layers. Both drift slowly left while the ship flies (the nearer,
   // dimmer layer a little faster), so space feels like it's sliding past.
-  const starLayers = [[1800, 1.7, 1, 0.006], [500, 1.2, 0.55, 0.014]].map(([n, size, bright, rate]) => {
+  const starLayers = [[1800, 1.7, 1, 0.006], [500, 1.2, 0.55, 0.014], [140, 2.6, 1, 0.03]].map(([n, size, bright, rate]) => {
     const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       const v = new THREE.Vector3().randomDirection().multiplyScalar(900);
@@ -2602,6 +2604,51 @@
   });
   const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff8e0', 'rgba(255,214,140,.35)'), depthWrite: false, transparent: true }));
   sunGlow.position.set(-700, 260, 420); sunGlow.scale.setScalar(160); sscene.add(sunGlow);
+  // ---- the premium look: the Milky Way, a wide sun halo, glowing atmospheres, engine and sun light on the ship ----
+  // the Milky Way: a soft, grainy band of light across the sky, drawn in a shader (no image files)
+  const milky = new THREE.Mesh(new THREE.SphereGeometry(1000, 48, 24), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, transparent: true, fog: false,
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `varying vec3 vD;
+      float h(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7))) * 43758.5453); }
+      float n3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+        return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x), mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x), f.y),
+                   mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x), mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x), f.y), f.z); }
+      void main(){
+        vec3 nrm = normalize(vec3(0.25, 0.92, 0.3));
+        float d = dot(vD, nrm), band = exp(-d*d*14.0);
+        float cl = n3(vD*6.0)*0.55 + n3(vD*13.0)*0.3 + n3(vD*29.0)*0.15;
+        float dust = smoothstep(0.55, 0.8, n3(vD*9.0 + 3.0)) * exp(-d*d*60.0);
+        float k = band * (0.35 + cl) * (1.0 - dust*0.7);
+        vec3 c = mix(vec3(0.32,0.30,0.62), vec3(0.95,0.82,0.70), cl) * k * 0.75;
+        c += vec3(0.20,0.10,0.30) * exp(-pow(dot(vD, normalize(vec3(-0.8,0.2,-0.4))) - 0.9, 2.0) * 40.0) * 0.4;
+        gl_FragColor = vec4(c, 1.0); }`,
+    blending: THREE.AdditiveBlending,
+  }));
+  milky.renderOrder = -10; sscene.add(milky);
+  const sunWide = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,236,190,.55)', 'rgba(255,190,110,.12)'), depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
+  sunWide.position.copy(sunGlow.position); sunWide.scale.setScalar(620); sscene.add(sunWide);
+  // a thin atmosphere that glows brightest at the rim, for Earth and any world that has one
+  function atmoShell(r, color, strength) {
+    return new THREE.Mesh(new THREE.SphereGeometry(r, 48, 32), new THREE.ShaderMaterial({
+      uniforms: { c: { value: new THREE.Color(color) }, k: { value: strength } },
+      side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+      vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'uniform vec3 c; uniform float k; varying vec3 vN; void main(){ float i = pow(clamp(0.78 - dot(vN, vec3(0.0,0.0,1.0)), 0.0, 1.0), 2.4); gl_FragColor = vec4(c * i * k, 1.0); }',
+    }));
+  }
+  const rideGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,210,140,1)', 'rgba(255,140,60,.35)'), depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
+  const rideRim = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,240,210,.55)', 'rgba(255,220,170,.12)'), depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
+  rideGlow.renderOrder = 2; rideRim.renderOrder = 2; sscene.add(rideGlow, rideRim);
+  // engine glow behind the ride and a wash of sunlight on its sunward side
+  function decorateRide(m, moving) {
+    const f = F.flyerOf(S), cool = ['glider', 'cruiser', 'saucer', 'scooter', 'comet', 'whale'].includes(f.id);
+    rideGlow.material.color.set(cool ? 0x9fd0ff : 0xffffff);
+    const pulse = 0.85 + 0.15 * Math.sin(side.t * 23) + 0.08 * Math.sin(side.t * 7.3);
+    rideGlow.visible = moving && f.id !== 'saucer';
+    rideGlow.position.set(m.position.x - 4.4, m.position.y + 0.1, m.position.z + 0.2); rideGlow.scale.setScalar(4.2 * pulse);
+    rideRim.position.set(m.position.x - 1.2, m.position.y + 1.4, m.position.z - 0.6); rideRim.scale.setScalar(14);
+  }
 
   function bodyTexture(b) {
     const c = document.createElement('canvas'); c.width = 512; c.height = 256;
@@ -2628,7 +2675,7 @@
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
   const spaceEarth = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), new THREE.MeshPhongMaterial({ map: earthTex, shininess: 12 }));
-  const spaceEarthAtmo = new THREE.Mesh(new THREE.SphereGeometry(1.04, 48, 32), new THREE.MeshBasicMaterial({ color: 0x6fb6ff, transparent: true, opacity: 0.18, side: THREE.BackSide }));
+  const spaceEarthAtmo = atmoShell(1.07, 0x6fb6ff, 1.5);
   spaceEarth.add(spaceEarthAtmo); sscene.add(spaceEarth);
   const targetMat = new THREE.MeshStandardMaterial({ roughness: 0.95 });
   const target = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), targetMat); sscene.add(target);
@@ -2636,14 +2683,21 @@
   ring.rotation.x = Math.PI / 2.3; target.add(ring);
   const starGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fffbe8', 'rgba(255,220,140,.5)'), depthWrite: false, transparent: true }));
   starGlow.scale.setScalar(3.4); target.add(starGlow);
+  const ATMO = { mars: [0xff9a6a, 0.6], jupiter: [0xffe2b0, 0.8], saturn: [0xfff0c0, 0.7], uranus: [0x9fffff, 1.0], neptune: [0x6f9fff, 1.1] };
+  const targetAtmo = atmoShell(1.06, 0xffffff, 0); target.add(targetAtmo);
   const bodyTex = {};
   let targetId = null;
+  // a world the bird hasn't reached is a dark, glowing silhouette until the first swing past it
+  const mysteryBody = { id: 'mystery', color: '#2a2440' };
   function setTarget(b) {
-    if (targetId === b.id) return; targetId = b.id;
-    targetMat.map = bodyTex[b.id] || (bodyTex[b.id] = bodyTexture(b));
-    targetMat.emissive = new THREE.Color(b.star ? 0xffe9a8 : 0x000000); targetMat.emissiveIntensity = b.star ? 1.2 : 0;
+    const known = b.id === 'moon' || S.cosmos.includes(b.id), key = b.id + (known ? '' : '?');
+    if (targetId === key) return; targetId = key;
+    const show = known ? b : mysteryBody;
+    targetMat.map = bodyTex[show.id] || (bodyTex[show.id] = bodyTexture(show));
+    targetMat.emissive = new THREE.Color(known ? (b.star ? 0xffe9a8 : 0x000000) : 0x3a2a7a); targetMat.emissiveIntensity = known ? (b.star ? 1.2 : 0) : 0.35;
     targetMat.needsUpdate = true;
-    ring.visible = !!b.ring; starGlow.visible = !!b.star;
+    ring.visible = known && !!b.ring; starGlow.visible = known && !!b.star;
+    const a = known ? ATMO[b.id] : [0x8a6aff, 1.4]; targetAtmo.visible = !!a; if (a) { targetAtmo.material.uniforms.c.value.set(a[0]); targetAtmo.material.uniforms.k.value = a[1]; }
   }
 
   // the shuttle: white hull, the bird in a glass bubble at the window, flame frames
@@ -2896,7 +2950,7 @@
     // camera: same raised side view as on Earth
     fcam.position.set(3, 4.2, 22);
     fcam.lookAt(4, 0.5, 0);
-    faceCamera(shuttle);
+    faceCamera(shuttle); decorateRide(shuttle, !sp.arrived);
     fr.render(sscene, fcam);
   }
 
@@ -3122,6 +3176,7 @@
     // the warp jump stretches the view
     const fov = 48 + 16 * wk; if (Math.abs(fcam.fov - fov) > 0.05) { fcam.fov = fov; fcam.updateProjectionMatrix(); }
     for (const m of [shuttle, ...pods, raiderShip, spaceHawk]) faceCamera(m);
+    decorateRide(shuttle, true);
     if (lostPod) faceCamera(lostPod);
     fr.render(sscene, fcam);
   }
@@ -3186,36 +3241,195 @@
   }
   // An egg-shaped loop: narrow at the far world, wide at the Earth end so the path wraps
   // around the planet (clear of its surface) instead of cutting through it.
-  function loopPoint(theta, side3, o) {
+  function loopPoint(theta, side3, o, dir = CHART_DIR) {
     const c = Math.cos(theta), w = lerp(o.B, o.Bn, (1 - c) / 2);
-    return CHART_DIR.clone().multiplyScalar(o.C + o.A * c).addScaledVector(side3, w * Math.sin(theta));
+    return dir.clone().multiplyScalar(o.C + o.A * c).addScaledVector(side3, w * Math.sin(theta));
   }
   function updateLoopChart(dt) {
-    const sp = S.space, o = ovalFor(sp.dest);
+    const sp = S.space, o = ovalFor(sp.dest), DIR = chartDirFor(sp.dest);
     setTarget(F.SPACE[sp.dest]);
-    const up = new THREE.Vector3(0, 1, 0), side3 = up.clone().cross(CHART_DIR).normalize(), tilt = side3.clone().applyAxisAngle(CHART_DIR, 0.5);
+    const up = new THREE.Vector3(0, 1, 0), side3 = up.clone().cross(DIR).normalize(), tilt = side3.clone().applyAxisAngle(DIR, 0.5);
     if (moonOvalKey !== 'd' + sp.dest) {
       moonOvalKey = 'd' + sp.dest;
-      const pts = []; for (let k = 0; k < 200; k++) pts.push(loopPoint(k / 200 * Math.PI * 2, tilt, o));
+      const pts = []; for (let k = 0; k < 200; k++) pts.push(loopPoint(k / 200 * Math.PI * 2, tilt, o, DIR));
       loopGeo.setFromPoints(pts); moonOval.computeLineDistances();
     }
-    const P = CHART_DIR.clone().multiplyScalar(o.D);
-    chartBody.visible = true; chartBody.scale.setScalar(o.r); chartBody.position.copy(P); chartLine.visible = false; moonOval.visible = true;
+    // one continuous pull-back: wingtip → Earth and its world → the inner planets → the whole solar system
+    const k = solarK(), chartK = 1 - smooth(0.25, 0.7, k);
+    const P = DIR.clone().multiplyScalar(o.D);
+    chartBody.visible = chartK > 0.02; chartBody.scale.setScalar(o.r); chartBody.position.copy(P); chartLine.visible = false;
+    moonOval.visible = chartK > 0.02; moonOval.material.opacity = 0.85 * chartK;
     moon.visible = false; routeGroup.visible = false; nextSprite.visible = false; labelsEl.style.display = 'none';
     // theta = pi is the Earth end, 0 the far world: u = 0.5 is the swing past it
-    const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt, o);
+    const at = loopPoint(Math.PI + sp.u * Math.PI * 2, tilt, o, DIR);
     birdSprite.position.copy(at);
-    const q = clamp(Z / SIDE_B, 0, 1), dist = (o.A + 1) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
-    birdSprite.scale.setScalar(0.05 + dist * 0.01);
-    const focus = CHART_DIR.clone().multiplyScalar(o.C).lerp(at, smooth(0.75, 1, q));
-    camera.position.copy(focus).addScaledVector(side3, -dist).add(new THREE.Vector3(0, dist * 0.45, 0));
-    camera.lookAt(focus);
+    const q = clamp(Z / SIDE_B, 0, 1), near = (o.A + 1) / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.6)) + 10 * Math.pow(1 - q, 2);
+    // far enough to fit the system out to Pluto's orbit (or Alpha Centauri, once it's in reach)
+    const fitR = (S.gear.warp ? CENTAURI.R * 0.75 : mapR(39.5)) * 1.15, far = fitR / (Math.tan(camera.fov * D2R / 2) * Math.min(SW / SH, 1.4));
+    const dist = Math.exp(lerp(Math.log(near), Math.log(far), Math.pow(k, 1.15)));
+    birdSprite.scale.setScalar(0.05 + Math.min(dist, 60) * 0.01);
+    const sunP = solarNow().sun;
+    const focus = DIR.clone().multiplyScalar(o.C).lerp(at, smooth(0.75, 1, q)).lerp(sunP, smooth(0.15, 1, k));
+    // the view tips over to look down on the plane of the planets as it pulls out
+    const back = side3.clone().multiplyScalar(-1).lerp(new THREE.Vector3(0.15, 0, 1).normalize(), smooth(0.2, 1, k)).normalize();
+    camera.position.copy(focus).addScaledVector(back, dist).add(new THREE.Vector3(0, dist * lerp(0.45, 0.85, k), 0));
+    // aim a little above the system so it sits in the open space below the trip ticket
+    camera.lookAt(focus.clone().add(new THREE.Vector3(0, dist * 0.16 * smooth(0.3, 1, k) * (SW > SH ? 1.6 : 1), 0)));
+    const wantFar = Math.max(200, dist * 3 + 400), wantNear = Math.max(0.001, dist * 0.0006);
+    if (Math.abs(camera.far - wantFar) > wantFar * 0.05 || Math.abs(camera.near - wantNear) > wantNear * 0.2) { camera.far = wantFar; camera.near = wantNear; camera.updateProjectionMatrix(); }
+    if (globeStars) globeStars.position.copy(camera.position);
     sun.position.copy(camera.position).add(new THREE.Vector3(-2, 3, 0));
+    updateSolar(k, dist);
     renderer.render(scene, camera);
+  }
+
+  // ======================================================================
+  // The solar system. Zooming out of the Earth–world chart keeps going, in one move, until the
+  // whole system is in view: the Sun, every planet on its orbit at its real position for today,
+  // Alpha Centauri far beyond. Orbits are drawn on a log scale (true scale would shrink the inner
+  // planets to a single pixel); labels give the real distance from Earth right now. Worlds the
+  // bird has not reached yet are glowing unknowns, marked only by how far away they are.
+  // ======================================================================
+  const AU_KM = 1.496e8, J2000 = Date.UTC(2000, 0, 1, 12);
+  // a (AU), mean longitude at J2000 and its daily motion (degrees): circular orbits, good to a few degrees
+  const ORBITS = [
+    { id: 'mercury', name: 'Mercury', a: 0.387, L0: 252.25, n: 4.09233, color: '#b5aea4', r: 0.5 },
+    { id: 'venus', name: 'Venus', a: 0.723, L0: 181.98, n: 1.60213, color: '#e8cf9a', r: 0.8 },
+    { id: 'earth', name: 'Earth', a: 1.0, L0: 100.46, n: 0.98561, color: '#5aa0e8', r: 0.85 },
+    { id: 'mars', name: 'Mars', a: 1.524, L0: 355.45, n: 0.52403, color: '#c1502e', r: 0.65 },
+    { id: 'jupiter', name: 'Jupiter', a: 5.203, L0: 34.40, n: 0.08309, color: '#d8b48a', r: 1.8 },
+    { id: 'saturn', name: 'Saturn', a: 9.537, L0: 49.94, n: 0.03346, color: '#e3cf98', r: 1.55, ring: true },
+    { id: 'uranus', name: 'Uranus', a: 19.19, L0: 313.23, n: 0.01173, color: '#9fd8e0', r: 1.2 },
+    { id: 'neptune', name: 'Neptune', a: 30.07, L0: 304.88, n: 0.00598, color: '#4a6fd6', r: 1.2 },
+    { id: 'pluto', name: 'Pluto', a: 39.48, L0: 238.93, n: 0.00397, color: '#cdb59a', r: 0.4, dwarf: true },
+  ];
+  const MAPK = 300, mapR = (a) => MAPK * Math.log(1 + 3 * a) / Math.log(4); // Earth sits 300 units from the Sun
+  // Alpha Centauri: ecliptic longitude ~239.5°, latitude ~-42.6°, 4.37 light years
+  const CENTAURI = { lon: 239.5, lat: -42.6, km: 4.13e13, R: 1650 };
+  function helio(o, days) { const L = (o.L0 + o.n * days) * D2R; return { x: Math.cos(L) * o.a, z: -Math.sin(L) * o.a, L }; }
+  const solar = new THREE.Group(); solar.visible = false; scene.add(solar);
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(9, 32, 24), new THREE.MeshBasicMaterial({ color: 0xfff1c0 }));
+  const sunHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('rgba(255,236,170,1)', 'rgba(255,170,60,.35)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sunHalo.scale.setScalar(90); solar.add(sunBall, sunHalo);
+  const orbitMat = new THREE.LineBasicMaterial({ color: 0x8aa8ff, transparent: true, opacity: 0.28, depthWrite: false });
+  const mysteryTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 4, 64, 64, 64); gr.addColorStop(0, 'rgba(190,170,255,.95)'); gr.addColorStop(0.35, 'rgba(140,110,255,.45)'); gr.addColorStop(1, 'rgba(90,60,200,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = '#fff'; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', 64, 68);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const planetDots = {};
+  for (const o of ORBITS) {
+    const R = mapR(o.a), pts = [];
+    for (let k = 0; k <= 128; k++) { const t = k / 128 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(t) * R, 0, -Math.sin(t) * R)); }
+    solar.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), orbitMat));
+    const known = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(o.color, o.color + '55'), transparent: true, depthWrite: false }));
+    const unknown = new THREE.Sprite(new THREE.SpriteMaterial({ map: mysteryTex, transparent: true, depthWrite: false }));
+    const label = document.createElement('div'); label.className = 'label3d planet-label';
+    planetDots[o.id] = { o, known, unknown, label }; solar.add(known, unknown);
+  }
+  // Saturn keeps its rings even as a dot on the map
+  const satRing = new THREE.Mesh(new THREE.RingGeometry(1.4, 2.3, 48), new THREE.MeshBasicMaterial({ color: 0xe8d8a8, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false }));
+  satRing.rotation.x = -Math.PI / 2 + 0.45; solar.add(satRing);
+  const cenDot = { known: new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff3c8', 'rgba(255,220,140,.4)'), transparent: true, depthWrite: false })),
+    unknown: new THREE.Sprite(new THREE.SpriteMaterial({ map: mysteryTex, transparent: true, depthWrite: false })), label: document.createElement('div') };
+  cenDot.label.className = 'label3d planet-label'; solar.add(cenDot.known, cenDot.unknown);
+  const sunLabel = document.createElement('div'); sunLabel.className = 'label3d planet-label sun'; sunLabel.textContent = 'Sun';
+  const solarLabels = document.createElement('div'); solarLabels.id = 'solarLabels';
+  solarLabels.append(sunLabel, cenDot.label, ...Object.values(planetDots).map((d) => d.label));
+  $('labels').after(solarLabels);
+  // the route out to the world the bird is looping to, and back
+  const routeLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const routeLine = new THREE.Line(routeLineGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 4, gapSize: 3, transparent: true, opacity: 0.9, depthWrite: false }));
+  solar.add(routeLine);
+  // where every world is right now (map units, Earth at the origin), and the real distance from Earth
+  let solarAt = 0, solarPos = {};
+  function solarLayout() {
+    const days = (Date.now() - J2000) / 864e5, out = {};
+    const e = helio(ORBITS[2], days), eR = mapR(1);
+    const sunP = new THREE.Vector3(-Math.cos(e.L) * eR, 0, Math.sin(e.L) * eR);
+    out.sun = sunP;
+    for (const o of ORBITS) {
+      const h = helio(o, days), R = mapR(o.a);
+      out[o.id] = { p: new THREE.Vector3(Math.cos(h.L) * R, 0, -Math.sin(h.L) * R).add(sunP), km: Math.hypot(h.x - e.x, h.z - e.z) * AU_KM };
+    }
+    const cl = CENTAURI.lon * D2R, cb = CENTAURI.lat * D2R;
+    out.centauri = { p: new THREE.Vector3(Math.cos(cl) * Math.cos(cb), Math.sin(cb), -Math.sin(cl) * Math.cos(cb)).multiplyScalar(CENTAURI.R).add(sunP), km: CENTAURI.km };
+    out.moon = { km: 384400 };
+    return out;
+  }
+  function solarNow() { const t = performance.now(); if (t - solarAt > 30000 || !solarPos.sun) { solarAt = t; solarPos = solarLayout(); } return solarPos; }
+  // how far a world is from Earth right now, in words ("225 million km")
+  function kmWords(km) {
+    const u = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']].find(([v]) => km >= v);
+    if (!u) return `${Math.round(km)} km`;
+    const v = km / u[0]; return `${v >= 100 ? Math.round(v) : v >= 10 ? Math.round(v) : v.toFixed(1)} ${u[1]} km`;
+  }
+  const worldKm = (id) => (solarNow()[id] || {}).km || 0;
+  const worldKnown = (b) => b.id === 'moon' || (S && S.cosmos.includes(b.id));
+  // what to call a destination: its name once reached, until then only how far away it is
+  function worldName(b, short) { return worldKnown(b) ? (short ? b.short : b.name) : (short ? '???' : `a world ≈ ${kmWords(worldKm(b.id))} away`); }
+  // 0 = the Earth–world chart, 1 = the whole solar system in view
+  const solarK = () => (S && S.space ? smooth(0.55, 0.04, Z) : 0);
+  function placeSolarLabel(el, p, html, cls) {
+    const v = p.clone().project(camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.05 || Math.abs(v.y) > 1.05) { el.style.display = 'none'; return; }
+    el.style.display = 'block'; if (el.innerHTML !== html) el.innerHTML = html; el.className = 'label3d planet-label' + (cls ? ' ' + cls : '');
+    el.style.left = ((v.x + 1) / 2 * SW) + 'px'; el.style.top = ((1 - v.y) / 2 * SH) + 'px';
+  }
+  function updateSolar(k, camDist) {
+    solar.visible = k > 0.02; solarLabels.style.display = k > 0.25 ? '' : 'none';
+    if (!solar.visible) return;
+    const P = solarNow(), pulse = 1 + 0.18 * Math.sin(performance.now() / 300);
+    solar.position.copy(P.sun);
+    sunBall.position.set(0, 0, 0); sunHalo.position.set(0, 0, 0);
+    // dots keep a readable size on screen however far out the camera is
+    const px = camDist * 0.022;
+    sunBall.scale.setScalar(Math.max(1, px / 6)); sunHalo.scale.setScalar(Math.max(90, px * 9));
+    orbitMat.opacity = 0.28 * k;
+    placeSolarLabel(sunLabel, P.sun, 'Sun', 'sun');
+    const dest = S.space ? F.SPACE[S.space.dest] : null;
+    for (const d of Object.values(planetDots)) {
+      const o = d.o, at = P[o.id], local = at.p.clone().sub(P.sun);
+      const body = F.SPACE.find((b) => b.id === o.id), mystery = !!body && !worldKnown(body);
+      d.known.visible = !mystery; d.unknown.visible = mystery;
+      d.known.position.copy(local); d.unknown.position.copy(local);
+      d.known.scale.setScalar(px * (o.id === 'earth' ? 1.4 : 0.6 + o.r * 0.6));
+      d.unknown.scale.setScalar(px * 2.4 * pulse);
+      if (o.id === 'saturn') { satRing.position.copy(local); satRing.scale.setScalar(px * 0.9); satRing.visible = !mystery; }
+      const isDest = dest && dest.id === o.id;
+      const html = o.id === 'earth' ? 'Earth <small>you are here</small>'
+        : mystery ? `? <small>≈ ${kmWords(at.km)}</small>`
+        : `${o.name}${o.dwarf ? ' <small>dwarf planet</small>' : ''}${body ? ` <small>${kmWords(at.km)}</small>` : ''}`;
+      // fully zoomed out the inner planets crowd the Sun: only Earth and the worlds you can fly to keep a label
+      if (k > 0.8 && !body && o.id !== 'earth') { d.label.style.display = 'none'; continue; }
+      placeSolarLabel(d.label, at.p, html, (mystery ? 'mystery' : '') + (isDest ? ' dest' : ''));
+    }
+    const cMystery = !(S.cosmos.includes('centauri'));
+    const cl = P.centauri.p.clone().sub(P.sun);
+    cenDot.known.visible = !cMystery; cenDot.unknown.visible = cMystery;
+    cenDot.known.position.copy(cl); cenDot.unknown.position.copy(cl);
+    cenDot.known.scale.setScalar(px * 1.6); cenDot.unknown.scale.setScalar(px * 2.6 * pulse);
+    placeSolarLabel(cenDot.label, P.centauri.p, cMystery ? `? <small>≈ ${kmWords(P.centauri.km)} · beyond the Sun's planets</small>` : 'Alpha Centauri <small>the nearest star · 4.4 light years</small>', cMystery ? 'mystery' : '');
+    // the route to today's destination, with the bird's progress along it
+    if (S.space && S.space.loop && S.space.dest > 0) {
+      const tgt = P[dest.id].p.clone().sub(P.sun), earthL = P.earth.p.clone().sub(P.sun);
+      routeLineGeo.setFromPoints([earthL, tgt]); routeLine.computeLineDistances(); routeLine.visible = true;
+      routeLine.material.dashSize = px * 1.2; routeLine.material.gapSize = px * 0.9;
+    } else routeLine.visible = false;
+  }
+  // direction from Earth to a planet on the map (so the close chart points the same way the map does)
+  function chartDirFor(dest) {
+    const b = F.SPACE[dest]; if (!b || b.id === 'moon') return CHART_DIR;
+    const P = solarNow()[b.id]; if (!P) return CHART_DIR;
+    return P.p.clone().normalize().add(new THREE.Vector3(0, 0.22, 0)).normalize();
   }
 
   function leaveSpaceChart() {
     chartBody.visible = chartLine.visible = moonOval.visible = false; moon.visible = true; routeGroup.visible = true; nextSprite.visible = true;
+    solar.visible = false; solarLabels.style.display = 'none'; if (globeStars) globeStars.position.set(0, 0, 0);
+    if (camera.far !== 200) { camera.far = 200; camera.near = 0.001; camera.updateProjectionMatrix(); }
   }
 
   // ======================================================================
@@ -3978,6 +4192,8 @@
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
     refreshRoutePick();
+    const fn = S.funnel || {}, when = (k) => (fn[k] ? new Date(fn[k]).toLocaleDateString() : 'not yet');
+    $('adminFunnel').textContent = `Space funnel on this device: reached space ${when('space')} · finished the Moon ${when('moon')} · started a second world ${when('second')}`;
     open('menuSheet');
   };
   // two taps instead of confirm(), which webviews and app shells often block
@@ -4192,7 +4408,7 @@
   }
   function refreshWeatherChip() {
     const el = $('wx');
-    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${F.SPACE[S.space.dest].short} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${worldKnown(F.SPACE[S.space.dest]) ? F.SPACE[S.space.dest].short : '???'} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${F.wxNote(S, wx)}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
@@ -4206,7 +4422,7 @@
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(F.seedRate(S, false))}/s`;
     if (sp.loop) {
-      const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.loopKm(sp.dest), name = b.short;
+      const out = sp.u < 0.5, left = (0.5 - (sp.u % 0.5)) * F.loopKm(sp.dest), name = worldKnown(b) ? b.short : 'Unknown world';
       // in space the top-left counter shows space rocks instead of seeds
       setPurse('rocks');
       const unit = F.unitValue(sp.dest), cur = F.CURRENCY[sp.dest];
@@ -4258,9 +4474,33 @@
     pm.classList.remove('show'); void pm.offsetWidth; pm.classList.add('show');
     setTimeout(() => { pm.style.color = ''; }, 2700);
     toast(`Reached ${e.body.name}!` + (e.first ? (e.body.id === 'moon' ? ' All seeds +25%, for good.' : ' Space rocks per trip ×1.5 and all seeds +25%, for good.') : ''));
+    if (e.first) { const ch = CHAPTERS[e.body.id]; if (ch) setTimeout(() => cinematic(`Chapter ${F.SPACE.indexOf(e.body) + 1}: ${ch[0]}`, ch[1], 4.6), 400); }
     expoKey = ''; refreshExpo(); save();
   }
   let expoKey = '';
+  // the story of the voyage: each world, revealed on first arrival
+  const CHAPTERS = {
+    moon: ['The Moon', 'Every bird has looked up at it. Only yours has been.'],
+    mars: ['The Red Planet', 'Rust-red dunes, and dust storms the size of continents.'],
+    jupiter: ['The Giant', 'A storm older than any bird, wide enough to swallow Earth.'],
+    saturn: ['The Ringed World', 'Rings of ice that glitter like a flock in the sun.'],
+    uranus: ['The Sideways World', 'A pale blue giant that rolls around the Sun on its side.'],
+    neptune: ['The Windy Blue', 'The fastest winds in the solar system howl out here.'],
+    pluto: ['The Edge', "A small, cold heart at the far edge of the Sun's family."],
+    centauri: ['Another Sun', 'The nearest star. No bird has ever flown this far.'],
+  };
+  // gear that opens a world you haven't reached says only how far away it is
+  function gearBlurb(g) {
+    const b = F.SPACE.find((x) => x.needs === g.id && x.id !== 'moon');
+    if (!b || worldKnown(b)) return g.blurb;
+    const more = F.SPACE.filter((x) => x.needs === g.id).length;
+    return more > 1 ? `opens ${more} unknown worlds, the nearest ≈ ${kmWords(worldKm(b.id))} away` : `opens a world ≈ ${kmWords(worldKm(b.id))} away`;
+  }
+  // how far players get into space (kept on this device; shown in the admin panel)
+  function funnel(step) {
+    S.funnel = S.funnel || {};
+    if (!S.funnel[step]) { S.funnel[step] = Date.now(); save(); }
+  }
   function refreshExpo() {
     const box = $('expo');
     const g = F.nextGear(S), nb = F.nextBody(S), sp = S.space;
@@ -4272,10 +4512,10 @@
       const owned = F.GEAR.filter((x) => S.gear[x.id]).length;
       let action = '';
       const targets = F.loopTargets(S);
-      if (sp && sp.loop) action = `<p class="expo-note">🚀 Looping Earth and ${F.SPACE[sp.dest].name}. Every round trip brings home space rocks.</p>`;
+      if (sp && sp.loop) action = `<p class="expo-note">🚀 Looping Earth and ${worldName(F.SPACE[sp.dest])}. Every round trip brings home space rocks and 🪶 golden feathers.</p>`;
       if (targets.length) action += `<div class="loops">${targets.map((b) => {
         const k = F.SPACE.indexOf(b), here = sp && sp.loop && sp.dest === k;
-        return `<button class="loop-btn${here ? ' here' : ''}" data-loop="${k}"${here ? ' disabled' : ''}><b>${b.short}</b><small>${here ? 'looping now' : `${fmt(F.rocksPerTrip(S, k) * F.MOON_RATE / F.unitValue(k))} ${F.CURRENCY[k].icon} / trip`}</small></button>`;
+        return `<button class="loop-btn${here ? ' here' : ''}" data-loop="${k}"${here ? ' disabled' : ''}><b>${worldKnown(b) ? b.short : `??? <i>≈ ${kmWords(worldKm(b.id))}</i>`}</b><small>${here ? 'looping now' : `${fmt(F.rocksPerTrip(S, k) * F.MOON_RATE / F.unitValue(k))} ${F.CURRENCY[k].icon} / trip`}</small></button>`;
       }).join('')}</div>`;
       if (sp) action += `<button class="expo-home" id="btnHome">Return to Earth</button>`;
       action += `<p class="expo-note rates">💱 1 🌑 Moon rock = ${fmt(F.MOON_RATE)} 🌰 seeds · each world farther out: 10 of its rocks = 1 of the one before</p>`;
@@ -4284,25 +4524,26 @@
         ${pm ? `<p class="expo-note">🪐 ${pm} planet${pm === 1 ? '' : 's'} reached: ×${fmt(F.planetMult(S), 2)} space rocks per trip</p>` : (S.cosmos.includes('moon') ? '<p class="expo-note">🪐 Each planet you reach multiplies space rocks per trip by 1.5, for good.</p>' : '')}
         ${action}
         ${g ? `<div class="up expo-gear"><div class="ic" aria-hidden="true">${g.icon}</div>
-          <div><div class="nm">${g.name}</div><div class="fx">${g.blurb}</div></div>
+          <div><div class="nm">${g.name}</div><div class="fx">${gearBlurb(g)}</div></div>
           <button class="buy" id="btnGear"><b class="num">${money(g.cost)}</b><small>buy once</small></button></div>`
         : '<p class="expo-note">All gear owned. Every world is within reach.</p>'}`;
       const bl = $('btnLaunch'), bh = $('btnHome'), bg = $('btnGear');
       box.querySelectorAll('[data-loop]').forEach((bt) => bt.onclick = () => {
         const k = +bt.dataset.loop, switching = !!S.space, firstTime = !S.cosmos.includes(F.SPACE[k].id || F.SPACE[k].key);
         if (!F.launchLoop(S, k)) return;
-        if (!switching || firstTime) cinematic('Liftoff!', `Next stop: ${F.SPACE[k].name}`, 3.6);
+        if (!switching || firstTime) cinematic('Liftoff!', worldKnown(F.SPACE[k]) ? `Next stop: ${F.SPACE[k].name}` : `Next stop: ${worldName(F.SPACE[k])}. Nobody knows what's there.`, 3.6);
+        funnel(k === 0 ? 'space' : 'second');
         moonOvalKey = '';
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm'); side.threatT = 25;
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); refreshShip(); save();
-        toast(`${switching ? 'Course set' : 'Liftoff'}: ${F.SPACE[k].name} and back. Every round trip brings home space rocks and ${fmt(F.tripFeathers(S, k), 0)} 🪶 golden feathers.`); Sound.launch();
+        toast(`${switching ? 'Course set' : 'Liftoff'}: ${worldName(F.SPACE[k])} and back. Every round trip brings home space rocks and ${fmt(F.tripFeathers(S, k), 0)} 🪶 golden feathers.`); Sound.launch();
       });
       const t1 = $('btnTrade1'), ta = $('btnTradeAll');
       if (bl) bl.onclick = () => {
         if (!F.launch(S)) return;
         side.bug = null; side.threat = null; $('threat').hidden = true; flapBtn.classList.remove('alarm');
         ZT = Math.max(ZT, 0.985); expoKey = ''; refreshExpo(); save();
-        toast(`Liftoff! Next stop: ${F.SPACE[S.space.dest].name}`);
+        toast(`Liftoff! Next stop: ${worldName(F.SPACE[S.space.dest])}`);
       };
       if (bh) bh.onclick = () => {
         F.returnToEarth(S); $('eventChip').hidden = true; flapBtn.classList.remove('alarm'); for (const m of rocks) sscene.remove(m); rocks.length = 0; leaveSpaceChart(); resetSide(); rebuildRoute(); side.threat = null; $('threat').hidden = true; expoKey = ''; refreshExpo(); refreshShip(); save();
@@ -4319,6 +4560,7 @@
   let lastTripToast = 0;
   function tripDone(e) {
     refreshRocks(); refreshShip();
+    if (S.space && S.space.dest === 0) funnel('moon');
     if (e.feathers) { toast(`Round trip done: +${fmt(e.feathers, 0)} 🪶 golden feathers!`); bumpFeathers(); }
   }
   // mastery: flying a bird or a flyer long enough pays free eggs and feathers
@@ -4634,7 +4876,7 @@
       const sa = smooth(SIDE_A, SIDE_B, Z);
       sideCanvas.style.opacity = sa;
       if (S.space && S.space.loop) {
-        if (sa < 1) updateLoopChart(dt);
+        if (sa < 1) updateLoopChart(dt); else solarLabels.style.display = 'none';
         if (sa > 0) updateLoop(dt);
       } else if (S.space) {
         if (sa < 1) updateSpaceChart(dt);
