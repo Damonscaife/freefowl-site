@@ -511,17 +511,23 @@
   const cabGeo = new THREE.BoxGeometry(1, 0.55, 0.9).translate(-0.1, 1.2, 0);
   const CAR_MATS = ['#d6453d', '#f2f2f2', '#2f6fd1', '#f0b429', '#3a3d45', '#3fa36b', '#9aa3ad'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.2 });
+  const BRIDGE_Y = 1.7; // a bridge deck's height above the ground line (the sea sits at 0.6)
+  const bridgePierGeo = new THREE.BoxGeometry(1, 1, 1);
+  const bridgePierMat = new THREE.MeshStandardMaterial({ color: 0xa8a49a, roughness: 0.9 }); bridgePierMat.userData.shared = true;
   // One ribbon of road along a path of points, with traffic. fade: cars shrink away at the ends
   // (used where a highway runs on into the next strip, so they don't pop at the seam).
   function roadMesh(grp, pts, width, hAt, wide, seed, nCars, fade, yAdj) {
     let len = 0; const lens = [0];
     for (let i = 1; i < pts.length; i++) { len += pts[i].distanceTo(pts[i - 1]); lens.push(len); }
-    const pos = [], uv = [], idx = [];
+    const pos = [], uv = [], idx = [], piers = [];
     pts.forEach((p, i) => {
       const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)], tx = q.x - o.x, tz = q.z - o.z, tl = Math.hypot(tx, tz) || 1;
       const nx = -tz / tl * width / 2, nz = tx / tl * width / 2;
       let y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
       if (yAdj) y = yAdj(p, y);
+      // never below the water: where the ground dips under it the road carries on as a bridge deck
+      const deck = GROUND + BRIDGE_Y;
+      if (y < deck) { if (hAt(p.x, p.z) < 0.6 && i % 3 === 0) piers.push([p.x, p.z, GROUND + hAt(p.x, p.z) - 1, deck]); y = deck; }
       p.y = y;
       pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (wide ? 10 : 7), 1, lens[i] / (wide ? 10 : 7));
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
@@ -530,6 +536,11 @@
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx); g.computeVertexNormals();
     grp.add(new THREE.Mesh(g, roadMat));
+    if (piers.length) { // concrete piers under any stretch of bridge
+      const inst = new THREE.InstancedMesh(bridgePierGeo, bridgePierMat, piers.length), m = new THREE.Matrix4();
+      piers.forEach(([x, z, y0, y1], k) => { m.compose(new THREE.Vector3(x, (y0 + y1) / 2, z), new THREE.Quaternion(), new THREE.Vector3(width * 0.25, Math.max(0.5, y1 - y0), 0.8)); inst.setMatrixAt(k, m); });
+      grp.add(inst);
+    }
     const cars = [];
     for (let i = 0; i < nCars; i++) {
       const car = new THREE.Group(), mat = CAR_MATS[Math.floor(hash(seed + i, 73) * CAR_MATS.length)];
@@ -591,7 +602,9 @@
     // where the highway begins or ends it sweeps off to the far back edge of the land well inside
     // the strip, and stops there at the horizon (so it never runs up a hillside at a strip's edge)
     if (!prevHw) z = lerp(-356, HWY_Z, smooth(0.3, 0.6, t));
-    if (!nextHw) z = lerp(z, -356, early ? smooth(0.3, 0.75, t) : smooth(0.4, 0.7, t));
+    // beside the sea it turns the other way, in toward the viewer and out past the bottom of the
+    // screen, so it stays on the land near the camera instead of running out over the shore
+    if (!nextHw) z = early ? lerp(z, 46, smooth(0.3, 0.75, t)) : lerp(z, -356, smooth(0.4, 0.7, t));
     return z;
   };
   function planHighway(prevHw, nextHw, early) {
@@ -600,7 +613,8 @@
       const x = -CW / 2 + CW * i / n;
       const z = hwyZ(x, prevHw, nextHw, early);
       // drop the stretch lying along the far edge, keeping just the one point where it gets there
-      if (z < -355.5) { const prevZ = pts.length ? pts[pts.length - 1].z : null; if (prevZ !== null && prevZ < -355.5) continue; if (prevZ === null && hwyZ(x + CW / n, prevHw, nextHw, early) < -355.5) continue; }
+      const off = (zz) => zz < -355.5 || zz > 45.5;
+      if (off(z)) { const prevZ = pts.length ? pts[pts.length - 1].z : null; if (prevZ !== null && off(prevZ)) continue; if (prevZ === null && off(hwyZ(x + CW / n, prevHw, nextHw, early))) continue; }
       pts.push(new THREE.Vector3(x, 0, z));
     }
     return pts;
@@ -636,17 +650,24 @@
         k = Math.max(k, (1 - smooth(road.width / 2 + 1.5, road.width / 2 + outer + wall, d)) * smooth(0, 12, dl) * smooth(0, 12, dr) * smooth(-356, -300, z));
       }
       if (line) {
-        let best = Infinity, bz = 0;
-        for (let i = 0; i < line.length; i++) { const dx = lx - line[i][0], dz = z - line[i][1], q = dx * dx + dz * dz; if (q < best) { best = q; bz = line[i][1]; } }
-        const d = Math.sqrt(best), z0 = hwyZ(lx, hw.prev, hw.next, hw.early);
-        // the near side opens out into a broad, low valley, so the hills in front don't hide the highway
-        // (the far side is capped so a bend sweeping off into the distance can't reach across to a
-        // strip edge where the next strip's straight highway valley has to meet it exactly)
-        const reach = z > z0 ? 60 + wall : Math.min(22, outer + wall);
-        // and it fades out toward a side where the next strip has no highway, so the ground still meets there
-        // the valley follows the highway all the way out to the haze at the back of the land, so where
-        // it sweeps off into the distance it stays down on the valley floor instead of climbing a peak
-        k = Math.max(k, (1 - smooth(5, 5 + reach, d)) * smooth(-392, -352, bz) * (hw.prev ? 1 : smooth(0, 24, dl)) * (hw.next ? 1 : smooth(0, 24, dr)));
+        // nearest point on the main line (straight, or sweeping off into the distance) and, beside the
+        // sea, on the stretch curving in toward the viewer; they carve separately so a strip's edge
+        // always matches the straight valley of the strip next to it
+        let best = Infinity, bz = 0, bestIn = Infinity;
+        for (let i = 0; i < line.length; i++) {
+          const dx = lx - line[i][0], dz = z - line[i][1], q = dx * dx + dz * dz;
+          if (line[i][1] > -94.5) { if (q < bestIn) bestIn = q; } else if (q < best) { best = q; bz = line[i][1]; }
+        }
+        const fade = (hw.prev ? 1 : smooth(0, 24, dl)) * (hw.next ? 1 : smooth(0, 24, dr));
+        if (best < Infinity) {
+          const d = Math.sqrt(best), z0 = hwyZ(lx, hw.prev, hw.next, hw.early);
+          // the near side opens out into a broad, low valley, so the hills in front don't hide the highway;
+          // the far side is capped so a bend sweeping off into the distance can't reach a strip edge
+          const reach = z > Math.min(z0, -95) ? 60 + wall : Math.min(22, outer + wall);
+          // the valley follows the highway out to the haze at the back, so it never climbs a peak there
+          k = Math.max(k, (1 - smooth(5, 5 + reach, d)) * smooth(-392, -352, bz) * fade);
+        }
+        if (bestIn < Infinity) k = Math.max(k, (1 - smooth(5, 5 + Math.min(22, outer + wall), Math.sqrt(bestIn))) * fade);
       }
       if (k <= 0) return h;
       return h + (f - h) * k;
@@ -922,10 +943,12 @@
     // a shore only if it expects sea). If the guess was wrong, its edge wouldn't meet this one:
     // a cliff or a straight seam. Rebuild it to match while it's still far off.
     // Likewise if it ran its highway up to this edge and this strip can't carry it on.
-    if (prev && (prev.nextKind !== kind || (prev.hwyNext && kind !== 'land'))) {
+    // (and a highway never carries on into a strip that runs down to the sea: it ends a strip early instead)
+    const hwCut = prev && prev.hwyNext && (kind !== 'land' || world.nextType === 'sea');
+    if (prev && (prev.nextKind !== kind || hwCut)) {
       if (world.building || prev.grp.position.x > (world.viewW || 14) * 2 + CW / 2) {
         const pp = world.chunks[world.chunks.length - 2];
-        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome, { prev: !!(pp && pp.hwyNext) });
+        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome, { prev: !!(pp && pp.hwyNext), next: hwCut ? false : undefined });
         r.grp.position.x = prev.grp.position.x; fscene.add(r.grp);
         world.chunks[world.chunks.length - 1] = r; disposeChunk(prev);
       } else if (prev.nextKind !== kind && kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
