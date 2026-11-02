@@ -2412,6 +2412,7 @@
       c.miss = (c.miss || 0) + 1; if (c.miss < 2) continue; // must be wrong on two checks running
       // relay from here on (one strip earlier too, if it's also out of view, so the shoreline joins)
       let j = i; if (j - 1 > lastCity && cs[j - 1].grp.position.x >= near) j--;
+      j = Math.max(1, j); // always keep at least one strip to build on
       while (cs.length > j) disposeChunk(cs.pop());
       world.nextType = null;
       world.cursor = cs[cs.length - 1].wx0 + CW; // carry on the ground exactly where the kept strip ends
@@ -2436,6 +2437,7 @@
     while (world.chunks.length && world.chunks[0].grp.position.x < -CW * 3.5) disposeChunk(world.chunks.shift());
     // build at most one new strip per frame (they're laid well ahead), so building never causes a hitch;
     // only if the strips ahead are nearly used up does it catch up several at once
+    if (!world.chunks.length) { resetSide(); return; }
     let last = world.chunks[world.chunks.length - 1], guard = 0;
     const maxBuilds = last.grp.position.x < (world.viewW || 14) * 1.5 + CW ? 12 : 1;
     while (last.grp.position.x < 620 - CW && guard++ < maxBuilds) {
@@ -3331,13 +3333,21 @@
     for (let k = 0; k <= 128; k++) { const t = k / 128 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(t) * R, 0, -Math.sin(t) * R)); }
     solar.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), orbitMat));
     const known = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(o.color, o.color + '55'), transparent: true, depthWrite: false }));
-    const unknown = new THREE.Sprite(new THREE.SpriteMaterial({ map: mysteryTex, transparent: true, depthWrite: false }));
+    const unknown = new THREE.Sprite(new THREE.SpriteMaterial({ map: mysteryTex, transparent: true, depthWrite: false, depthTest: false }));
+    unknown.renderOrder = 6; // the glowing "?" sits over the dark silhouette of the world
     const label = document.createElement('div'); label.className = 'label3d planet-label';
-    planetDots[o.id] = { o, known, unknown, label }; solar.add(known, unknown);
+    // the planet itself, small but real: its own surface, lit by the Sun
+    const ballMat = new THREE.MeshLambertMaterial({ map: o.id === 'earth' ? earthTex : bodyTexture({ id: o.id, color: o.color, bands: o.id === 'jupiter' || o.id === 'saturn' }), emissive: 0x222233 });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), ballMat);
+    known.material.opacity = 0.45;
+    planetDots[o.id] = { o, known, unknown, label, ball, ballMat, map: ballMat.map }; solar.add(known, unknown, ball);
   }
   // Saturn keeps its rings even as a dot on the map
   const satRing = new THREE.Mesh(new THREE.RingGeometry(1.4, 2.3, 48), new THREE.MeshBasicMaterial({ color: 0xe8d8a8, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false }));
   satRing.rotation.x = -Math.PI / 2 + 0.45; solar.add(satRing);
+  // sunlight on the map's planets (it falls off with nothing, so far worlds stay lit)
+  const sunLamp = new THREE.PointLight(0xfff2d8, 2.2, 0, 0); solar.add(sunLamp);
+  const mysteryMapTex = bodyTexture({ id: 'mystery', color: '#2a2440' });
   const cenDot = { known: new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture('#fff3c8', 'rgba(255,220,140,.4)'), transparent: true, depthWrite: false })),
     unknown: new THREE.Sprite(new THREE.SpriteMaterial({ map: mysteryTex, transparent: true, depthWrite: false })), label: document.createElement('div') };
   cenDot.label.className = 'label3d planet-label'; solar.add(cenDot.known, cenDot.unknown);
@@ -3401,12 +3411,17 @@
     for (const d of Object.values(planetDots)) {
       const o = d.o, at = P[o.id], local = at.p.clone().sub(P.sun);
       const body = F.SPACE.find((b) => b.id === o.id), mystery = !!body && !worldKnown(body);
+      const isDest = dest && dest.id === o.id;
+      // a real little planet; the one you're flying to is drawn bigger so you can see it properly
+      const rad = px * (0.32 + o.r * 0.32) * (isDest ? 2.4 : o.id === 'earth' ? 1.3 : 1);
+      d.ball.position.copy(local); d.ball.scale.setScalar(rad); d.ball.rotation.y += 0.004;
+      const wantMap = mystery ? mysteryMapTex : d.map;
+      if (d.ballMat.map !== wantMap) { d.ballMat.map = wantMap; d.ballMat.emissive.set(mystery ? 0x3a2a7a : 0x222233); d.ballMat.needsUpdate = true; }
       d.known.visible = !mystery; d.unknown.visible = mystery;
       d.known.position.copy(local); d.unknown.position.copy(local);
-      d.known.scale.setScalar(px * (o.id === 'earth' ? 1.4 : 0.6 + o.r * 0.6));
-      d.unknown.scale.setScalar(px * 2.4 * pulse);
-      if (o.id === 'saturn') { satRing.position.copy(local); satRing.scale.setScalar(px * 0.9); satRing.visible = !mystery; }
-      const isDest = dest && dest.id === o.id;
+      d.known.scale.setScalar(rad * 3.2);
+      d.unknown.scale.setScalar(Math.max(px * 2.4, rad * 3) * pulse);
+      if (o.id === 'saturn') { satRing.position.copy(local); satRing.scale.setScalar(rad); satRing.visible = !mystery; }
       const html = o.id === 'earth' ? 'Earth <small>you are here</small>'
         : mystery ? `? <small>≈ ${kmWords(at.km)}</small>`
         : `${o.name}${o.dwarf ? ' <small>dwarf planet</small>' : ''}${body ? ` <small>${kmWords(at.km)}</small>` : ''}`;
@@ -4614,7 +4629,7 @@
     const shop = where < 0 ? 'Earth' : worldKnown(F.SPACE[where]) ? F.SPACE[where].short : 'this world';
     $('drawerTitle').textContent = ship ? `${moonRun ? 'Moon ship' : 'Ship'} upgrades` : 'Upgrades';
     const wk = $('shipWorkshop');
-    if (wk) { wk.hidden = !ship; wk.textContent = `🔧 ${shop} workshop: every level fitted here counts ×${fmt(w, 2)}${where < 0 ? ' (fly farther out for stronger ones)' : where < F.SPACE.length - 1 ? ' · farther worlds build them stronger' : ''}`; }
+    if (wk) { wk.hidden = !ship; wk.textContent = `🔧 ${shop} workshop: every level fitted here counts ×${fmt(w, 2)}${where < 0 ? ' (fly farther out for stronger ones)' : where > 0 ? ` · upgrades from nearer worlds only count ${Math.round(F.NEAR_K * 100)}% out here, so build this ship up here` : ' · farther worlds build them stronger'}`; }
     const tb = $('btnShipTab');
     if (tb) { tb.hidden = looping || !F.spaceOpen(S); tb.textContent = shipTab ? '🐦 Bird upgrades' : '🚀 Ship upgrades'; }
     if (!ship) return;

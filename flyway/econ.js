@@ -771,8 +771,10 @@
   // Space is a real voyage: a first trip to the Moon takes about 5 minutes out and 5 back
   // (Thrusters and a faster bird cut that down). Farther worlds take longer still. Each trip pays
   // ten times what it used to, so space earns at the same rate per minute, in bigger hauls.
-  const TRIP_SECS = [600, 900, 1200, 1300, 1500, 1600, 1700, 2400];
-  const DEST_ROCKS = [10, 30, 80, 120, 250, 350, 450, 3000];
+  // Every new world starts as a long haul again: a fresh ship takes 10 minutes for the Moon, 25 for
+  // Mars, up to two hours for Alpha Centauri. Pay per trip grows with the time it takes.
+  const TRIP_SECS = [600, 1500, 2400, 3000, 3600, 4200, 4800, 7200];
+  const DEST_ROCKS = [10, 50, 160, 280, 600, 920, 1270, 9000];
   const loopKm = (dest) => 2 * SPACE[dest].km * 1.15;
   // ---- one currency, shown in local units ----
   // Everything the player owns is seeds. In space the same amount is shown in
@@ -822,29 +824,42 @@
   // fitted, at ×0.6. Each upgrade's strength is the sum of what every level it got was worth.
   const shipWhere = (s) => (s.space && s.space.loop ? s.space.dest : -1); // -1 = Earth
   const shipWeight = (s, where = shipWhere(s)) => (where < 0 ? 0.6 : 1 + 0.25 * where);
-  const shipPow = (s, id) => { const p = s.moon && s.moon.pw && s.moon.pw[id]; return p != null ? p : shipLv(s, id); };
+  // Upgrades fitted at a nearer world only help a little out at a farther one (35% per step out),
+  // so each new world starts slow again and has to be built up there. Earth fits count as the Moon's.
+  const NEAR_K = 0.35;
+  function pwAt(s, id) {
+    s.moon.pwAt = s.moon.pwAt || {};
+    if (!s.moon.pwAt[id]) { const old = s.moon.pw && s.moon.pw[id] != null ? s.moon.pw[id] : shipLv(s, id); s.moon.pwAt[id] = old ? { 0: old } : {}; }
+    return s.moon.pwAt[id];
+  }
+  function shipPowAt(s, id, d) {
+    if (!s.moon) return 0;
+    let p = 0; for (const [w, v] of Object.entries(pwAt(s, id))) p += v * (+w >= d ? 1 : NEAR_K ** (d - +w));
+    return p;
+  }
+  const shipPow = (s, id) => shipPowAt(s, id, Math.max(0, shipWhere(s)));
   function buyShip(s, id, n) {
     const u = SHIP.find((x) => x.id === id), L = shipLv(s, id);
     if (n === 'max') n = shipMax(u, L, s.seeds);
     if (!n) return 0;
     const c = shipCostN(u, L, n) * MOON_RATE; if (c > s.seeds) return 0;
-    s.moon.pw = s.moon.pw || {}; s.moon.pw[id] = shipPow(s, id) + n * shipWeight(s);
+    const at = pwAt(s, id), w = Math.max(0, shipWhere(s)); at[w] = (at[w] || 0) + n * shipWeight(s);
     s.seeds -= c; s.moon.lv[id] = L + n; return n;
   }
   // Earth training carries into space, in part: a faster bird makes a faster ship, though much
   // less than one for one (×1 at the start, about ×1.6 at a thousand km/s).
-  const earthShip = (s) => 1 + 0.15 * Math.log10(Math.max(1, baseSpeed(s) / 0.06));
+  const earthShip = (s) => (1 + 0.08 * Math.log10(Math.max(1, baseSpeed(s) / 0.06))) ** (1 / (1 + Math.max(0, shipWhere(s))));
   // every planet reached beyond the Moon (ever) multiplies space rocks per trip by 1.5
   const planetsReached = (s) => (s.cosmos || []).filter((id) => id !== 'moon').length;
   const planetMult = (s) => 1.5 ** planetsReached(s);
-  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipPow(s, 'cargo')) * (1 + 0.5 * shipPow(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s) * legacyMult(s));
+  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipPowAt(s, 'cargo', dest)) * (1 + 0.5 * shipPowAt(s, 'wing', dest)) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s) * legacyMult(s));
   const solarMult = (s) => (s.space ? 1 + 0.5 * shipPow(s, 'solar') : 1);
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
     const warp = s.space && s.space.warp > 0 ? warpMult(shipPow(s, 'warp')) : 1;
     // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
-    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipPow(s, 'thrust')) * earthShip(s) * flyerSpeed(s) * legacyMult(s)
+    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipPowAt(s, 'thrust', d)) * earthShip(s) * flyerSpeed(s) * legacyMult(s)
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar * warp;
   }
   // ---- space flyers ----
@@ -894,7 +909,7 @@
 
   // Golden feathers for each round trip: about three times what the same time earns on Earth,
   // more for each world farther out. Some flyers (and feather birds) bring home extra.
-  const TRIP_FEATHERS = [50, 120, 220, 280, 380, 460, 540, 1500];
+  const TRIP_FEATHERS = [50, 160, 300, 440, 600, 790, 1000, 1800];
   const tripFeathers = (s, dest) => TRIP_FEATHERS[dest] + (flyerOf(s).feathers || 0) + (birdOf(s).feathers || 0);
 
   // ---- mastery ----
@@ -954,7 +969,7 @@
   // raiders in space: lose an escort pod, or a tenth of the rocks
   function spaceHit(s) {
     s.stun = THREAT.STUN; s.caught = (s.caught || 0) + 1;
-    if (shipLv(s, 'wing') > 0) { const L = shipLv(s, 'wing'); if (s.moon.pw && s.moon.pw.wing != null) s.moon.pw.wing *= (L - 1) / L; s.moon.lv.wing--; return { lost: 'wingmate' }; }
+    if (shipLv(s, 'wing') > 0) { const L = shipLv(s, 'wing'), at = pwAt(s, 'wing'); for (const w in at) at[w] *= (L - 1) / L; s.moon.lv.wing--; return { lost: 'wingmate' }; }
     const lost = s.seeds * 0.1; s.seeds -= lost; return { lost: 'rocks', seeds: lost };
   }
   function spaceMiss(s) { const pay = Math.max(0.1, rocksPerTrip(s) * 0.03) * MOON_RATE; s.seeds += pay; s.runSeeds += pay; s.dodged = (s.dodged || 0) + 1; return pay; }
@@ -1046,7 +1061,7 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
-    LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipPow, shipWeight, shipWhere, earthShip, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipPow, shipPowAt, NEAR_K, shipWeight, shipWhere, earthShip, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
