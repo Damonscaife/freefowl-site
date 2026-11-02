@@ -351,6 +351,12 @@
   // Migrating pays the run's feathers again as a bonus.
   const FEATHERS_PER_LAP = 5;
   const migrateBonus = (s) => s.runFeathers || 0;
+  // Legacy: the reason to start over. Every migration banks this run's laps (and space round
+  // trips, which count double) as permanent legacy: each one adds +0.5% to everything (speed,
+  // seeds, ship speed and space rocks), for good, in every run and with every bird after.
+  const LEGACY_PER = 0.005;
+  const legacyGain = (s) => (s.lapsFlown || 0) + 2 * (s.runTrips || 0);
+  const legacyMult = (s) => 1 + LEGACY_PER * (s.legacy || 0);
 
   function newState(birdId, startIdx) {
     const s = {
@@ -534,7 +540,7 @@
 
   function baseSpeed(s) {
     const b = birdOf(s);
-    return wingSpeed(s.levels.wings) * b.speed * starMult(s, b.id) * perkSpeed(s);
+    return wingSpeed(s.levels.wings) * b.speed * starMult(s, b.id) * perkSpeed(s) * legacyMult(s);
   }
   // Breaking the sound barrier (0.343 km/s) and reaching the speed of light (299,792 km/s)
   // each give a 10% speed boost for 60 seconds, once per run.
@@ -548,7 +554,7 @@
   function seedRate(s, overOcean) {
     const b = birdOf(s);
     const oc = overOcean && b.ocean ? b.ocean : 1;
-    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * starMult(s, b.id) * perkSeeds(s) * solarMult(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s);
+    return forage(s.levels.beak) * (1 + 0.5 * s.levels.flock) * b.seeds * starMult(s, b.id) * perkSeeds(s) * solarMult(s) * oc * (s.rush > 0 ? RUSH_SEEDS : 1) * wxOf(s).seeds * cosmicMult(s) * legacyMult(s);
   }
   // Payout for landing in the next city: worth T.arrive seconds of foraging,
   // growing with each city already reached this run.
@@ -599,7 +605,7 @@
       if (trips > 0) {
         s.space.u -= trips; s.space.trips += trips;
         const r = rocksPerTrip(s) * trips, pay = r * MOON_RATE;
-        s.seeds += pay; s.runSeeds += pay; s.moon.total += r; s.moon.trips += trips;
+        s.seeds += pay; s.runSeeds += pay; s.moon.total += r; s.moon.trips += trips; s.runTrips = (s.runTrips || 0) + trips;
         const fl = tripFeathers(s, s.space.dest) * trips;
         s.feathers += fl; s.runFeathers = (s.runFeathers || 0) + fl;
         ev.push({ type: 'trip', rocks: r, pay, trips, feathers: fl });
@@ -821,14 +827,14 @@
   // every planet reached beyond the Moon (ever) multiplies space rocks per trip by 1.5
   const planetsReached = (s) => (s.cosmos || []).filter((id) => id !== 'moon').length;
   const planetMult = (s) => 1.5 ** planetsReached(s);
-  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s));
+  const rocksPerTrip = (s, dest = s.space && s.space.loop ? s.space.dest : 0) => Math.round((1 + shipLv(s, 'cargo')) * (1 + 0.5 * shipLv(s, 'wing')) * planetMult(s) * DEST_ROCKS[dest] * flyerRocks(s) * legacyMult(s));
   const solarMult = (s) => (s.space ? 1 + 0.5 * shipLv(s, 'solar') : 1);
   function loopSpeed(s) {
     const d = s.space && s.space.loop ? s.space.dest : 0;
     const solar = s.space && s.space.event && s.space.event.type === 'solar' ? 2 : 1;
     const warp = s.space && s.space.warp > 0 ? warpMult(shipLv(s, 'warp')) : 1;
     // the ship's own speed: however fast the bird was on Earth, space starts slow; Thrusters, BOOST and solar wind speed it up
-    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust')) * flyerSpeed(s)
+    return loopKm(d) / TRIP_SECS[d] * (1 + 0.15 * shipLv(s, 'thrust')) * flyerSpeed(s) * legacyMult(s)
       * (1 + s.boost) * (s.stun > 0 ? 0.5 : 1) * solar * warp;
   }
   // ---- space flyers ----
@@ -995,13 +1001,14 @@
     const gained = migrateBonus(s);
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
       birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {},
-      mastery: s.mastery || { bird: {}, flyer: {} }, freeEggs: s.freeEggs || 0, freeSpaceEggs: s.freeSpaceEggs || 0 };
+      mastery: s.mastery || { bird: {}, flyer: {} }, freeEggs: s.freeEggs || 0, freeSpaceEggs: s.freeSpaceEggs || 0,
+      legacy: (s.legacy || 0) + legacyGain(s) };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);
     n.route = genLap(n, startIdx); // with the passport, so the first lap favours new places
     n.seeds = nestEgg(n.perks.nest || 0);
-    return { state: n, gained };
+    return { state: n, gained, legacy: legacyGain(s) };
   }
 
   const UNITS = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
@@ -1029,7 +1036,7 @@
     T, PRICE, CITIES, BIRDS, UPGRADES, MILESTONES, distKm, lerpGeo, newState, birdOf, legFrom, legTo, legLen, genLap, lapLegs,
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
-    GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
+    LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
     speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };

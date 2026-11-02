@@ -3707,10 +3707,11 @@
     const mig = $('btnMigrate');
     if (S.lapsFlown >= 1 && !S.space) {
       mig.classList.add('on');
-      $('migrateSub').textContent = `+${fmt(F.migrateBonus(S), 0)} bonus golden feathers (this run's again)`;
+      $('migrateSub').textContent = `+${legacyPct(F.legacyGain(S))} to everything forever · +${fmt(F.migrateBonus(S), 0)} 🪶`;
     } else mig.classList.remove('on');
   }
 
+  const legacyPct = (pts) => `${fmt(pts * F.LEGACY_PER * 100, pts * F.LEGACY_PER * 100 < 10 ? 1 : 0)}%`;
   // postmark stamp when the bird lands somewhere
   const pm = $('postmark');
   let lastStampAt = 0;
@@ -3794,7 +3795,7 @@
     sel.value = S ? String(F.legFrom(S).i) : String(CITIES.findIndex((c) => c.name === 'New York'));
     $('startTitle').textContent = migrating ? 'Migrate again' : 'Flyway';
     $('startLede').textContent = migrating
-      ? `Start a fresh run and get ${fmt(pending, 0)} bonus golden feathers (${fmt(purse, 0)} in all). Spend them on new birds here, or on permanent perks in the feather shop. Your passport, birds and perks stay; upgrades and seeds reset.`
+      ? `Start a fresh run: everything gets +${legacyPct(F.legacyGain(S))} faster and richer for good (legacy ${legacyPct((S.legacy || 0) + F.legacyGain(S))} in all), and you get ${fmt(pending, 0)} bonus golden feathers (${fmt(purse, 0)} in all). Each lap this run adds +0.5%, each space round trip +1%. Spend them on new birds here, or on permanent perks in the feather shop. Your passport, birds and perks stay; upgrades and seeds reset.`
       : 'Pick a bird and a city. It flies the world on its own; you make it faster. Every lap around the globe earns 5 golden feathers for new birds.';
     function updateGo() {
       const b = BIRDS.find((x) => x.id === pickBird);
@@ -3806,7 +3807,8 @@
       const start = +sel.value;
       if (migrating) {
         const b = BIRDS.find((x) => x.id === pickBird);
-        S = F.migrateAgain(S, owns(b) ? pickBird : S.bird, start).state;
+        const mr = F.migrateAgain(S, owns(b) ? pickBird : S.bird, start); S = mr.state;
+        if (mr.legacy > 0) setTimeout(() => toast(`Legacy +${legacyPct(mr.legacy)}: everything is now +${legacyPct(S.legacy)} faster and richer, for good.`), 2600);
         if (!owns(b) && F.buyBird(S, b.id)) { S.bird = b.id; toast(b.secret ? `${b.name} unlocked: ${b.trait}!` : `${b.name} unlocked!`); }
       } else S = F.newState(pickBird, start);
       close('startSheet'); beginFlight(true);
@@ -3972,6 +3974,7 @@
       ['Orbital speed', F.isOrbit(S) ? 'Reached · satellite orbits' : `${fmt(F.baseSpeed(S))} of ${fmt(F.ORBIT_SPEED, 0)} km/s`],
       ['Lifetime laps', F.isNonstop(S) ? `${fmt(S.lapsTotal, 0)} · nonstop` : `${S.lapsTotal} of ${F.NONSTOP_AT} to nonstop`], ['Space trips', `${fmt(S.moon.trips, 0)} round trips`],
       ['Worlds reached', `${S.cosmos.length} (+${S.cosmos.length * 25}% seeds)`],
+      ['Legacy', `+${legacyPct(S.legacy || 0)} to everything · next migration +${legacyPct(F.legacyGain(S))}`],
     ].map(([k, v]) => `<div>${k}<strong>${v}</strong></div>`).join('');
     $('optLapPrompt').checked = !S.noLapPrompt;
     refreshRoutePick();
@@ -4619,7 +4622,7 @@
           lapShownFor = S.leg;
           if (S.noLapPrompt || S.lapsTotal > 1) toast(`Lap ${fmt(S.lapsTotal, 0)} done: +${F.FEATHERS_PER_LAP} 🪶. ${F.isNonstop(S) ? 'Next circle: a new direction.' : 'The next lap takes a new route.'}`);
           else {
-            $('lapText').textContent = `${F.birdOf(S).name} made it all the way around and earned ${F.FEATHERS_PER_LAP} golden feathers 🪶. Every lap pays ${F.FEATHERS_PER_LAP} more. Migrate again to start fresh and get this run's ${fmt(F.migrateBonus(S), 0)} feathers again as a bonus, or keep flying: the next lap takes a new route.`;
+            $('lapText').textContent = `${F.birdOf(S).name} made it all the way around and earned ${F.FEATHERS_PER_LAP} golden feathers 🪶. Every lap pays ${F.FEATHERS_PER_LAP} more. Migrate again to start fresh: everything gets +${legacyPct(F.legacyGain(S))} for good (more for every lap you fly first), plus this run's ${fmt(F.migrateBonus(S), 0)} feathers again as a bonus. Or keep flying: the next lap takes a new route.`;
             $('lapNoAsk').checked = false; open('lapSheet');
           }
         }
