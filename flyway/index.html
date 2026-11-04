@@ -112,6 +112,36 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .loop-btn b i { font-style: normal; font-weight: 600; font-size: .78em; opacity: .8; }
 .shiptab { margin: 0 14px 8px; padding: 9px 14px; border-radius: 10px; background: var(--paper-2); color: var(--ink); font-weight: 700; font-size: 14px; width: calc(100% - 28px); text-align: left; }
 .workshop { margin: 0 14px 6px; font-size: 12.5px; color: var(--ink-2); }
+/* new-player tips */
+.coach { position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 3; max-width: min(88%, 420px);
+  display: flex; align-items: center; gap: 8px; background: rgba(6,12,31,.82); color: #fff; font-size: 13.5px; font-weight: 600;
+  padding: 9px 10px 9px 14px; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.25); animation: coachIn .4s ease-out; }
+.coach button { color: #fff; opacity: .7; font-size: 18px; line-height: 1; padding: 0 4px; }
+@keyframes coachIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+.flap.nudge { animation: nudge 1.1s ease-in-out infinite; }
+.up.nudge { box-shadow: 0 0 0 3px #f2b630 inset; border-radius: 12px; }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(242,182,48,.7); } 50% { box-shadow: 0 0 0 14px rgba(242,182,48,0); } }
+/* welcome back */
+.away-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin: 10px 0; }
+.away-tiles div { background: var(--paper-2); border-radius: 12px; padding: 9px 6px; text-align: center; font-size: 12px; color: var(--ink-2); }
+.away-tiles b { display: block; font-size: 20px; color: var(--ink); font-family: var(--display); }
+.away-stamps { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.away-stamps span { font-size: 11.5px; font-weight: 700; color: #7a3b2e; border: 2px dashed #c9806b; border-radius: 999px; padding: 3px 9px; transform: rotate(-2deg); }
+.away-gift { background: #fff6dc; border: 2px solid #f2b630; border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 700; margin: 6px 0; }
+.away-next { font-size: 13px; color: var(--ink-2); }
+/* options */
+.opt-btn { margin-top: 10px; }
+.opts { display: grid; gap: 4px; margin: 6px 0 14px; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--paper-2); font-size: 15px; cursor: pointer; }
+.opt small { display: block; font-size: 12px; color: var(--ink-2); font-weight: 400; }
+.sw { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 999px; background: #c9ced6; position: relative; flex-shrink: 0; transition: background .2s; cursor: pointer; }
+.sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .2s; }
+.sw:checked { background: #34c759; }
+.sw:checked::after { left: 21px; }
+.opt-ver { font-size: 11.5px; color: var(--ink-2); text-align: center; margin-top: 10px; }
+.gift-card { text-align: center; }
+.gift-egg { font-size: 64px; animation: wob 1.2s ease-in-out infinite; display: inline-block; }
+@keyframes wob { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 [hidden] { display: none !important; }
 .rockico { font-size: 22px; line-height: 1; width: auto !important; height: auto !important; }
 .chip.event { background: #5b3d8a; border-color: transparent; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
@@ -458,6 +488,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
       <b id="flapLabel">FLAP</b><span id="boostPct">+0%</span>
     </button>
     <div class="hint" id="hint">Pinch or scroll to zoom out</div>
+    <div class="coach" id="coach" hidden><span id="coachText"></span><button id="coachSkip" aria-label="Hide tips">×</button></div>
     <div class="postmark" id="postmark" aria-hidden="true"></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
@@ -503,8 +534,12 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
 
 <div class="sheet" id="awaySheet" role="dialog" aria-modal="true" aria-labelledby="awayTitle">
   <div class="card">
-    <h3 id="awayTitle">While you were away</h3>
+    <h3 id="awayTitle">Welcome back!</h3>
     <p id="awayText"></p>
+    <div class="away-tiles" id="awayTiles"></div>
+    <div class="away-stamps" id="awayStamps"></div>
+    <div class="away-gift" id="awayGift" hidden></div>
+    <p class="away-next" id="awayNext"></p>
     <button class="go" id="btnAway">Collect</button>
   </div>
 </div>
@@ -561,7 +596,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
     <div class="stats" id="menuStats"></div>
     <p style="font-size:13.5px">Golden feathers 🪶: 5 for every lap around the globe, and a bonus when you migrate. Spend them on new birds and on perks that last forever.</p>
     <button class="go" id="btnShopMenu" style="margin-top:12px">Open the feather shop</button>
-    <label class="check"><input type="checkbox" id="optLapPrompt" checked> Ask to migrate after each lap</label>
+    <button class="ghost opt-btn" id="btnOptions">⚙️ Options</button>
     <div class="routepick" id="routePick" hidden>
       <h4>Route around Earth</h4>
       <div class="mode" role="group" aria-label="Route around Earth">
@@ -584,8 +619,33 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
         <button data-act="hide">Hide admin</button>
       </div>
     </div>
-    <button class="ghost" id="btnReset" style="color:var(--red)">Start over from scratch</button>
     <p class="back"><a href="/">Back to FreeFowl Arcade</a></p>
+  </div>
+</div>
+
+<div class="sheet" id="optionsSheet" role="dialog" aria-modal="true" aria-labelledby="optTitle">
+  <div class="card">
+    <button class="x" data-close aria-label="Close">×</button>
+    <h3 id="optTitle">Options</h3>
+    <div class="opts">
+      <label class="opt"><span>🔊 Sound and music</span><input type="checkbox" class="sw" id="optSound"></label>
+      <label class="opt"><span>📳 Vibration</span><input type="checkbox" class="sw" id="optHaptics"></label>
+      <label class="opt"><span>🐢 Calmer motion <small>slower scrolling, less shake</small></span><input type="checkbox" class="sw" id="optMotion"></label>
+      <label class="opt"><span>🪶 Ask to migrate after each lap</span><input type="checkbox" class="sw" id="optLapPrompt" checked></label>
+      <label class="opt"><span>💡 Show tips for new players</span><input type="checkbox" class="sw" id="optTips"></label>
+    </div>
+    <button class="ghost" id="btnReset" style="color:var(--red)">Start over from scratch</button>
+    <p class="opt-ver" id="optVer"></p>
+  </div>
+</div>
+
+<div class="sheet" id="giftSheet" role="dialog" aria-modal="true" aria-labelledby="giftTitle">
+  <div class="card gift-card">
+    <div class="gift-egg" aria-hidden="true">🥚</div>
+    <h3 id="giftTitle">Your first stamp!</h3>
+    <p id="giftText">Every flock starts somewhere. Here's a golden egg to hatch your first new bird.</p>
+    <button class="go" id="btnGiftHatch">Hatch it</button>
+    <button class="ghost" id="btnGiftLater">Later (it waits in the feather shop)</button>
   </div>
 </div>
 

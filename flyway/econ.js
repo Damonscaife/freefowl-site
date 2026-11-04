@@ -362,7 +362,7 @@
     const s = {
       v: 1, bird: birdId, start: startIdx, leg: 0, legKm: 0, ri: 0, route: null, lapsFlown: 0,
       gear: {}, space: null, spaceStage: -1, cosmos: [], noLapPrompt: false, lapsTotal: 0, moon: { rocks: 0, total: 0, trips: 0, lv: {} }, birds: BIRDS.filter((b) => b.cost === 0).map((b) => b.id), perks: {},
-      seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
+      takeoff: TAKEOFF_SECS, seeds: 0, runSeeds: 0, totalKm: 0, levels: { wings: 0, beak: 0, tail: 0, flock: 0, stamina: 0, keen: 0, camo: 0, bugs: 0 }, rush: 0, stun: 0, wx: { type: 'clear', left: 0 },
       boost: 0, laps: 0, feathers: 0, visited: [startIdx], arrivals: 0, lastSave: Date.now(),
       createdAt: Date.now(),
     };
@@ -384,6 +384,16 @@
     const band = n === 0 ? start.lat : BANDS[(n - 1) % BANDS.length] + (Math.random() - 0.5) * 8;
     const route = [startIdx], used = new Set([startIdx]), seen = new Set(s.visited || []);
     let cur = start, acc = 0;
+    // a run's very first hop is the nearest city a little way east, so the first stamp comes quickly
+    if (n === 0 && !s.leg) {
+      let near = null, nd = Infinity;
+      for (const c of CITIES) {
+        const dl = (((c.lon - start.lon) % 360) + 360) % 360;
+        if (c.i === startIdx || dl < 1 || dl > 40) continue;
+        const d = distKm(start, c); if (d < nd) { nd = d; near = c; }
+      }
+      if (near) { route.push(near.i); used.add(near.i); acc += (((near.lon - start.lon) % 360) + 360) % 360; cur = near; }
+    }
     while (acc < 360 && route.length < 70) {
       let best = null, bs = Infinity, bd = 0;
       for (const maxD of [75, 130, 200]) {
@@ -509,6 +519,7 @@
       s.birds = BIRDS.filter((b) => b.cost === 0 || (old[b.id] && (s.laps || 0) >= old[b.id]) || b.id === s.bird).map((b) => b.id);
     }
     if (s.spaceStage == null) s.spaceStage = -1;
+    if (s.welcomeEgg == null && (s.arrivals > 0 || s.laps > 0)) s.welcomeEgg = true; // players from before the welcome egg
     s.rush = s.rush || 0; s.stun = 0; s.wx = s.wx || { type: 'clear', left: 0 }; s.dodged = s.dodged || 0; s.caught = s.caught || 0; return s;
   }
 
@@ -546,10 +557,20 @@
   // each give a 10% speed boost for 60 seconds, once per run.
   const SOUND_KMS = 0.343, LIGHT_KMS = 299792.458, BARRIER_SECS = 60;
   const barrierMult = (s) => (s.barrierT > 0 ? 1.1 : 1);
+  // Take-off tailwind: every run's first leg is carried by a strong tailwind (at least ×4, enough
+  // to reach the first city in about two minutes), which eases off over 30 s after landing there,
+  // so the first stamp comes quickly instead of after a long wait.
+  const TAKEOFF_SECS = 30;
+  function takeoffMult(s, base) {
+    if (s.space) return 1;
+    if (!s.leg) return Math.min(250, Math.max(4, legLen(s) / (110 * Math.max(base, 1e-6))));
+    return s.takeoff > 0 ? 1 + 3 * Math.min(1, s.takeoff / 30) : 1;
+  }
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s) * barrierMult(s);
+    const v = baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s) * barrierMult(s);
+    return v * takeoffMult(s, baseSpeed(s));
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
@@ -571,8 +592,9 @@
   function step(s, dt, overOcean) {
     const ev = [];
     if (s.barrierT > 0) s.barrierT = Math.max(0, s.barrierT - dt);
+    if (s.takeoff > 0 && !s.space && s.leg > 0) s.takeoff = Math.max(0, s.takeoff - dt);
     if (!s.space) {
-      const v = speed(s) / barrierMult(s);
+      const v = speed(s) / barrierMult(s) / takeoffMult(s, baseSpeed(s)); // the bird's own speed: the take-off tailwind doesn't break barriers
       if (!s.soundHit && v >= SOUND_KMS) { s.soundHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'sound' }); }
       if (!s.lightHit && v >= LIGHT_KMS) { s.lightHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'light' }); }
     }
@@ -650,6 +672,8 @@
         const to = legTo(s);
         const bonus = to.v ? 0 : arrivalBonus(s);
         s.seeds += bonus; s.runSeeds += bonus; if (!to.v) s.arrivals++;
+        // the very first stamp a player ever earns comes with a free golden egg
+        if (!to.v && !s.welcomeEgg) { s.welcomeEgg = true; s.freeEggs = (s.freeEggs || 0) + 1; ev.push({ type: 'welcomeEgg' }); }
         const first = !to.v && !s.visited.includes(to.i);
         if (first) s.visited.push(to.i);
         s.leg++; s.ri++; s.legKm = 0;
@@ -1027,7 +1051,7 @@
     const keep = { laps: s.laps + 1, feathers: s.feathers + gained, visited: s.visited, createdAt: s.createdAt, cosmos: s.cosmos || [], noLapPrompt: !!s.noLapPrompt,
       birds: s.birds, stars: s.stars || {}, perks: s.perks, lapsTotal: s.lapsTotal || 0, moon: s.moon, orbitUnlocked: !!s.orbitUnlocked, routePref: s.routePref || 'circle', overCount: s.overCount || {},
       mastery: s.mastery || { bird: {}, flyer: {} }, freeEggs: s.freeEggs || 0, freeSpaceEggs: s.freeSpaceEggs || 0,
-      legacy: (s.legacy || 0) + legacyGain(s), funnel: s.funnel || {} };
+      legacy: (s.legacy || 0) + legacyGain(s), funnel: s.funnel || {}, welcomeEgg: true, coach: s.coach };
     const n = newState(birdId, startIdx);
     Object.assign(n, keep);
     if (!n.visited.includes(startIdx)) n.visited.push(startIdx);

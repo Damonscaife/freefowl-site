@@ -9,7 +9,8 @@
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const lerp = (a, b, t) => a + (b - a) * t;
   const SAVE_KEY = 'flyway.save.v1';
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // calmer motion: the player's own choice in Options, else the system's reduce-motion setting
+  let reduceMotion = (() => { try { const v = localStorage.getItem('flyway.motion'); if (v) return v === 'calm'; } catch (e) {} return matchMedia('(prefers-reduced-motion: reduce)').matches; })();
 
   // ======================================================================
   // World map: one equirectangular canvas is both the globe texture and the
@@ -2618,7 +2619,7 @@
     fcam.position.set(d * 0.18 + Math.sin(sway) * d * 0.15, Math.sin(elevA) * d, Math.cos(elevA) * d);
     // follow the bird part-way down into a bug dive
     fcam.position.y += hero.position.y * 0.6;
-    if (side.shake > 0) fcam.position.add(new THREE.Vector3((Math.random() - 0.5) * side.shake, (Math.random() - 0.5) * side.shake, 0));
+    if (side.shake > 0 && !reduceMotion) fcam.position.add(new THREE.Vector3((Math.random() - 0.5) * side.shake, (Math.random() - 0.5) * side.shake, 0));
     fcam.lookAt(wantW * 0.14 - side.fightK * 2.4, 0.4 + hero.position.y * 0.7 + side.fightK * 0.6, 0);
     // cutouts dim a little at night, like everything else
     const lit = lerp(1, 0.6, night);
@@ -3218,7 +3219,7 @@
     sp2.needsUpdate = true; sstreakGeo.setDrawRange(0, SSTREAK * 2);
     // camera pulls back a little during a fight
     side.fightK = lerp(side.fightK || 0, th && b > -0.6 && b < BATTLE + 1.6 ? 1 : 0, 1 - Math.exp(-dt * 2.5));
-    const shake = side.shake > 0 ? (side.shake -= dt, side.shake) : 0;
+    const shake = side.shake > 0 ? (side.shake -= dt, reduceMotion ? 0 : side.shake) : 0;
     fcam.position.set(3 - side.fightK * 4 + (Math.random() - 0.5) * shake, 4.2 + side.fightK * 2 + (Math.random() - 0.5) * shake, 22 + side.fightK * 10);
     fcam.lookAt(4 - side.fightK * 3, 0.5, 0);
     // the warp jump stretches the view
@@ -3636,7 +3637,7 @@
   // hawk; holding mostly helps you climb away from a hunter.
   function doFlap(fromHold) {
     if (!S || !running || side.photo) return;
-    F.flap(S); side.flapRate += 3; Sound.flap();
+    F.flap(S); side.flapRate += 3; Sound.flap(); side.coachFlaps = (side.coachFlaps || 0) + 1;
     if (S.space && S.space.event && S.space.event.type === 'field') { const r = F.mine(S); if (r) { mineHit(r); } }
     const th = side.threat;
     if (th && !th.resolved) th.meter += th.type === 'hunter' ? 0.12 : (fromHold ? 0.35 : 1) / F.THREAT.taps(S);
@@ -4277,7 +4278,7 @@
     }
     resetArmed = 0; btn.textContent = 'Start over from scratch';
     try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
-    S = null; running = false; close('menuSheet'); buildStart('new'); open('startSheet');
+    S = null; running = false; close('menuSheet'); close('optionsSheet'); buildStart('new'); open('startSheet');
   };
 
   // ---------- save / load ----------
@@ -4294,11 +4295,11 @@
   function catchUp() {
     const away = clamp((Date.now() - (S.lastSave || Date.now())) / 1000, 0, 8 * 3600);
     if (away < 30) return null;
-    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals; S.boost = 0; S.rush = 0; S.stun = 0; S.wx = { type: 'clear', left: 0 }; side.bug = null; side.threat = null;
+    const seeds0 = S.seeds, km0 = S.totalKm, arr0 = S.arrivals, f0 = S.feathers, v0 = S.visited.length; S.boost = 0; S.rush = 0; S.stun = 0; S.wx = { type: 'clear', left: 0 }; side.bug = null; side.threat = null;
     const steps = Math.min(4000, Math.ceil(away)), dt = away / steps;
-    let lap = false;
-    for (let i = 0; i < steps; i++) for (const e of F.step(S, dt, false)) if (e.lapDone) lap = true;
-    return { away, seeds: S.seeds - seeds0, km: S.totalKm - km0, cities: S.arrivals - arr0, lap };
+    let lap = false, laps = 0, trips = 0;
+    for (let i = 0; i < steps; i++) for (const e of F.step(S, dt, false)) { if (e.lapDone) { lap = true; laps++; } if (e.type === 'trip') trips += e.trips; }
+    return { away, seeds: S.seeds - seeds0, km: S.totalKm - km0, cities: S.arrivals - arr0, lap, laps, trips, feathers: S.feathers - f0, stamps: S.visited.slice(v0) };
   }
 
   // ---------- Bug Catcher ----------
@@ -4479,6 +4480,7 @@
   function refreshWeatherChip() {
     const el = $('wx');
     if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${worldKnown(F.SPACE[S.space.dest]) ? F.SPACE[S.space.dest].short : '???'} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
+    if (!S.leg) { el.className = 'wx wx-tailwind'; el.textContent = `🌬️ Take-off tailwind: carrying you to ${F.legTo(S).name || 'your first city'}`; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${F.wxNote(S, wx)}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
@@ -4929,6 +4931,7 @@
         if (e.type === 'warp') { toast('🌀 Warp jump!'); Sound.launch(); Haptic.impact('HEAVY'); continue; }
         if (e.type === 'trip') { tripDone(e); dailyHit('trips', e.trips); Sound.coin(); continue; }
         if (e.type === 'mastery') { masteryDone(e); continue; }
+        if (e.type === 'welcomeEgg') { setTimeout(() => { if (!anySheetOpen()) open('giftSheet'); }, 1900); continue; }
         if (e.type === 'orbit') { orbitUnlocked(); continue; }
         if (e.nonstopNow) { toast('50 laps! Your bird now flies nonstop circles around the globe. Each one pays out every destination. You can switch back to city hopping in the menu.'); rebuildRoute(); }
         else if (e.orbitPay && S.lapsTotal < 100) toast(`Orbit complete! Every destination paid out: +${fmt(e.orbitPay)} seeds`);
@@ -4968,7 +4971,7 @@
         if (sa > 0) updateFlight(dt);
       }
       if (S.space) setPip(false);
-      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); refreshEventChip(); }
+      uiT += dt; if (uiT > 0.1) { uiT = 0; refreshHud(); refreshUpgrades(); refreshExpo(); refreshShip(); refreshEventChip(); coachTick(); }
       Sound.tick(); Sound.setScene(S.space ? 'space' : 'earth');
       Sound.setWind(S.space ? 0.15 : Math.min(1, 0.25 + Math.log10(1 + F.speed(S)) / 4) * smooth(SIDE_A, SIDE_B, Z));
       dailyT += dt; if (dailyT > 2) { dailyT = 0; refreshDaily(); }
@@ -4992,11 +4995,88 @@
   });
   addEventListener('pagehide', save);
 
+  // ---------- welcome back ----------
+  // What happened while you were gone, counted up tile by tile, the new stamps in your passport,
+  // a once-a-day gift for coming back, and what's next.
+  const todayKey = () => new Date().toDateString();
   function showAway(r) {
-    $('awayText').textContent = `You were gone ${fmtTime(r.away)}. Your bird flew ${fmt(r.km)} km, reached ${fmt(r.cities, 0)} ${r.cities === 1 ? 'city' : 'cities'} and gathered ${fmt(r.seeds)} seeds.`;
-    rebuildRoute(); resetSide(); open('awaySheet');
+    rebuildRoute(); resetSide();
+    $('awayTitle').textContent = r.away > 4 * 3600 ? 'Welcome back!' : 'While you were away';
+    $('awayText').textContent = `You were gone ${fmtTime(r.away)}. ${F.birdOf(S).name} kept flying${S.space ? ' through space' : ''}.`;
+    const tiles = [['🌍', r.km, 'km flown'], ['📮', r.cities, r.cities === 1 ? 'city' : 'cities'], ['🌰', r.seeds, 'seeds']];
+    if (r.feathers > 0) tiles.push(['🪶', r.feathers, 'feathers']);
+    if (r.laps > 0) tiles.push(['🔁', r.laps, r.laps === 1 ? 'lap' : 'laps']);
+    if (r.trips > 0) tiles.push(['🚀', r.trips, r.trips === 1 ? 'round trip' : 'round trips']);
+    $('awayTiles').innerHTML = tiles.filter((t) => t[1] > 0 || t[0] === '🌍').map(([ic, v, lab]) => `<div>${ic}<b data-to="${v}">0</b>${lab}</div>`).join('');
+    const names = r.stamps.map((i) => CITIES[i] && CITIES[i].name).filter(Boolean);
+    $('awayStamps').innerHTML = names.length ? names.slice(0, 8).map((n) => `<span>${n}</span>`).join('') + (names.length > 8 ? `<span>+${names.length - 8} more</span>` : '') : '';
+    // once a day, a few golden feathers for coming back after an hour or more
+    const gift = r.away >= 3600 && S.giftDay !== todayKey() ? Math.min(10, 4 + Math.floor(r.away / 3600)) : 0;
+    $('awayGift').hidden = !gift;
+    if (gift) { S.feathers += gift; S.giftDay = todayKey(); $('awayGift').textContent = `🎁 Daily welcome-back gift: +${gift} 🪶 golden feathers. Come back tomorrow for another.`; save(); }
+    $('awayNext').textContent = S.space && S.space.loop ? `Next round trip in about ${fmtTime((1 - (S.space.u % 1)) * F.loopKm(S.space.dest) / Math.max(F.loopSpeed(S), 1e-6))}.`
+      : S.space ? '' : `Next: ${Math.max(1, F.lapLegs(S) - S.ri)} more ${F.lapLegs(S) - S.ri === 1 ? 'stop' : 'stops'} to finish this lap and earn ${F.FEATHERS_PER_LAP} 🪶.`;
+    open('awaySheet');
+    // count the numbers up
+    const els = [...$('awayTiles').querySelectorAll('b')], t0 = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - t0) / 900), e = 1 - Math.pow(1 - k, 3);
+      for (const el of els) el.textContent = fmt(+el.dataset.to * e, +el.dataset.to < 100 ? 0 : undefined);
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
-  $('btnAway').onclick = () => close('awaySheet');
+  $('btnAway').onclick = () => { close('awaySheet'); Sound.coin && Sound.coin(); Haptic.notify && Haptic.notify('SUCCESS'); refreshHud(); };
+
+  // ---------- options ----------
+  $('btnOptions').onclick = () => {
+    close('menuSheet');
+    $('optSound').checked = Sound.on; $('optHaptics').checked = Haptic.on; $('optMotion').checked = reduceMotion;
+    $('optLapPrompt').checked = !S.noLapPrompt; $('optTips').checked = !S.coachOff && (S.coach || 0) < COACH_DONE;
+    $('optVer').textContent = 'Flyway · FreeFowl Arcade';
+    open('optionsSheet');
+  };
+  $('optSound').onchange = (e) => { Sound.start(); if (Sound.on !== e.target.checked) Sound.toggle(); showSound(); };
+  $('optHaptics').onchange = (e) => { Haptic.on = e.target.checked; if (e.target.checked) Haptic.impact('MEDIUM'); };
+  $('optMotion').onchange = (e) => { reduceMotion = e.target.checked; try { localStorage.setItem('flyway.motion', reduceMotion ? 'calm' : 'full'); } catch (err) {} };
+  $('optTips').onchange = (e) => { S.coachOff = !e.target.checked; if (e.target.checked) S.coach = 0; save(); };
+
+  // ---------- the first-stamp gift ----------
+  $('btnGiftHatch').onclick = () => { close('giftSheet'); const r = F.hatchEgg(S); if (r) { save(); openShop(); showHatch(r); } };
+  $('btnGiftLater').onclick = () => close('giftSheet');
+
+  // ---------- tips for new players ----------
+  // A short guided start: flap, buy speed, reach the first city on the take-off tailwind, hatch
+  // the free egg. Each tip moves on by itself once the player has done it.
+  const COACH_DONE = 5;
+  let coachShownAt = 0;
+  function coachTick() {
+    const el = $('coach');
+    const step = S.coach || 0, show = !S.coachOff && step < COACH_DONE && !S.space && !anySheetOpen() && +sideCanvas.style.opacity > 0.5;
+    flapBtn.classList.toggle('nudge', show && step === 0);
+    if (upRows.wings) upRows.wings.li.classList.toggle('nudge', show && step === 1);
+    $('btnShop').classList.toggle('nudge', show && step === 3);
+    if (!show) { el.hidden = true; return; }
+    let text = '';
+    if (step === 0) { text = '👆 Tap FLAP to fly faster'; if ((side.coachFlaps || 0) >= 3) S.coach = 1; }
+    else if (step === 1) {
+      const u = UPGRADES.find((x) => x.id === 'wings'), c = F.cost(u, S.levels.wings);
+      text = S.seeds >= c ? '⬇️ Buy Wing Strength below: faster for good' : `🌰 Seeds pile up as you fly. Wing Strength costs ${fmt(c, 0)}`;
+      if (S.levels.wings >= 1) S.coach = 2;
+    } else if (step === 2) {
+      text = `🌬️ A take-off tailwind is carrying you to ${F.legTo(S).name}. Your first stamp is coming`;
+      if (S.arrivals >= 1) S.coach = 3;
+    } else if (step === 3) {
+      text = '🥚 Hatch your free golden egg in the feather shop';
+      if (!(S.freeEggs > 0)) { S.coach = 4; coachShownAt = performance.now(); }
+    } else if (step === 4) {
+      text = '🪶 Every city pays seeds. A full lap around the world pays golden feathers for more birds';
+      if (performance.now() - coachShownAt > 9000) S.coach = COACH_DONE;
+    }
+    if ($('coachText').textContent !== text) $('coachText').textContent = text;
+    el.hidden = false;
+  }
+  $('coachSkip').onclick = () => { S.coachOff = true; save(); coachTick(); };
 
   // boot
   buildUpgrades(); buildShip(); sizeSide();
@@ -5004,6 +5084,7 @@
   const saved = load();
   if (saved) {
     S = saved;
+    if (S.coach == null && (S.arrivals > 0 || S.laps > 0)) S.coach = 5; // players from before the tips don't need them
     const r = catchUp();
     beginFlight(false); Z = ZT = 0.985; everZoomed = true; $('hint').style.opacity = 0;
     if (r) showAway(r);
