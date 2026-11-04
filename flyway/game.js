@@ -3845,20 +3845,11 @@
     else v = birdSprite.position.clone().project(camera);
     return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
   }
-  function flySeeds(amount, label, from) {
+  // a payout just gives the seed counter a small bump (no number flying across the screen)
+  function flySeeds(amount) {
     const now = performance.now(); if (!(amount > 0) || now - flyLast < 300) return; flyLast = now;
     const purse = document.querySelector('.purse .amt'); if (!purse) return;
-    const [x0, y0] = from || heroScreen(), pr = purse.getBoundingClientRect(), x1 = pr.left + pr.width * 0.5, y1 = pr.top + pr.height * 0.5;
-    const el = document.createElement('div'); el.className = 'seedfly num';
-    el.textContent = `+${label || fmt(amount)}`; document.body.appendChild(el);
-    const mx = (x0 + x1) / 2 + 40, my = Math.min(y0, y1) - 60;
-    const anim = el.animate([
-      { transform: `translate(${x0}px, ${y0}px) scale(.6)`, opacity: 0 },
-      { transform: `translate(${x0}px, ${y0 - 34}px) scale(1.15)`, opacity: 1, offset: 0.25 },
-      { transform: `translate(${mx}px, ${my}px) scale(1)`, opacity: 1, offset: 0.6 },
-      { transform: `translate(${x1}px, ${y1}px) scale(.5)`, opacity: 0.2 },
-    ], { duration: 1100, easing: 'cubic-bezier(.3,.7,.4,1)' });
-    anim.onfinish = () => { el.remove(); purse.classList.remove('bump'); void purse.offsetWidth; purse.classList.add('bump'); Haptic.impact('LIGHT'); };
+    purse.classList.remove('bump'); void purse.offsetWidth; purse.classList.add('bump'); Haptic.impact('LIGHT');
   }
   addEventListener('keydown', () => Sound.start(), { capture: true });
 
