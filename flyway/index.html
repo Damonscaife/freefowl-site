@@ -142,6 +142,9 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--gold); out
 .gift-card { text-align: center; }
 .gift-egg { font-size: 64px; animation: wob 1.2s ease-in-out infinite; display: inline-block; }
 @keyframes wob { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+.over { font-size: 12px; color: var(--ink-2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.over:empty { display: none; }
+.ticket.mini .over { display: none; }
 [hidden] { display: none !important; }
 .rockico { font-size: 22px; line-height: 1; width: auto !important; height: auto !important; }
 .chip.event { background: #5b3d8a; border-color: transparent; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
@@ -466,6 +469,7 @@ select { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border
           <span><span id="etaLabel">Arrive in</span> <strong class="num" id="eta">—</strong></span>
         </div>
         <div class="wx" id="wx" aria-live="polite">☀️ Clear skies</div>
+        <div class="over" id="over"></div>
       </div>
       <div class="threat" id="threat" role="alert" hidden>
         <span class="ti" id="threatIcon" aria-hidden="true">🦅</span>

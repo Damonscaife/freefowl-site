@@ -64,8 +64,77 @@
   }
   const fbm = (x, y) => vnoise(x, y) * 0.6 + vnoise(x * 2.1, y * 2.1) * 0.3 + vnoise(x * 4.3, y * 4.3) * 0.1;
 
-  // Very rough biomes: enough for the land to read right from orbit.
+  // ---- the real world, from open map data (world.png, world2.png, world.json) ----
+  // A 1/6-degree grid of the whole planet: real elevation (ETOPO), the real climate zone
+  // (Koppen-Geiger: rainforest, savanna, desert, steppe, mediterranean, temperate, boreal, tundra,
+  // ice), towns, rivers, lakes and major roads (Natural Earth), plus which country and which named
+  // region (Sahara, Great Plains, Andes...) each spot belongs to. About 0.6 MB, loaded once.
+  const WORLD = { ready: false, wait: [] };
+  {
+    const img = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+    const px = (im) => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); return g.getImageData(0, 0, im.width, im.height).data; };
+    Promise.all([img('world.png'), img('world2.png'), fetch('world.json').then((r) => r.json())]).then(([a, b, names]) => {
+      Object.assign(WORLD, { a: px(a), b: px(b), names, W: a.width, H: a.height });
+      // ruggedness, worked out once: the spread of heights within two grid cells (about 40 km)
+      const Wd = WORLD.W, Hd = WORLD.H, A = WORLD.a, e = new Float32Array(Wd * Hd), rough = new Float32Array(Wd * Hd);
+      for (let i = 0; i < Wd * Hd; i++) { const v = A[i * 4] / 255; e[i] = v * v * 6500; }
+      for (let y = 0; y < Hd; y++) for (let x = 0; x < Wd; x++) {
+        let lo = Infinity, hi = -Infinity;
+        for (let dy = -2; dy <= 2; dy += 2) { const yy = clamp(y + dy, 0, Hd - 1); for (let dx = -2; dx <= 2; dx += 2) { const v = e[yy * Wd + ((x + dx + Wd) % Wd)]; if (v < lo) lo = v; if (v > hi) hi = v; } }
+        rough[y * Wd + x] = hi - lo;
+      }
+      WORLD.rough = rough; WORLD.ready = true;
+      WORLD.wait.forEach((f) => f()); WORLD.wait = [];
+    }).catch(() => {});
+  }
+  const onWorld = (f) => (WORLD.ready ? f() : WORLD.wait.push(f));
+  function wcell(lat, lon) {
+    const r = clamp(Math.floor((90 - lat) / 180 * WORLD.H), 0, WORLD.H - 1), c = ((Math.floor((lon + 180) / 360 * WORLD.W) % WORLD.W) + WORLD.W) % WORLD.W;
+    return (r * WORLD.W + c) * 4;
+  }
+  // elevation in metres, smoothly interpolated between grid points
+  function elevAt(lat, lon) {
+    if (!WORLD.ready) return 0;
+    const fy = (90 - lat) / 180 * WORLD.H - 0.5, fx = (lon + 180) / 360 * WORLD.W - 0.5, y0 = Math.floor(fy), x0 = Math.floor(fx), ty = fy - y0, tx = fx - x0;
+    const e = (y, x) => { const v = WORLD.a[((clamp(y, 0, WORLD.H - 1) * WORLD.W) + ((x % WORLD.W) + WORLD.W) % WORLD.W) * 4] / 255; return v * v * 6500; };
+    return lerp(lerp(e(y0, x0), e(y0, x0 + 1), tx), lerp(e(y0 + 1, x0), e(y0 + 1, x0 + 1), tx), ty);
+  }
+  const climateAt = (lat, lon) => (WORLD.ready ? WORLD.a[wcell(lat, lon) + 1] : 0);
+  const flagsAt = (lat, lon) => (WORLD.ready ? WORLD.a[wcell(lat, lon) + 2] : 0);
+  const W_URBAN = 1, W_RIVER = 2, W_LAKE = 4, W_ROAD = 8;
+  // the flags anywhere within about r degrees (a strip can be many km wide)
+  function flagsNear(lat, lon, r = 0.12) {
+    let f = 0; for (const [dy, dx] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) f |= flagsAt(lat + dy, lon + dx); return f;
+  }
+  // which country and named region a spot is in
+  function placeAt(lat, lon) {
+    if (!WORLD.ready) return null;
+    const k = wcell(lat, lon), ci = WORLD.b[k], ri = (WORLD.b[k + 1] << 8) | WORLD.b[k + 2];
+    const reg = ri ? WORLD.names.regions[ri] : null;
+    const nice = (t) => (t && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|[\s\-'])\p{L}/gu, (m) => m.toUpperCase()) : t);
+    return { country: WORLD.names.countries[ci] || '', region: reg ? [nice(reg[0]), reg[1]] : null };
+  }
+  // how rugged the land is around a spot: the spread of heights within about 40 km (metres)
+  const roughAt = (lat, lon) => (WORLD.ready ? WORLD.rough[wcell(lat, lon) / 4] : 0);
+  // Koppen climate zone → the game's landscapes
+  const CLIMATE_BIOME = [null, 'tropic', 'savanna', 'desert', 'desert', 'steppe', 'steppe', 'med', 'temperate', 'temperate', 'temperate', 'boreal', 'tundra', 'ice'];
   function biome(lat, lon) {
+    if (WORLD.ready) {
+      const cls = climateAt(lat, lon);
+      if (cls) {
+        let b = CLIMATE_BIOME[cls];
+        const e = elevAt(lat, lon);
+        if (e > 1900 && b !== 'ice' && b !== 'tundra') b = 'alpine';
+        // flat, low, well-watered temperate country is farmland: a patchwork of fields
+        else if (b === 'temperate' && e < 700 && roughAt(lat, lon) < 260) b = 'farm';
+        return b;
+      }
+    }
+    return biomeRough(lat, lon);
+  }
+  // Very rough biomes: enough for the land to read right from orbit (used until the map data is
+  // loaded, and for small islands the climate map doesn't cover).
+  function biomeRough(lat, lon) {
     const a = Math.abs(lat), jt = (fbm(lon / 5 + 40, lat / 5) - 0.5) * 10;
     if (a + jt > 72 || lat < -60) return 'ice';
     if (a + jt > 62) return 'tundra';
@@ -85,12 +154,13 @@
   }
   const BIOME_RGB = {
     ice: [233, 238, 243], tundra: [128, 132, 104], desert: [210, 178, 122], tropic: [40, 98, 44], boreal: [74, 104, 72], temperate: [104, 146, 74], alpine: [112, 118, 96],
+    savanna: [184, 164, 92], steppe: [168, 160, 110], med: [138, 146, 86], farm: [128, 156, 76],
   };
 
   // The globe's painted texture. Painting every land pixel's biome is the slowest thing at
   // startup, so: draw the sea and a plain land fill instantly, paint the biomes at half size
   // in small slices between frames, then remember the finished picture for next launch.
-  const EARTH_KEY = 'flyway.earth.v3';
+  const EARTH_KEY = 'flyway.earth.v4'; // v4: painted from the real climate and elevation data
   function buildEarthTexture() {
     const c = document.createElement('canvas'); c.width = TW; c.height = TH;
     const g = c.getContext('2d');
@@ -125,7 +195,12 @@
         for (let x = 0; x < W; x++) {
           const k = (y * W + x) * 4;
           if (maskData[((y * 2) * TW + x * 2) * 4] < 128) continue;
-          const lon = (x + 0.5) / W * 360 - 180, rgb = BIOME_RGB[biome(lat, lon)], n = 0.82 + fbm(x / 20, y / 20) * 0.36;
+          const lon = (x + 0.5) / W * 360 - 180, b = biome(lat, lon), rgb = BIOME_RGB[b];
+          let n = 0.86 + fbm(x / 20, y / 20) * 0.22;
+          if (WORLD.ready) { // hill shading from the real elevation, lit from the north-west
+            const sh = (elevAt(lat + 0.25, lon - 0.25) - elevAt(lat - 0.25, lon + 0.25)) / 1800;
+            n *= 1 + clamp(sh, -0.35, 0.35);
+          }
           d[k] = rgb[0] * n; d[k + 1] = rgb[1] * n; d[k + 2] = rgb[2] * n; d[k + 3] = 255;
         }
       }
@@ -136,9 +211,11 @@
       const lg = land.getContext('2d'); lg.drawImage(small, 0, 0, TW, TH);
       lg.globalCompositeOperation = 'destination-in'; lg.fillStyle = '#fff'; tracePolys(lg);
       g.drawImage(land, 0, 0); done();
-      try { localStorage.setItem(EARTH_KEY, c.toDataURL('image/jpeg', 0.86)); } catch (e) {}
+      if (WORLD.ready) try { localStorage.setItem(EARTH_KEY, c.toDataURL('image/jpeg', 0.86)); } catch (e) {}
     };
-    setTimeout(slice, 0);
+    // paint once the map data is in (or after a few seconds without it, the rough way)
+    let started = false; const go = () => { if (!started) { started = true; setTimeout(slice, 0); } };
+    onWorld(go); setTimeout(go, 5000);
   }
 
   function buildCloudTexture() {
@@ -466,7 +543,16 @@
     const ahead = world.chunks.filter((c) => c.grp.position.x > -CW);
     const land = ahead.length ? ahead.filter((c) => c.kind !== 'sea').length / ahead.length : 1;
     side.landK = lerp(side.landK, land, 0.02);
+    // and they're only tall where the real country around is mountainous: low hills on the plains,
+    // the full ranges near the Rockies, the Alps or the Himalaya
+    if (WORLD.ready && S && !S.space && (side.mtnT = (side.mtnT || 0) - 1) <= 0) {
+      side.mtnT = 30; const g = currentGeo(); let r = 0;
+      for (const [dy, dx] of [[0, 0], [1.5, 0], [3, 0], [1.5, 1.5], [1.5, -1.5], [3, 2], [3, -2]]) r = Math.max(r, roughAt(g.lat + dy, g.lon + dx));
+      side.mtnWant = clamp(0.22 + r / 2600, 0.22, 1);
+    }
+    side.mtnK = lerp(side.mtnK || 1, side.mtnWant || 1, 0.01);
     for (const r of RANGES) {
+      r.m.scale.y = side.mtnK; r.m.position.y = GROUND - 14 + r.h * side.mtnK / 2;
       r.t.offset.x = (r.t.offset.x + dx * r.par / 1200) % 1;
       r.m.material.color.copy(r.base).lerp(fogCol, r.haze).multiplyScalar(lerp(1, 0.45, night));
       r.m.material.opacity = smooth(0.4, 0.85, side.landK); // no mountain ranges standing in the open ocean
@@ -484,12 +570,21 @@
   // How far across a strip its own landscape has taken over from the previous strip's: 0 at the
   // left edge, 1 well before the right, with a ragged noisy front so the change isn't a straight line.
   const biomeBlend = (dl, wx, z) => smooth(0, 1, clamp((dl / CW) * 1.6 - 0.3 + (fbm(wx / 28 + 11, z / 28) - 0.5) * 0.5, 0, 1));
+  const FIELDS = [[198, 178, 92], [120, 156, 68], [150, 172, 82], [104, 140, 64], [176, 150, 98], [212, 190, 110], [136, 162, 76]];
   function vertColor(b, h, wx, z, pb, t) {
     if (pb && pb !== b && t < 1) {
       const a = vertColor(pb, h, wx, z), c2 = vertColor(b, h, wx, z);
       return a.map((v, i) => lerp(v, c2[i], t));
     }
-    let c = BIOME_RGB[b];
+    let c = BIOME_RGB[b] || BIOME_RGB.temperate;
+    if (b === 'farm') { // a patchwork of fields: wheat, young green crops, pasture, ploughed earth
+      const fx = Math.floor((wx + fbm(wx / 60, z / 60) * 10) / 13), fz = Math.floor((z + fbm(z / 50, wx / 50) * 8) / 9);
+      c = FIELDS[Math.floor(hash(fx, fz) * FIELDS.length)];
+    } else if (b === 'savanna') { // golden grass with darker green patches
+      c = fbm(wx / 18 + 5, z / 18) > 0.62 ? [120, 136, 66] : c;
+    } else if (b === 'desert') { // sand ripples a little lighter on the crests
+      c = c.map((v) => v * (0.94 + 0.12 * fbm(wx / 6, z / 6)));
+    }
     if (b !== 'ice' && h > 30) c = [128, 124, 118];              // bare rock
     if (b === 'ice' || h > 46) c = [236, 240, 244];               // snow
     const k = 0.85 + fbm(wx / 25, z / 25) * 0.3;
@@ -527,8 +622,9 @@
       let y = GROUND + Math.max(hAt(p.x, p.z), hAt(p.x + nx, p.z + nz), hAt(p.x - nx, p.z - nz)) + 0.5;
       if (yAdj) y = yAdj(p, y);
       // never below the water: where the ground dips under it the road carries on as a bridge deck
-      const deck = GROUND + BRIDGE_Y;
-      if (y < deck) { if (hAt(p.x, p.z) < 0.6 && i % 3 === 0) piers.push([p.x, p.z, GROUND + hAt(p.x, p.z) - 1, deck]); y = deck; }
+      // (and over a river it rises on a bridge, ramping up from the banks)
+      const deck = Math.max(GROUND + BRIDGE_Y, curRiver ? curRiver.deckAt(p.x, p.z) : -Infinity);
+      if (y < deck) { if ((hAt(p.x, p.z) < 0.6 || deck - y > 1.2) && i % 3 === 0) piers.push([p.x, p.z, GROUND + hAt(p.x, p.z) - 1, deck]); y = deck; }
       p.y = y;
       pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz); uv.push(0, lens[i] / (wide ? 10 : 7), 1, lens[i] / (wide ? 10 : 7));
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
@@ -630,8 +726,8 @@
   // sloping valley side, not a cliff), distance is measured to the real road line (so the bends of
   // a highway sweeping off into the distance carve a proper curving valley), and where a road runs
   // off to the far edge of the land its valley closes gently there, so the road never climbs a peak.
-  function makeCarve(wx0, road, hw, hwPts) {
-    if (!road && !hw) return null;
+  function makeCarve(wx0, road, hw, hwPts, river) {
+    if (!road && !hw && !river) return null;
     let line = null;
     if (hw && hwPts) { // the highway, sampled about every unit along its length
       line = [];
@@ -641,9 +737,9 @@
       }
       const e = hwPts[hwPts.length - 1]; line.push([e.x, e.z]);
     }
-    return (lx, z, h) => {
+    return (lx, z, h, base = 3) => {
       const dl = lx + CW / 2, dr = CW / 2 - lx, outer = 12 + 12 * smooth(-60, -330, z);
-      const f = Math.min(h, valleyFloor(wx0 + dl, z)), wall = 1.1 * Math.max(0, h - f); // taller hills, longer valley sides
+      const f = Math.min(h, valleyFloor(wx0 + dl, z) + (base - 3)), wall = 1.1 * Math.max(0, h - f); // taller hills, longer valley sides
       let k = 0;
       if (road && z > road.zEnd - 2) {
         const x0 = roadX(road, z), s = (roadX(road, z - 1) - roadX(road, z + 1)) / 2;
@@ -670,9 +766,37 @@
         }
         if (bestIn < Infinity) k = Math.max(k, (1 - smooth(5, 5 + Math.min(22, outer + wall), Math.sqrt(bestIn))) * fade);
       }
-      if (k <= 0) return h;
-      return h + (f - h) * k;
+      if (k > 0) h = h + (f - h) * k;
+      if (river) { // the river's channel: a bed under the water and banks that slope up to the land
+        const x0 = river.xAt(z), s = (river.xAt(z - 1) - river.xAt(z + 1)) / 2, d = Math.abs(lx - x0) / Math.sqrt(1 + s * s);
+        // (the banks ease off before the strip's sides, so it still meets the next strip exactly)
+        const kr = (1 - smooth(river.width / 2 + 0.6, river.width / 2 + 9 + 0.6 * Math.max(0, h - river.water), d)) * smooth(0, 6, dl) * smooth(0, 6, dr);
+        if (kr > 0) { const bed = d < river.width / 2 + 0.6 ? river.water - 1.6 : river.water + 0.3; h = h + (Math.min(h, bed) - h) * kr; }
+      }
+      return h;
     };
+  }
+  // ---- rivers (where the map has one): a winding river running off into the distance ----
+  let curRiver = null;
+  function planRiver(seed, baseAt) {
+    const x0 = lerp(-12, 12, hash(seed, 141)), ph = hash(seed, 142) * 6, ph2 = hash(seed, 143) * 6, width = 4 + hash(seed, 144) * 3;
+    const xAt = (z) => x0 + 7 * Math.sin(z / 47 + ph) + 3 * Math.sin(z / 17 + ph2);
+    const water = baseAt(x0) - 1.1, pts = [];
+    for (let z = 50; z >= -356; z -= 6) pts.push(new THREE.Vector3(xAt(z), 0, z));
+    return { xAt, width, water, pts,
+      // the lowest a road may sit here: high enough to bridge the river, sloping back down off the banks
+      deckAt: (x, z) => { const d = Math.abs(x - xAt(z)); return GROUND + water + 1.4 - Math.max(0, d - width / 2 - 2) * 0.35; } };
+  }
+  const riverMat = new THREE.MeshStandardMaterial({ color: 0x3b7fb8, roughness: 0.2, metalness: 0.15, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
+  function addRiver(grp, rv) {
+    const pos = [], idx = [];
+    rv.pts.forEach((p, i) => {
+      const y = GROUND + rv.water, w = rv.width / 2 + 0.6;
+      pos.push(p.x - w, y, p.z, p.x + w, y, p.z);
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    grp.add(new THREE.Mesh(g, riverMat)); // (the strip's clean-up frees this geometry; the material is shared)
   }
   // keep trees, lakes and buildings off the road and the highway
   function segDist(px, pz, a, b) {
@@ -681,7 +805,7 @@
     return Math.hypot(px - (a.x + vx * t), pz - (a.z + vz * t));
   }
   function nearRoad(x, z, r) {
-    for (const road of [curRoad, curHwy]) {
+    for (const road of [curRoad, curHwy, curRiver]) {
       if (!road) continue;
       const pts = road.pts, need = r + road.width / 2 + 1;
       for (let i = 1; i < pts.length; i++) {
@@ -716,10 +840,22 @@
   // How tall the land is: mountain regions get much bigger relief. Each strip blends from the
   // previous strip's relief at its left edge to its own at the right, so the ground stays continuous.
   const reliefOf = (b) => (b === 'alpine' ? 2.2 : b === 'tropic' ? 1.15 : 1);
-  function stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL = 1, ampR = 1, carve = null) {
+  // The shape of the land under a strip, from the real map: how high it sits (base, from the real
+  // elevation), how rugged it is (amp, from how much the real ground rises and falls around it:
+  // flat over the Great Plains, huge in the Himalaya) and whether it's sand-dune country.
+  function terrainFor(geo, b) {
+    if (!geo || !WORLD.ready) return { amp: reliefOf(b), base: 3, dune: 0 };
+    const e = elevAt(geo.lat, geo.lon), r = roughAt(geo.lat, geo.lon);
+    return { amp: clamp(0.28 + r / 1300, 0.28, 2.6), base: 3 + 6 * Math.log10(1 + e / 250), dune: b === 'desert' && r < 600 ? 1 : 0 };
+  }
+  // sand dunes: long ridged crests, bigger out in the distance
+  const duneH = (wx, z) => { const w = Math.sin(wx / 11 + fbm(wx / 40, z / 40) * 7 + z / 23); return Math.pow(1 - Math.abs(w), 2) * (2.5 + 5 * smooth(-40, -300, z)); };
+  function stripHeight(kind, prevKind, nextKind, wx0, lx, z, tl, tr, carve = null) {
     const wx = wx0 + lx + CW / 2;
-    const dl = lx + CW / 2, dr = CW / 2 - lx;
-    const amp = lerp(ampL, ampR, dl / CW), landHeight = (x, zz) => 3 + (landHeight0(x, zz) - 3) * amp;
+    const dl = lx + CW / 2, dr = CW / 2 - lx, k0 = dl / CW, k = k0 * k0 * (3 - 2 * k0); // eased, so slopes don't kink at a strip's edge
+    const amp = lerp(tl.amp, tr.amp, k), base = lerp(tl.base, tr.base, k), dune = lerp(tl.dune, tr.dune, k);
+    const ampUse = amp < 1 ? Math.pow(amp, 1.6) : amp; // the plains really are flat
+    const landHeight = (x, zz) => base + (landHeight0(x, zz) - 3) * ampUse + (dune > 0 ? dune * duneH(x, zz) : 0);
     if (kind === 'sea') {
       // headlands and spits from a neighbouring land strip can reach into the sea strip
       let reach = 0;
@@ -734,9 +870,9 @@
     // ground runs unbroken into and out of town instead of stepping down at the edge
     if (kind === 'city') {
       const dLand = Math.min(prevKind === 'sea' ? Infinity : dl, nextKind === 'sea' ? Infinity : dr);
-      h = lerp(h, 2 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, dLand));
+      h = lerp(h, base - 1 + fbm(wx / 30, z / 30) * 3, smooth(0, 24, dLand));
     }
-    if (carve) h = carve(lx, z, h);
+    if (carve) h = carve(lx, z, h, base);
     let t = 1;
     if (kind === 'city') {
       // a city on the water ends in a harbour quay
@@ -752,49 +888,65 @@
     }
     return -6 + (h + 6) * t;
   }
-  function buildChunk(kind, geo, prevKind, nextKind, name, atWx, ampL, prevBiome, hwIn) {
+  function buildChunk(kind, geo, prevKind, nextKind, name, atWx, tl, prevBiome, hwIn) {
     const wx0 = atWx ?? world.cursor; if (atWx == null) world.cursor += CW;
-    const b = geo ? biome(geo.lat, geo.lon) : 'temperate', ampR = reliefOf(b), pb = prevBiome || b;
-    if (ampL == null) ampL = ampR;
+    const b = geo ? biome(geo.lat, geo.lon) : 'temperate', pb = prevBiome || b;
+    const tr = kind === 'sea' ? { amp: 1, base: 3, dune: 0 } : terrainFor(geo, b);
+    if (tl == null) tl = tr;
+    // what's really down there: towns, rivers, lakes and major roads from the map
+    curGeo = geo; curFlags = geo && WORLD.ready ? flagsNear(geo.lat, geo.lon) : 0;
+    const realRoads = WORLD.ready && geo;
+    const roadHere = realRoads ? !!(curFlags & W_ROAD) : hwyFlag(wx0);
+    const ng = world.nextGeo, roadNext = realRoads && ng ? !!(flagsNear(ng.lat, ng.lon) & W_ROAD) : hwyFlag(wx0 + CW);
     // Plan the roads before shaping the ground, so it can carve valleys for them.
     // The highway never runs beside the sea (no road off the edge of a cliff); it only carries
     // on into a sea-side strip if the strip before already brought it this far.
     const prevHw = kind === 'land' && !!(hwIn && hwIn.prev);
-    const haveHw = prevHw || (kind === 'land' && prevKind !== 'sea' && nextKind !== 'sea' && hwyFlag(wx0));
-    const nextHw = haveHw && (hwIn && hwIn.next != null ? hwIn.next : nextKind === 'land' && hwyFlag(wx0 + CW));
+    const haveHw = prevHw || (kind === 'land' && prevKind !== 'sea' && nextKind !== 'sea' && roadHere);
+    const nextHw = haveHw && (hwIn && hwIn.next != null ? hwIn.next : nextKind === 'land' && roadNext);
     const early = nextKind === 'sea';
     const hwPts = haveHw ? planHighway(prevHw, nextHw, early) : null;
     const fly = kind === 'city' && name && world.u <= 60 && hash(wx0, 77) < 0.5;
     const lite = world.u > 120;
-    const rPlan = !lite && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hwPts ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < 0.3)
+    // a real river crossing this stretch of land (not in towns' close-ups, and not beside the sea)
+    const rv = kind === 'land' && (curFlags & W_RIVER) && prevKind !== 'sea' && nextKind !== 'sea' ? planRiver(wx0, (x) => { const k0 = (x + CW / 2) / CW; return lerp(tl.base, tr.base, k0 * k0 * (3 - 2 * k0)); }) : null;
+    curRiver = rv;
+    const rPlan = !rv && !lite && kind !== 'sea' && prevKind !== 'sea' && nextKind !== 'sea' && !fly && (kind === 'city' ? hash(wx0, 70) < 0.7 : hwPts ? hash(wx0, 70) < 0.6 : hash(wx0, 70) < (curFlags & W_URBAN ? 0.6 : 0.3))
       ? planRoad(wx0, kind === 'city', hwPts) : null;
-    const carve = makeCarve(wx0, rPlan, haveHw ? { prev: prevHw, next: nextHw, early } : null, hwPts);
+    const carve = makeCarve(wx0, rPlan, haveHw ? { prev: prevHw, next: nextHw, early } : null, hwPts, rv);
     const g = new THREE.PlaneGeometry(CW, DEPTH, GRID_X, 60); g.rotateX(-Math.PI / 2); g.translate(0, 0, ZC);
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const lx = p.getX(i), z = p.getZ(i), wx = wx0 + lx + CW / 2;
       // cities sit on a plain; open land gets hills and far ranges, sloping down to any sea beside it
-      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR, carve);
+      const h = stripHeight(kind, prevKind, nextKind, wx0, lx, z, tl, tr, carve);
       p.setY(i, GROUND + h);
-      col.set(h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z, pb, biomeBlend(lx + CW / 2, wx, z)), i * 3); // seabed, sandy beach, land (blending in from the last strip's landscape)
+      let c = h < -1.5 ? [0.26, 0.21, 0.13] : h < 1.2 ? [0.78, 0.71, 0.52].map((v) => Math.pow(v, 2.2)) : vertColor(b, h, wx, z, pb, biomeBlend(lx + CW / 2, wx, z)); // seabed, sandy beach, land (blending in from the last strip's landscape)
+      if (rv) { // a river greens its banks (the Nile through the desert)
+        const g = smooth(rv.width / 2 + 9, rv.width / 2 + 1, Math.abs(lx - rv.xAt(z)));
+        if (g > 0) c = c.map((v, j) => lerp(v, [0.12, 0.27, 0.06][j], g * 0.75));
+      }
+      col.set(c, i * 3);
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.computeVertexNormals();
     const grp = new THREE.Group();
     grp.add(new THREE.Mesh(g, landMat));
-    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z, ampL, ampR, carve);
+    const hAt = (lx, z) => stripHeight(kind, prevKind, nextKind, wx0, lx, z, tl, tr, carve);
     liteBuild = lite; // a strip crosses the screen in well under a second
     // a paved road (a highway through cities) running away from you and curving off to the left
     curHwy = hwPts ? addHighway(grp, wx0, hAt, hwPts, prevHw, nextHw) : null;
     curRoad = rPlan ? addRoad(grp, wx0, hAt, rPlan, curHwy) : null;
+    if (rv) addRiver(grp, rv);
     if (kind === 'city') addCity(grp, name, wx0, hAt, prevKind === 'sea', nextKind === 'sea');
     // now and then the bird swoops right down between the towers of a city it passes
     if (fly) addCanyon(grp, wx0, hAt);
+    if (kind === 'land' && (curFlags & W_URBAN) && !lite) addTown(grp, wx0, hAt); // a real town or suburb here
     if (kind !== 'sea') { addTrees(grp, b, wx0, kind, hAt, pb); if (kind === 'land' && b !== 'ice') addLake(grp, b, wx0, hAt); }
     else addSea(grp, wx0);
     addProps(grp, b, kind, wx0, hAt, geo);
-    const road = curRoad, hwy = curHwy; curRoad = curHwy = null;
-    return { grp, kind, wx0, hAt, fly, road, hwy, hwyNext: nextHw, geo, name, prevKind, nextKind, ampL, ampR, biome: b, prevBiome: pb };
+    const road = curRoad, hwy = curHwy; curRoad = curHwy = curRiver = null;
+    return { grp, kind, wx0, hAt, fly, road, hwy, hwyNext: nextHw, geo, name, prevKind, nextKind, tl, tr, biome: b, prevBiome: pb };
   }
   // a seaside city's waterfront: wooden piers into the basin, boats tied up, and dock cranes on the quay
   const pierMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.9 });
@@ -914,6 +1066,7 @@
   }
   function disposeChunk(c) {
     c.grp.traverse((o) => {
+      if (o.isInstancedMesh) o.dispose(); // frees the per-instance buffers (the shared box and material stay)
       if (o.userData.shared || (o.material && o.material.userData && o.material.userData.shared)) return; // shared scenery stays loaded
       if (o.isMesh || o.isSprite) { if (o.geometry && o.geometry !== towerGeo && o.geometry !== lakeGeo) o.geometry.dispose(); if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } }
     });
@@ -939,7 +1092,7 @@
   function pushChunk(x, kind, geo, name) {
     const prev = world.chunks[world.chunks.length - 1];
     const nextGeo = lookahead(Math.max(0, (x + CW) / unitsPerSec(side.vS || F.speed(S))));
-    world.nextType = kindAt(nextGeo);
+    world.nextType = kindAt(nextGeo); world.nextGeo = nextGeo;
     // The strip before this one was shaped for a guess of what would come next (it slopes to
     // a shore only if it expects sea). If the guess was wrong, its edge wouldn't meet this one:
     // a cliff or a straight seam. Rebuild it to match while it's still far off.
@@ -949,13 +1102,13 @@
     if (prev && (prev.nextKind !== kind || hwCut)) {
       if (world.building || prev.grp.position.x > (world.viewW || 14) * 2 + CW / 2) {
         const pp = world.chunks[world.chunks.length - 2];
-        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.ampL, prev.prevBiome, { prev: !!(pp && pp.hwyNext), next: hwCut ? false : undefined });
+        const r = buildChunk(prev.kind, prev.geo, prev.prevKind, kind, prev.name, prev.wx0, prev.tl, prev.prevBiome, { prev: !!(pp && pp.hwyNext), next: hwCut ? false : undefined });
         r.grp.position.x = prev.grp.position.x; fscene.add(r.grp);
         world.chunks[world.chunks.length - 1] = r; disposeChunk(prev);
       } else if (prev.nextKind !== kind && kind !== 'city') kind = prev.nextKind; // it's already on screen: carry on what it expects for one more strip
     }
     const p2 = world.chunks[world.chunks.length - 1];
-    const c = buildChunk(kind, geo, p2 ? p2.kind : kind, world.nextType, name, undefined, p2 ? p2.ampR : undefined, p2 ? p2.biome : undefined, { prev: !!(p2 && p2.hwyNext) });
+    const c = buildChunk(kind, geo, p2 ? p2.kind : kind, world.nextType, name, undefined, p2 ? p2.tr : undefined, p2 ? p2.biome : undefined, { prev: !!(p2 && p2.hwyNext) });
     c.grp.position.x = x; fscene.add(c.grp); world.chunks.push(c);
   }
 
@@ -1066,6 +1219,28 @@
         g.save(); g.translate(W * 0.52, H * 0.22); g.rotate(a); g.beginPath(); g.ellipse(W * 0.2, 0, W * 0.22, H * 0.035, 0.35, 0, Math.PI * 2); g.fill(); g.restore();
       }
     },
+    // flat-topped savanna acacia
+    acacia: (g, W, H) => {
+      g.strokeStyle = '#5a4430'; g.lineWidth = W * 0.06; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(W * 0.5, H); g.lineTo(W * 0.5, H * 0.55); g.lineTo(W * 0.3, H * 0.36); g.moveTo(W * 0.5, H * 0.58); g.lineTo(W * 0.7, H * 0.38); g.stroke();
+      g.fillStyle = '#5e7a34'; g.beginPath(); g.ellipse(W * 0.5, H * 0.33, W * 0.46, H * 0.08, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#6f8c3e'; g.beginPath(); g.ellipse(W * 0.46, H * 0.29, W * 0.34, H * 0.05, 0, 0, Math.PI * 2); g.fill();
+    },
+    // dry-country bush
+    shrub: (g, W, H) => {
+      const blob = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, r, r * 0.7, 0, 0, Math.PI * 2); g.fill(); };
+      blob(W * 0.4, H * 0.86, W * 0.2, '#7d7a48'); blob(W * 0.6, H * 0.84, W * 0.22, '#8a8650'); blob(W * 0.5, H * 0.78, W * 0.18, '#969256');
+    },
+    // mediterranean olive (silvery, gnarled) and a tall dark cypress
+    olive: (g, W, H) => {
+      g.strokeStyle = '#6b5a44'; g.lineWidth = W * 0.08; g.beginPath(); g.moveTo(W * 0.5, H); g.quadraticCurveTo(W * 0.4, H * 0.75, W * 0.52, H * 0.55); g.stroke();
+      const blob = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, r, r * 0.75, 0, 0, Math.PI * 2); g.fill(); };
+      blob(W * 0.36, H * 0.5, W * 0.22, '#8a9a6a'); blob(W * 0.64, H * 0.48, W * 0.22, '#8a9a6a'); blob(W * 0.5, H * 0.36, W * 0.26, '#9aa878');
+    },
+    cypress: (g, W, H) => {
+      g.fillStyle = '#5a3d24'; g.fillRect(W * 0.47, H * 0.88, W * 0.06, H * 0.12);
+      g.fillStyle = '#2c4a2e'; g.beginPath(); g.moveTo(W * 0.5, H * 0.02); g.quadraticCurveTo(W * 0.68, H * 0.45, W * 0.58, H * 0.9); g.lineTo(W * 0.42, H * 0.9); g.quadraticCurveTo(W * 0.32, H * 0.45, W * 0.5, H * 0.02); g.fill();
+    },
     cactus: (g, W, H) => {
       g.fillStyle = '#5b8f4a'; const rr = (x, y, w, h) => { g.beginPath(); g.roundRect(x, y, w, h, w / 2); g.fill(); };
       rr(W * 0.42, H * 0.2, W * 0.16, H * 0.8); rr(W * 0.22, H * 0.42, W * 0.12, H * 0.3); rr(W * 0.22, H * 0.62, W * 0.26, W * 0.12);
@@ -1113,14 +1288,21 @@
   const TREE_KEYS = Object.keys(TREE_KINDS);
   const treeAtlas = paintTex(128 * TREE_KEYS.length, 192, (g) => TREE_KEYS.forEach((k, i) => { g.save(); g.translate(i * 128, 0); g.beginPath(); g.rect(0, 0, 128, 192); g.clip(); TREE_KINDS[k](g, 128, 192); g.restore(); }));
   const treeMat = billboardMat(treeAtlas);
-  const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine', 'pine', 'snowpine'], tundra: ['snowpine', 'pine'], tropic: ['jungle', 'jungle', 'palm', 'fern'], desert: ['cactus'], alpine: ['snowpine', 'pine', 'pine'] };
+  const TREES_FOR = { temperate: ['round', 'round', 'pine'], boreal: ['pine', 'pine', 'snowpine'], tundra: ['snowpine', 'pine'], tropic: ['jungle', 'jungle', 'palm', 'fern'], desert: ['cactus'], alpine: ['snowpine', 'pine', 'pine'],
+    savanna: ['acacia', 'acacia', 'shrub'], steppe: ['shrub', 'shrub', 'shrub', 'acacia'], med: ['olive', 'cypress', 'olive', 'round'], farm: ['round', 'round', 'cypress'] };
+  // the real place the strip being built is over (its map flags and position), for the scenery
+  let curGeo = null, curFlags = 0;
   function addTrees(grp, b, wx0, kind, hAt, pb = b) {
-    const kinds0 = TREES_FOR[b], prevKinds = TREES_FOR[pb]; if (!kinds0 && !prevKinds) return;
+    // cactus is an American thing: the Sahara, Arabia and the Gobi get bare sand (and palms by water)
+    const oldWorld = curGeo && curGeo.lon > -30;
+    const setFor = (bb) => (bb === 'desert' && oldWorld ? (curFlags & (W_RIVER | W_LAKE | W_URBAN) ? ['palm'] : null) : TREES_FOR[bb]);
+    const kinds0 = setFor(b), prevKinds = setFor(pb); if (!kinds0 && !prevKinds) return;
     const kinds = kinds0 || prevKinds;
     // some stretches of land are proper forest: dense, and the trees grow bigger
     // jungle is almost always thick; elsewhere some stretches are forest
     const forest = kind === 'land' && (b === 'temperate' || b === 'boreal' || b === 'tropic' || b === 'alpine') && hash(wx0, 60) < (b === 'tropic' ? 0.8 : 0.3);
-    let n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? (b === 'tropic' ? 230 : 160) : b === 'tropic' ? 70 : 34;
+    let n = kind === 'city' ? 6 : b === 'desert' ? 8 : b === 'tundra' ? 10 : forest ? (b === 'tropic' ? 230 : 160) : b === 'tropic' ? 70
+      : b === 'savanna' ? 18 : b === 'steppe' ? 12 : b === 'farm' ? 16 : b === 'med' ? 30 : 34;
     if (liteBuild) n = Math.ceil(n / 4); // at extreme speed a tree is on screen for a blink: plant far fewer
     const items = [];
     for (let i = 0; i < n; i++) {
@@ -1178,6 +1360,47 @@
       g.fillStyle = '#6a6e76'; g.beginPath(); g.moveTo(W * 0.1, H * 0.8); g.quadraticCurveTo(W * 0.4, H * 0.55, W * 0.72, H * 0.52); g.quadraticCurveTo(W * 0.86, H * 0.5, W * 0.86, H * 0.62);
       g.quadraticCurveTo(W * 0.6, H * 0.86, W * 0.1, H * 0.8); g.fill(); g.fillStyle = '#1a1a1a'; g.beginPath(); g.arc(W * 0.8, H * 0.56, 2.5, 0, Math.PI * 2); g.fill();
     },
+    // the safari and other places' own animals, side on, facing right
+    giraffe: (g, W, H) => {
+      g.fillStyle = '#d9a64a';
+      g.beginPath(); g.ellipse(W * 0.42, H * 0.62, W * 0.16, H * 0.09, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.3, 0.36, 0.48, 0.54]) g.fillRect(W * x, H * 0.64, W * 0.03, H * 0.34);
+      g.beginPath(); g.moveTo(W * 0.52, H * 0.6); g.lineTo(W * 0.66, H * 0.12); g.lineTo(W * 0.71, H * 0.14); g.lineTo(W * 0.58, H * 0.64); g.fill();
+      g.beginPath(); g.ellipse(W * 0.72, H * 0.12, W * 0.06, H * 0.035, 0.3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#8a5a2a'; for (const [x, y] of [[0.36, 0.6], [0.44, 0.58], [0.48, 0.66], [0.4, 0.66], [0.6, 0.4], [0.63, 0.28], [0.57, 0.52]]) { g.beginPath(); g.arc(W * x, H * y, W * 0.018, 0, Math.PI * 2); g.fill(); }
+    },
+    zebra: (g, W, H) => {
+      g.fillStyle = '#f4f2ec'; g.beginPath(); g.ellipse(W * 0.46, H * 0.62, W * 0.2, H * 0.1, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.32, 0.38, 0.54, 0.6]) g.fillRect(W * x, H * 0.66, W * 0.035, H * 0.3);
+      g.beginPath(); g.moveTo(W * 0.6, H * 0.6); g.lineTo(W * 0.74, H * 0.4); g.lineTo(W * 0.82, H * 0.46); g.lineTo(W * 0.68, H * 0.66); g.fill();
+      g.strokeStyle = '#1c1c1c'; g.lineWidth = W * 0.02; for (let i = 0; i < 7; i++) { const x = W * (0.3 + i * 0.05); g.beginPath(); g.moveTo(x, H * 0.54); g.lineTo(x + W * 0.02, H * 0.7); g.stroke(); }
+    },
+    elephant: (g, W, H) => {
+      g.fillStyle = '#8a8680'; g.beginPath(); g.ellipse(W * 0.44, H * 0.54, W * 0.26, H * 0.18, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.24, 0.34, 0.5, 0.6]) g.fillRect(W * x, H * 0.6, W * 0.07, H * 0.38);
+      g.beginPath(); g.ellipse(W * 0.72, H * 0.46, W * 0.11, H * 0.12, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#8a8680'; g.lineWidth = W * 0.05; g.lineCap = 'round'; g.beginPath(); g.moveTo(W * 0.8, H * 0.5); g.quadraticCurveTo(W * 0.86, H * 0.75, W * 0.82, H * 0.9); g.stroke();
+      g.fillStyle = '#76726c'; g.beginPath(); g.ellipse(W * 0.66, H * 0.46, W * 0.07, H * 0.1, 0, 0, Math.PI * 2); g.fill();
+    },
+    kangaroo: (g, W, H) => {
+      g.fillStyle = '#b07a4a'; g.beginPath(); g.ellipse(W * 0.5, H * 0.6, W * 0.12, H * 0.2, -0.4, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(W * 0.62, H * 0.32, W * 0.06, H * 0.07, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#b07a4a'; g.lineWidth = W * 0.05; g.lineCap = 'round'; g.beginPath(); g.moveTo(W * 0.4, H * 0.72); g.quadraticCurveTo(W * 0.2, H * 0.9, W * 0.12, H * 0.96); g.stroke();
+      g.beginPath(); g.moveTo(W * 0.5, H * 0.78); g.lineTo(W * 0.62, H * 0.97); g.stroke();
+    },
+    cow: (g, W, H) => {
+      g.fillStyle = '#f2efe8'; g.beginPath(); g.ellipse(W * 0.46, H * 0.62, W * 0.24, H * 0.13, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.28, 0.36, 0.54, 0.62]) g.fillRect(W * x, H * 0.66, W * 0.04, H * 0.28);
+      g.beginPath(); g.ellipse(W * 0.74, H * 0.56, W * 0.08, H * 0.08, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2a2a2a'; g.beginPath(); g.ellipse(W * 0.4, H * 0.58, W * 0.07, H * 0.05, 0.3, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(W * 0.56, H * 0.64, W * 0.05, H * 0.04, 0, 0, Math.PI * 2); g.fill();
+    },
+    camel: (g, W, H) => {
+      g.fillStyle = '#c49a5e'; g.beginPath(); g.ellipse(W * 0.44, H * 0.56, W * 0.2, H * 0.1, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(W * 0.4, H * 0.46, W * 0.09, H * 0.08, 0, 0, Math.PI * 2); g.fill();
+      for (const x of [0.3, 0.36, 0.5, 0.56]) g.fillRect(W * x, H * 0.6, W * 0.03, H * 0.36);
+      g.strokeStyle = '#c49a5e'; g.lineWidth = W * 0.05; g.lineCap = 'round'; g.beginPath(); g.moveTo(W * 0.6, H * 0.56); g.quadraticCurveTo(W * 0.72, H * 0.5, W * 0.74, H * 0.36); g.stroke();
+      g.beginPath(); g.ellipse(W * 0.78, H * 0.35, W * 0.06, H * 0.035, 0, 0, Math.PI * 2); g.fill();
+    },
     iceberg: (g, W, H) => {
       g.fillStyle = '#eaf6fc'; g.beginPath(); g.moveTo(W * 0.04, H); g.lineTo(W * 0.2, H * 0.4); g.lineTo(W * 0.36, H * 0.5); g.lineTo(W * 0.52, H * 0.1); g.lineTo(W * 0.7, H * 0.35); g.lineTo(W * 0.82, H * 0.3); g.lineTo(W * 0.96, H); g.fill();
       g.fillStyle = '#b8dcef'; g.beginPath(); g.moveTo(W * 0.52, H * 0.1); g.lineTo(W * 0.7, H * 0.35); g.lineTo(W * 0.82, H * 0.3); g.lineTo(W * 0.96, H); g.lineTo(W * 0.6, H); g.fill();
@@ -1215,18 +1438,65 @@
       // the ice: glaciers in the distance, polar bears or penguin colonies up close
       for (let i = 0; i < 4; i++) { const x = (R(i, 12) - 0.5) * CW, z = -70 - R(i, 13) * 150, w = 20 + R(i, 14) * 18; items.push(prop('glacier', x, GROUND + hAt(x, z) - 1, z, w, w * 0.45)); }
       for (let i = 0; i < 5; i++) { const x = (R(i, 15) - 0.5) * (CW - 10), z = -10 - R(i, 16) * 60, h = hAt(x, z); if (h > 1) items.push(prop(south ? 'penguin' : 'bear', x, GROUND + h - 0.2, z, 3.4, 2.5)); }
+    } else if (kind === 'land' && geo && (b === 'savanna' || b === 'steppe' || b === 'farm' || b === 'desert')) {
+      // the place's own animals: a safari in Africa, kangaroos in Australia, cattle on the farms, camels in the Old World's deserts
+      const africa = geo.lon > -20 && geo.lon < 55 && geo.lat < 18 && geo.lat > -35, oz = geo.lon > 110 && geo.lat < -10;
+      const pick = b === 'farm' ? ['cow'] : b === 'desert' ? (geo.lon > -30 ? ['camel'] : null)
+        : africa ? ['giraffe', 'zebra', 'zebra', 'elephant'] : oz ? ['kangaroo'] : b === 'steppe' ? ['cow'] : null;
+      if (pick) {
+        const herds = 1 + Math.floor(R(3, 19) * 3);
+        for (let hI = 0; hI < herds; hI++) {
+          const k = pick[Math.floor(R(hI, 20) * pick.length)], cx = (R(hI, 21) - 0.5) * (CW - 16), cz = -12 - R(hI, 22) * 110, n = k === 'elephant' ? 2 + Math.floor(R(hI, 23) * 3) : 2 + Math.floor(R(hI, 23) * 5);
+          const size = { giraffe: 6, elephant: 4.6, zebra: 2.8, kangaroo: 2.4, cow: 2.6, camel: 3.6 }[k];
+          for (let i = 0; i < n; i++) {
+            const x = cx + (R(i, 24 + hI) - 0.5) * 12, z = cz + (R(i, 30 + hI) - 0.5) * 10, h = hAt(x, z);
+            if (h > 1 && h < 30 && !nearRoad(x, z, 2)) items.push(prop(k, x, GROUND + h - 0.15, z, size, size));
+          }
+        }
+      }
     } else if (kind === 'land' && b === 'alpine') {
       // mountain goats up on the slopes
       for (let i = 0; i < 4; i++) { const x = (R(i, 17) - 0.5) * (CW - 10), z = -15 - R(i, 18) * 90, h = hAt(x, z); if (h > 6 && h < 40 && !nearRoad(x, z, 2)) items.push(prop('goat', x, GROUND + h - 0.2, z, 2.6, 2.2)); }
     }
     if (items.length) { items.sort((a, c) => a.z - c.z); grp.add(billboardMesh(items, propMat)); }
   }
+  // a town: low houses and a few taller blocks with red, grey and sandy roofs, clustered around
+  // the strip, kept off the roads (only where the map has a real built-up area)
+  const HOUSE_TINTS = ['#efe6d6', '#e4d7c2', '#f2efe9', '#d8c7ad', '#c9b79c', '#e8e2d8', '#d9cfc0'];
+  const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8 }); roofMat.userData.shared = true;
+  const houseMat = new THREE.MeshStandardMaterial({ roughness: 0.85 }); houseMat.userData.shared = true;
+  const roofGeo = new THREE.ConeGeometry(0.75, 0.6, 4).rotateY(Math.PI / 4).translate(0, 0.3, 0);
+  const ROOFS = ['#b5523a', '#9a4a36', '#6e6a68', '#c27a4a', '#7a5a4a'];
+  function addTown(grp, wx0, hAt) {
+    const spots = [], R = (i, k) => hash(wx0 + k * 13, i);
+    const clusters = 1 + Math.floor(R(0, 1) * 3);
+    for (let c = 0; c < clusters; c++) {
+      const cx = (R(c, 2) - 0.5) * (CW - 20), cz = -20 - R(c, 3) * 150, n = 10 + Math.floor(R(c, 4) * 18);
+      for (let i = 0; i < n; i++) {
+        const x = cx + (R(i, 5 + c) - 0.5) * 22, z = cz + (R(i, 9 + c) - 0.5) * 16;
+        if (Math.abs(x) > CW / 2 - 2 || nearRoad(x, z, 2.5)) continue;
+        const h = hAt(x, z); if (h < 1.2 || h > 30) continue;
+        const w = 1.4 + R(i, 13 + c) * 1.6, tall = R(i, 17 + c) < 0.12 ? 3 + R(i, 19) * 5 : 1.1 + R(i, 21) * 1.1;
+        spots.push([x, GROUND + h - 0.2, z, w, tall, i]);
+      }
+    }
+    if (!spots.length) return;
+    const walls = new THREE.InstancedMesh(towerGeo, houseMat, spots.length), roofs = new THREE.InstancedMesh(roofGeo, roofMat, spots.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    spots.forEach(([x, y, z, w, ht, i], k) => {
+      m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(w, ht, w * 0.85)); walls.setMatrixAt(k, m); walls.setColorAt(k, col.setStyle(HOUSE_TINTS[Math.floor(hash(i, wx0) * HOUSE_TINTS.length)]));
+      m.compose(new THREE.Vector3(x, y + ht, z), q, new THREE.Vector3(w * 1.05, ht > 2.5 ? 0.2 : w * 0.9, w * 0.9)); roofs.setMatrixAt(k, m); roofs.setColorAt(k, col.setStyle(ROOFS[Math.floor(hash(wx0, i) * ROOFS.length)]));
+    });
+    walls.userData.keepGeo = roofs.userData.keepGeo = true;
+    grp.add(walls, roofs);
+  }
   // lakes: flat water in a hollow, some land strips get one
   const lakeMat = new THREE.MeshStandardMaterial({ color: 0x3a7fc0, roughness: 0.25, metalness: 0.1 });
   const lakeGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2);
   function addLake(grp, b, wx0, hAt) {
-    if (b === 'desert' || b === 'ice' || hash(wx0, 99) > 0.4) return;
-    const lx = (hash(wx0, 5) - 0.5) * (CW - 30), z = -40 - hash(wx0, 6) * 90, r = 6 + hash(wx0, 7) * 8;
+    const real = !!(curFlags & W_LAKE);
+    if (!real && (b === 'desert' || b === 'ice' || b === 'steppe' || hash(wx0, 99) > 0.18)) return;
+    const lx = (hash(wx0, 5) - 0.5) * (CW - 30), z = -40 - hash(wx0, 6) * 90, r = real ? 14 + hash(wx0, 7) * 10 : 6 + hash(wx0, 7) * 8;
     let lo = Infinity;
     for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; lo = Math.min(lo, hAt(lx + Math.cos(a) * r, z + Math.sin(a) * r * 0.6)); }
     if (lo < 1 || nearRoad(lx, z, r)) return; // too near the shore (or a road) for a lake
@@ -4468,7 +4738,18 @@
     // the crack spooks the flock: any flap boost is lost
     S.boost = 0; side.shake = Math.max(side.shake || 0, 0.18);
   }
+  // where on Earth the bird is right now: the country, and the named region (the Sahara, the Great Plains...)
+  let overT = 0;
+  function refreshOver() {
+    const el = $('over'), now = performance.now(); if (now - overT < 700) return; overT = now;
+    if (S.space || !WORLD.ready) { el.textContent = ''; return; }
+    const g = currentGeo(), pl = placeAt(g.lat, g.lon);
+    if (!pl || !isLand(g.lat, g.lon)) { el.textContent = '🌊 Over open water'; return; }
+    const reg = pl.region && !/Island/.test(pl.region[1]) ? pl.region[0] : '';
+    el.textContent = `📍 Over ${pl.country || 'land'}${reg ? ' · ' + reg : ''}`;
+  }
   function refreshWeatherChip() {
+    refreshOver();
     const el = $('wx');
     if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${worldKnown(F.SPACE[S.space.dest]) ? F.SPACE[S.space.dest].short : '???'} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
     if (!S.leg) { el.className = 'wx wx-tailwind'; el.textContent = `🌬️ Take-off tailwind: carrying you to ${F.legTo(S).name || 'your first city'}`; return; }
@@ -5024,7 +5305,7 @@
     close('menuSheet');
     $('optSound').checked = Sound.on; $('optHaptics').checked = Haptic.on; $('optMotion').checked = reduceMotion;
     $('optLapPrompt').checked = !S.noLapPrompt; $('optTips').checked = !S.coachOff && (S.coach || 0) < COACH_DONE;
-    $('optVer').textContent = 'Flyway · FreeFowl Arcade';
+    $('optVer').innerHTML = 'Flyway · FreeFowl Arcade<br>Map data: Natural Earth · NOAA ETOPO · Köppen-Geiger climate (Beck et al. 2018, CC BY 4.0; Kottek, Rubel et al.)';
     open('optionsSheet');
   };
   $('optSound').onchange = (e) => { Sound.start(); if (Sound.on !== e.target.checked) Sound.toggle(); showSound(); };
