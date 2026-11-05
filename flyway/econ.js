@@ -331,7 +331,13 @@
   // first few levels ramp it up, and from level 5 on it follows the full curve.
   const wingSpeedRaw = (L) => (T.v0 + T.vL * L) * 2 ** doublings(L) * Math.min(1, 0.1 + 0.18 * L); // km/s
   // Wing Strength's gain is 75% of the curve above (the starting speed is unchanged)
-  const wingSpeed = (L) => wingSpeedRaw(0) + 0.75 * (wingSpeedRaw(L) - wingSpeedRaw(0));
+  const wingSpeedOld = (L) => wingSpeedRaw(0) + 0.75 * (wingSpeedRaw(L) - wingSpeedRaw(0));
+  // A bird starts out at a real bird's pace (about 75 km/h, before its own species bonus) and gets
+  // about a third faster with each level, so the sound barrier comes after a good while of play
+  // (around level 9), not in the first minute. Once that early climb catches up with the big
+  // idle-game curve (around level 28) the big curve takes over.
+  const EARLY_KMH = 75, EARLY_G = 1.36;
+  const wingSpeed = (L) => Math.min(wingSpeedOld(L), EARLY_KMH * EARLY_G ** L / 3600);
   const forage = (L) => T.k0 * (1 + L) * 2 ** doublings(L);
   const boostCap = (L) => 0.5 + 0.2625 * L; // each Stamina level: +26.25% max boost (was +35%)                            // extra speed fraction
   const PRICE = 2; // every upgrade costs double its listed base
@@ -384,15 +390,16 @@
     const band = n === 0 ? start.lat : BANDS[(n - 1) % BANDS.length] + (Math.random() - 0.5) * 8;
     const route = [startIdx], used = new Set([startIdx]), seen = new Set(s.visited || []);
     let cur = start, acc = 0;
-    // a run's very first hop is the nearest city a little way east, so the first stamp comes quickly
-    if (n === 0 && !s.leg) {
+    // a new run opens with three short hops to nearby cities, so early stamps come while the bird is still bird-paced
+    if (n === 0 && !s.leg) for (let h = 0; h < 3; h++) {
       let near = null, nd = Infinity;
       for (const c of CITIES) {
-        const dl = (((c.lon - start.lon) % 360) + 360) % 360;
-        if (c.i === startIdx || dl < 1 || dl > 40) continue;
-        const d = distKm(start, c); if (d < nd) { nd = d; near = c; }
+        const dl = (((c.lon - cur.lon) % 360) + 360) % 360;
+        if (used.has(c.i) || c.i === startIdx || dl < 1 || dl > 40) continue;
+        const d = distKm(cur, c); if (d < nd) { nd = d; near = c; }
       }
-      if (near) { route.push(near.i); used.add(near.i); acc += (((near.lon - start.lon) % 360) + 360) % 360; cur = near; }
+      if (!near) break;
+      acc += (((near.lon - cur.lon) % 360) + 360) % 360; route.push(near.i); used.add(near.i); cur = near;
     }
     while (acc < 360 && route.length < 70) {
       let best = null, bs = Infinity, bd = 0;
@@ -563,14 +570,26 @@
   const TAKEOFF_SECS = 30;
   function takeoffMult(s, base) {
     if (s.space) return 1;
-    if (!s.leg) return Math.min(250, Math.max(4, legLen(s) / (110 * Math.max(base, 1e-6))));
-    return s.takeoff > 0 ? 1 + 3 * Math.min(1, s.takeoff / 30) : 1;
+    if (!s.leg) return Math.min(3000, Math.max(4, legLen(s) / (110 * Math.max(base, 1e-6))));
+    return Math.max(timeLapse(s), s.takeoff > 0 ? 1 + 3 * Math.min(1, s.takeoff / 30) : 1);
+  }
+  // While the bird is still bird-paced, the trip between cities runs as a time-lapse so the next
+  // stamp isn't an hour away. The bird's own speed (shown, and what breaks the sound barrier) stays
+  // real; only the clock runs faster. It fades out by itself as the wings catch up (gone by ~level 28).
+  function timeLapse(s) {
+    if (s.space) return 1;
+    const L = s.levels.wings;
+    return Math.max(1, wingSpeedOld(L) / wingSpeed(L)) ** 0.65;
   }
   // Passive boost from followers flapping alongside, never above the cap.
   const flockBoost = (s) => Math.min(boostCap(s.levels.stamina), 0.04 * s.levels.flock);
   function speed(s) {
-    const v = baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s) * barrierMult(s);
-    return v * takeoffMult(s, baseSpeed(s));
+    return baseSpeed(s) * (1 + Math.max(s.boost, flockBoost(s))) * (s.rush > 0 ? RUSH_SPEED : 1) * (s.stun > 0 ? 0.5 : 1) * wxSpeed(s) * barrierMult(s);
+  }
+  // how fast the bird actually covers its route: its own speed, carried along on the first leg
+  // by the take-off fast-forward (time runs quicker; the bird itself flies at its real pace)
+  function travelSpeed(s) {
+    return speed(s) * takeoffMult(s, baseSpeed(s));
   }
   function seedRate(s, overOcean) {
     const b = birdOf(s);
@@ -594,7 +613,7 @@
     if (s.barrierT > 0) s.barrierT = Math.max(0, s.barrierT - dt);
     if (s.takeoff > 0 && !s.space && s.leg > 0) s.takeoff = Math.max(0, s.takeoff - dt);
     if (!s.space) {
-      const v = speed(s) / barrierMult(s) / takeoffMult(s, baseSpeed(s)); // the bird's own speed: the take-off tailwind doesn't break barriers
+      const v = speed(s) / barrierMult(s); // the bird's own speed
       if (!s.soundHit && v >= SOUND_KMS) { s.soundHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'sound' }); }
       if (!s.lightHit && v >= LIGHT_KMS) { s.lightHit = true; s.barrierT = BARRIER_SECS; ev.push({ type: 'barrier', which: 'light' }); }
     }
@@ -651,7 +670,7 @@
       return ev;
     }
     if (!s.orbitUnlocked && baseSpeed(s) >= ORBIT_SPEED) { s.orbitUnlocked = true; ev.push({ type: 'orbit' }); }
-    let km = speed(s) * dt;
+    let km = travelSpeed(s) * dt;
     let guard = 0;
     const overFire = () => {
       if (!s.overs || !s.overs.length || s.homeward || typeof s.route[1] === 'number') return;
@@ -1086,7 +1105,7 @@
     laserEvery, tractorEvery, warpMult, onMoonRun, laserHit, tractorCatch, WARP_SECS,
     RARITY, EGG_COST, MAX_STARS, starMult, hatchEgg, eggPool, SOUND_KMS, LIGHT_KMS, BARRIER_SECS,
     LEGACY_PER, legacyGain, legacyMult, GEAR, SPACE, FLYERS, SPACE_EGG_COST, flyerOf, ownsFlyer, hatchSpaceEgg, pickFlyer, spaceOpen, TRIP_FEATHERS, tripFeathers, MASTERY, masteryOf, cosmicMult, MOON_RATE, CURRENCY, unitValue, toLocal, TRIP_SECS, DEST_ROCKS, loopKm, loopTargets, EVENTS, startEvent, mine, ORBIT_SPEED, isOrbit, circleUnlocked, STRAIGHT_SPEED, planetsReached, planetMult, dailyCheck, dailyBump, dailyText, NONSTOP_AT, isNonstop, routePt, FEATHERS_PER_LAP, migrateBonus, genOrbit, LOOP_KM, SHIP, shipLv, shipPow, shipPowAt, NEAR_K, shipWeight, shipWhere, earthShip, shipCost, shipCostN, shipMax, buyShip, rocksPerTrip, loopSpeed, rockValue, tradeRocks, launchLoop, spaceHit, spaceMiss, solarMult, nextGear, buyGear, nextBody, spaceSpeed, launch, returnToEarth,
-    speed, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
+    speed, travelSpeed, takeoffMult, timeLapse, baseSpeed, seedRate, arrivalBonus, flap, step, buy, cost, costN, maxAffordable, migrateAgain,
     feathersFor, featherMult, PERKS, perkCost, buyPerk, buyBird, ownsBird, nestEgg, perkSpeed, perkSeeds, bugEvery, bugRush, catchBug, upgradeSave, WEATHER, wxOf, rollWeather, wxNote, wxSpeed, tailBoost, THREAT, escapeBonus, predatorHit, predatorMiss, RUSH_SPEED, RUSH_SEEDS, boostCap, flockBoost, doublings, nextMilestone, wingSpeed, forage, cityMult, fmt, fmtTime,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

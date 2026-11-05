@@ -459,7 +459,7 @@
   let skyH = null;
   function skyHour(dt, cur) {
     if (side.forceHour != null) return (side.skyHour = side.forceHour); // debug/photo: pin the time of day
-    const v = F.speed(S), lapSecs = (F.lapLegs(S) * F.legLen(S)) / Math.max(v, 1e-6);
+    const v = F.travelSpeed(S), lapSecs = (F.lapLegs(S) * F.legLen(S)) / Math.max(v, 1e-6);
     const now = new Date(), mine = now.getHours() + now.getMinutes() / 60;
     const want = lapSecs < 120 ? mine : localHour(cur.lon);
     if (skyH == null) skyH = want;
@@ -674,7 +674,7 @@
     const n = 56, pts = [];
     for (let i = 0; i <= n; i++) { const z = 45 + (r.zEnd - 45) * i / n; pts.push(new THREE.Vector3(roadX(r, z), 0, z)); }
     let hy = null;
-    if (r.join && hwy) { // level the last stretch with the highway, then pave the junction
+    if (r.join && hwy && hwy.pts && hwy.pts.length >= 2) { // level the last stretch with the highway, then pave the junction
       const hp = hwy.pts; let i = 1; while (i < hp.length - 1 && hp[i].x < r.xe) i++;
       hy = lerp(hp[i - 1].y, hp[i].y, clamp((r.xe - hp[i - 1].x) / (hp[i].x - hp[i - 1].x || 1), 0, 1));
     }
@@ -1079,7 +1079,7 @@
   // on through the following legs of the route instead of stopping at the next city (which used
   // to paint land ahead long after the globe had the bird back out over the ocean).
   function lookahead(sec) {
-    let km = S.legKm + (side.vS || F.speed(S)) * sec, k = S.ri;
+    let km = S.legKm + (side.vS || F.travelSpeed(S)) * sec, k = S.ri;
     const R = S.route || [];
     let a = F.routePt(S, k), b = F.routePt(S, k + 1), L = F.distKm(a, b);
     while (km > L && k + 2 < R.length) {
@@ -1091,7 +1091,7 @@
   const kindAt = (g) => (isLand(g.lat, g.lon) ? 'land' : 'sea');
   function pushChunk(x, kind, geo, name) {
     const prev = world.chunks[world.chunks.length - 1];
-    const nextGeo = lookahead(Math.max(0, (x + CW) / unitsPerSec(side.vS || F.speed(S))));
+    const nextGeo = lookahead(Math.max(0, (x + CW) / unitsPerSec(side.vS || F.travelSpeed(S))));
     world.nextType = kindAt(nextGeo); world.nextGeo = nextGeo;
     // The strip before this one was shaped for a guess of what would come next (it slopes to
     // a shore only if it expects sea). If the guess was wrong, its edge wouldn't meet this one:
@@ -2032,7 +2032,7 @@
     passers.push({ birds, vf, x: cx + (ahead ? -reach : reach), cx, y, z, reach, t: 0, small });
   }
   function updatePassers(dt) {
-    const v = F.speed(S), u = world.u;
+    const v = F.travelSpeed(S), u = world.u;
     passerT -= dt;
     if (passerT <= 0 && passers.length < 2 && !S.space && !side.threat) {
       spawnPasser(v, u); passerT = 9 + Math.random() * 14;
@@ -2696,7 +2696,7 @@
   function resetSide() {
     for (const c of world.chunks) disposeChunk(c); world.chunks = [];
     for (const c of world.clouds) fscene.remove(c); world.clouds = [];
-    world.u = unitsPerSec(F.speed(S)); side.vS = side.vF = F.speed(S);
+    world.u = unitsPerSec(F.travelSpeed(S)); side.vS = side.vF = F.travelSpeed(S);
     const here = F.legFrom(S);
     // start over the departure city so take-off reads right
     world.cursor = 0;
@@ -2737,7 +2737,7 @@
     }
   }
   function updateFlight(dt) {
-    const v = F.speed(S);
+    const v = F.travelSpeed(S);
     // The ground scrolls in step with the kilometres the bird really flies: a fixed-ish number of
     // world units per km (set by a slow average of the speed), times the actual speed. So a strip
     // laid for "N km ahead" arrives under the bird when the globe has the bird N km on, even when
@@ -4204,14 +4204,16 @@
   function refreshHud() {
     if (S.space) return refreshSpaceHud();
     setPurse('seeds');
-    const v = F.speed(S), len = F.legLen(S), t = clamp(S.legKm / len, 0, 1);
+    const v = F.travelSpeed(S), own = F.speed(S), len = F.legLen(S), t = clamp(S.legKm / len, 0, 1);
     const g = currentGeo(), ocean = !isLand(g.lat, g.lon);
     const arrivalsPerSec = v / len;
     const rate = F.seedRate(S, ocean) + F.arrivalBonus(S) * Math.min(arrivalsPerSec, 20);
     $('seeds').textContent = fmt(S.seeds);
     $('rate').textContent = `+${fmt(rate)}/s`;
     const from = F.legFrom(S), to = F.legTo(S);
-    $('speed').textContent = fmt(v, v < 10 ? 1 : 0);
+    // the bird's own speed: km/h while it's bird-paced, km/s once it's faster than sound
+    const kmh = own < 0.343; $('speed').textContent = kmh ? fmt(own * 3600, 0) : fmt(own, own < 10 ? 1 : 0); const ff = v / Math.max(own, 1e-9);
+    $('speedUnit').textContent = (kmh ? 'km/h' : 'km/s') + (ff >= 1.2 ? (S.leg ? ` · ⏩ ×${fmt(ff, 0)}` : ' · ⏩') : '');
     if (len / v < 2.5 || F.isNonstop(S)) {
       // cities pass faster than anyone can read: show the lap, name cities at a readable pace
       const legs = F.lapLegs(S), now = performance.now(), left = lapKmLeft();
@@ -4264,7 +4266,7 @@
   function stamp(city, bonus, first) {
     const now = performance.now();
     // at high speed first visits come constantly; space the stamps out
-    if (now - lastStampAt < (F.legLen(S) / F.speed(S) < 2.5 ? 4000 : 1400)) return;
+    if (now - lastStampAt < (F.legLen(S) / F.travelSpeed(S) < 2.5 ? 4000 : 1400)) return;
     lastStampAt = now;
     const d = new Date(), date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }).toUpperCase();
     const name = city.name.toUpperCase();
@@ -4605,7 +4607,7 @@
   const anySheetOpen = () => !!document.querySelector('.sheet.on');
   function pickThreat() {
     if (S.space) return Math.random() < 0.55 ? 'raider' : 'spacehawk';
-    const g = currentGeo(), hour = side.skyHour != null ? side.skyHour : localHour(g.lon), v = F.speed(S);
+    const g = currentGeo(), hour = side.skyHour != null ? side.skyHour : localHour(g.lon), v = F.travelSpeed(S);
     const night = hour < 6 || hour > 19.5;
     // no hunters: birds of prey only, an owl after dark and a hawk by day
     return night ? 'owl' : 'hawk';
@@ -4723,7 +4725,7 @@
     if (e.type !== 'arrive') return;
     const w = F.WEATHER[e.wx];
     // at high speed legs pass in a blink, so only call out the forecast when it will be felt
-    const legSecs = F.legLen(S) / Math.max(F.speed(S), 1e-6), now = performance.now();
+    const legSecs = F.legLen(S) / Math.max(F.travelSpeed(S), 1e-6), now = performance.now();
     if (!w || e.wx === 'clear' || legSecs < 4 || now - lastForecastAt < 6000) return;
     lastForecastAt = now;
     const dest = F.legTo(S).v ? 'on this lap' : `on the way to ${F.legTo(S).name}`;
@@ -4752,7 +4754,7 @@
     refreshOver();
     const el = $('wx');
     if (S.space) { el.className = 'wx wx-space'; el.textContent = S.space.loop ? `🚀 Earth–${worldKnown(F.SPACE[S.space.dest]) ? F.SPACE[S.space.dest].short : '???'} loop · ${fmt(S.space.trips, 0)} round trip${S.space.trips === 1 ? '' : 's'} · +${fmt(F.tripFeathers(S, S.space.dest), 0)} 🪶 a trip` : S.space.arrived ? '🌌 In orbit · foraging continues' : '🌌 Deep space'; return; }
-    if (!S.leg) { el.className = 'wx wx-tailwind'; el.textContent = `🌬️ Take-off tailwind: carrying you to ${F.legTo(S).name || 'your first city'}`; return; }
+    if (!S.leg) { el.className = 'wx wx-tailwind'; el.textContent = `⏩ Fast-forwarding your first flight to ${F.legTo(S).name || 'your first city'}`; return; }
     const wx = (S.wx && S.wx.type) || 'clear', w = F.WEATHER[wx];
     el.className = 'wx wx-' + wx;
     el.textContent = `${w.icon} ${w.name}` + (w.note ? ` · ${F.wxNote(S, wx)}` : '') + (S.wx.left > 0 ? ` · ${Math.ceil(S.wx.left)}s` : '');
